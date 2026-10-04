@@ -571,11 +571,27 @@ def _worktrees(ctx: _Ctx) -> list[Check]:
                   f"{len(items)} worktree(s) abiertos, ninguno huérfano")]
 
 
-CHECKS: list[tuple[Callable[[_Ctx], list[Check]], bool]] = [
-    (_registro, False), (_sync, False), (_versions, False), (_binarios, False), (_auth, False),
-    (_agy_stdout, True), (_claude_live, True), (_sandbox, False), (_plugins, False),
-    (_orquesta_path, False), (_git, False), (_tests, False), (_worktrees, False),
+# (función, es live, prefijos de los ids que produce). _registro corre siempre: carga el registro y
+# los backends que usan los demás chequeos.
+CHECKS: list[tuple[Callable[[_Ctx], list[Check]], bool, tuple[str, ...]]] = [
+    (_registro, False, ("registro",)),
+    (_sync, False, ("agentes", "claude-md")),
+    (_versions, False, ("version-",)),
+    (_binarios, False, ("binarios",)),
+    (_auth, False, ("auth-",)),
+    (_agy_stdout, True, ("agy-stdout",)),
+    (_claude_live, True, ("claude-agentes", "catalogo-tools")),
+    (_sandbox, False, ("sandbox",)),
+    (_plugins, False, ("plugin",)),
+    (_orquesta_path, False, ("orquesta-path",)),
+    (_git, False, ("git",)),
+    (_tests, False, ("tests",)),
+    (_worktrees, False, ("worktrees",)),
 ]
+
+
+def _wanted(only: str | None, prefixes: tuple[str, ...]) -> bool:
+    return not only or any(p.startswith(only) or only.startswith(p) for p in prefixes)
 
 
 def run_doctor(paths: Paths, *, deps: Env | None = None, use_cache: bool = True, live: bool = True,
@@ -584,8 +600,8 @@ def run_doctor(paths: Paths, *, deps: Env | None = None, use_cache: bool = True,
     cache = _Cache(paths.state_dir / "doctor-cache.json", deps.now(), use_cache)
     ctx = _Ctx(paths, deps, cache)
     checks: list[Check] = []
-    for fn, is_live in CHECKS:
-        if is_live and not live:
+    for fn, is_live, prefixes in CHECKS:
+        if (is_live and not live) or (fn is not _registro and not _wanted(only, prefixes)):
             continue
         checks.extend(fn(ctx))
     cache.save()

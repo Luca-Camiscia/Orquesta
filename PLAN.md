@@ -49,7 +49,7 @@ se escribe Python portable cuando no cuesta nada extra, pero no se diseña ni se
 - [x] 2. Plugin oficial de Codex (auditoría liviana + install) — instalado, SHA db52e28 = auditado
 - [x] 3. Plugin de Antigravity (auditoría completa) — veredicto no-instalar (corre agy sin sandbox + agente proactivo)
 - [x] 4. Registro, generador y tests (TDD) + `uv tool install -e` — 165 tests, deploy inicial 04c71df, Claude Code carga los 4 agentes, pings OK
-- [ ] 5. Doctor + that-it-guy
+- [x] 5. Doctor + that-it-guy — 18 ok · 3 warn reales (snap de codex, parches de node y python)
 - [ ] 6. UI local
 - [ ] 7. E2E (puede requerir `/exit` + `claude --continue` para cargar los agentes)
 - [ ] 8. Resumen final

@@ -275,3 +275,11 @@ def test_tests_usa_la_linea_de_resumen_aunque_no_sea_la_ultima(denv):
     salida = "........ [100%]\n16 passed in 0.5s\nwarning: algo al final\n"
     fake = FakeEnv({"pytest": (0, salida, "")})
     assert check(correr(denv, fake), "tests").message == "16 passed in 0.5s"
+
+
+def test_only_no_corre_los_chequeos_que_no_se_pidieron(denv):
+    fake = FakeEnv()
+    r = correr(denv, fake, only="git")
+    assert [c.id for c in r.checks] == ["git"]
+    assert fake.pings == [] and fake.init_calls == 0
+    assert not any(c[:2] == ["codex", "login"] for c in fake.calls)
