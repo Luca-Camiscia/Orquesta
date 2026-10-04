@@ -46,8 +46,8 @@ se escribe Python portable cuando no cuesta nada extra, pero no se diseña ni se
 
 - [x] 0. Diagnóstico y carpeta — codex oficial 0.160.0 (npm), ambos autenticados
 - [x] 1. Smoke test headless → `backends.yaml`, `docs/headless.md` (agy read-only vía bwrap: `--mode plan` no alcanza)
-- [ ] 2. Plugin oficial de Codex (auditoría liviana + install)
-- [ ] 3. Plugin de Antigravity (auditoría completa → install si está limpio)
+- [x] 2. Plugin oficial de Codex (auditoría liviana + install) — instalado, SHA db52e28 = auditado
+- [x] 3. Plugin de Antigravity (auditoría completa) — veredicto no-instalar (corre agy sin sandbox + agente proactivo)
 - [ ] 4. Registro, generador y tests (TDD) + `uv tool install -e`
 - [ ] 5. Doctor + that-it-guy
 - [ ] 6. UI local
