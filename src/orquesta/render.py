@@ -85,7 +85,7 @@ def effective_description(agent: Agent, backend: Backend | None) -> str:
             how = "escribe en un git worktree aislado"
         else:
             how = "escribe en el proyecto"
-        parts.append(f"Delega en {backend.label} ({how}).")
+        parts.append(f"Delega en {backend.label}: {how}.")
     return " ".join(parts)
 
 
