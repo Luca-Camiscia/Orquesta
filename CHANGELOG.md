@@ -2,6 +2,10 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-04 18:17 — E2E 7.4: mood por defecto ejecutivo (desde la UI)
+
+- CLAUDE.md: bloque actualizado
+
 ## 2026-10-04 18:16 — E2E 7.3: deshabilito gemini-cronista
 
 - CLAUDE.md: bloque actualizado

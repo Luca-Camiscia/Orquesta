@@ -7,7 +7,7 @@
 
 orchestrator:
   enabled: true            # false = el bloque de CLAUDE.md queda en una línea "orquestación desactivada"
-  default_mood: transparente
+  default_mood: ejecutivo
   show_mood_tag: true      # primera línea de cada respuesta: [mood: <nombre>]
   moods:
     silencioso: "Solo resultado final, archivos tocados y verificación pass/fail. Sin proceso."
