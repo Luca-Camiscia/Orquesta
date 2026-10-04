@@ -48,7 +48,7 @@ se escribe Python portable cuando no cuesta nada extra, pero no se diseña ni se
 - [x] 1. Smoke test headless → `backends.yaml`, `docs/headless.md` (agy read-only vía bwrap: `--mode plan` no alcanza)
 - [x] 2. Plugin oficial de Codex (auditoría liviana + install) — instalado, SHA db52e28 = auditado
 - [x] 3. Plugin de Antigravity (auditoría completa) — veredicto no-instalar (corre agy sin sandbox + agente proactivo)
-- [ ] 4. Registro, generador y tests (TDD) + `uv tool install -e`
+- [x] 4. Registro, generador y tests (TDD) + `uv tool install -e` — 165 tests, deploy inicial 04c71df, Claude Code carga los 4 agentes, pings OK
 - [ ] 5. Doctor + that-it-guy
 - [ ] 6. UI local
 - [ ] 7. E2E (puede requerir `/exit` + `claude --continue` para cargar los agentes)
