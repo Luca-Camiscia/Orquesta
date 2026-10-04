@@ -25,7 +25,7 @@ from typing import Callable
 from filelock import FileLock
 
 from orquesta import manifest as mf
-from orquesta import runner, worktrees
+from orquesta import procs, runner, worktrees
 from orquesta.paths import Paths
 
 ORCHESTRATOR = "orquestador"
@@ -33,6 +33,13 @@ USER = "usuario"
 MAX_MODERATED_STEPS = 4
 HISTORY_CHARS = 24000
 CLAUDE_TIMEOUT = 540
+CANCELLED = "ESTADO: CANCELADO — lo cortaste vos"
+_ctx = __import__("threading").local()  # clave de cancelación del turno en curso
+
+
+def request_cancel(cid: str) -> int:
+    """Corta el turno en curso de una conversación (mata los procesos y frena la ronda)."""
+    return procs.cancel(cid)
 
 
 class ChatError(Exception):
@@ -139,8 +146,10 @@ class Store:
             except ValueError:
                 continue
             if project_id is None or c["project_id"] == project_id:
-                out.append({k: c[k] for k in ("id", "project_id", "title", "kind", "mode",
-                                              "participants", "busy", "updated")})
+                item = {k: c[k] for k in ("id", "project_id", "title", "kind", "mode",
+                                          "participants", "busy", "updated")}
+                item["status"] = status_of(c)
+                out.append(item)
         return sorted(out, key=lambda c: c["updated"], reverse=True)
 
     def save(self, conv: dict) -> None:
@@ -175,6 +184,37 @@ class Store:
         return self.update(cid, fn)
 
 
+def status_of(conv: dict) -> str:
+    if conv.get("busy"):
+        return "respondiendo"
+    if any(w.get("status") == "abierto" for w in conv.get("worktrees", [])):
+        return "esperando-revision"
+    if not conv.get("messages"):
+        return "nueva"
+    if conv["messages"][-1].get("status") == "error":
+        return "error"
+    return "lista"
+
+
+def export_markdown(store: "Store", cid: str) -> str:
+    conv = store.get_conversation(cid)
+    pr = store.get_project(conv["project_id"])
+    kind = f"reunión {conv['mode']}" if conv["kind"] == "reunion" else "individual"
+    out = [f"# {conv['title']}", "",
+           f"Proyecto «{pr['name']}» ({pr['dir']}), {kind}. Participantes: "
+           f"{', '.join(conv['participants'])}. Exportado {_now()}.", ""]
+    for m in conv["messages"]:
+        extra = f" ({m['meta']['latency_s']} s)" if m.get("meta", {}).get("latency_s") else ""
+        out += [f"## {m['author']}{extra}", ""]
+        if m.get("meta", {}).get("pregunta"):
+            out += [f"> El moderador preguntó: {m['meta']['pregunta']}", ""]
+        out += [m["text"] or f"_{m['status']}_", ""]
+    for w in conv.get("worktrees", []):
+        out += [f"## Cambios de {w['agent']} en `{w['branch']}` ({w['status']})", "", "```",
+                w.get("diffstat") or "", "```", ""]
+    return "\n".join(out)
+
+
 # --- ejecución -------------------------------------------------------------------------------
 
 def strip_mood_tag(text: str) -> str:
@@ -185,12 +225,13 @@ def strip_mood_tag(text: str) -> str:
 def _claude(args: list[str], prompt: str, cwd: str) -> Reply:
     cmd = ["claude", "-p", "--permission-mode", "plan", "--output-format", "json", *args, prompt]
     try:
-        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
-                           stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        return Reply("", error=f"ESTADO: TIMEOUT — claude no respondió en {CLAUDE_TIMEOUT} s")
+        p = procs.run(cmd, cwd=cwd, timeout=CLAUDE_TIMEOUT, key=getattr(_ctx, "key", None))
     except FileNotFoundError:
         return Reply("", error="ESTADO: ERROR — no encuentro `claude` en el PATH")
+    if p.cancelled:
+        return Reply("", error=CANCELLED)
+    if p.timed_out:
+        return Reply("", error=f"ESTADO: TIMEOUT — claude no respondió en {CLAUDE_TIMEOUT} s")
     try:
         data = json.loads(p.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -215,7 +256,10 @@ def default_executor(paths: Paths, project: dict, participant: str, prompt: str)
             return Reply("", error=f"ESTADO: ERROR — {participant} escribe sin worktree; en el chat solo "
                                    f"se permite escritura en worktree")
         task = "chat-" + datetime.now().strftime("%m%d-%H%M%S")
-    r = runner.run(runner.RunRequest(agent=participant, cwd=Path(cwd), prompt=prompt, task=task), paths)
+    r = runner.run(runner.RunRequest(agent=participant, cwd=Path(cwd), prompt=prompt, task=task,
+                                     cancel_key=getattr(_ctx, "key", None)), paths)
+    if r.status == "CANCELADO":
+        return Reply(r.output, error=CANCELLED, meta={})
     meta = {k: r.meta.get(k) for k in ("branch", "worktree", "commit", "diffstat") if r.meta.get(k)}
     meta["latency_s"] = r.latency_s
     if r.status != "OK":
@@ -264,7 +308,8 @@ def _speak(store: Store, cid: str, project: dict, who: str, executor: Executor,
 
     def done(c):
         m = next(x for x in c["messages"] if x["id"] == mid)
-        m["status"] = "error" if reply.error else "done"
+        m["status"] = ("interrupted" if reply.error == CANCELLED or procs.is_cancelled(cid)
+                       else "error" if reply.error else "done")
         m["text"] = (f"{reply.error}\n\n{reply.text}".strip() if reply.error else reply.text)
         m["meta"].update(reply.meta)
         if reply.meta.get("branch"):
@@ -285,6 +330,8 @@ def _set_text(store: Store, cid: str, author: str, text: str) -> None:
 def run_turn(store: Store, cid: str, text: str, executor: Executor = default_executor) -> None:
     conv = store.get_conversation(cid)
     project = store.get_project(conv["project_id"])
+    procs.reset(cid)
+    _ctx.key = cid
     _set_text(store, cid, USER, text)
     try:
         if conv["kind"] == "individual":
@@ -292,10 +339,13 @@ def run_turn(store: Store, cid: str, text: str, executor: Executor = default_exe
         elif conv["mode"] == "rondas":
             mentioned = [m for m in re.findall(r"@([a-z0-9-]+)", text) if m in conv["participants"]]
             for who in (list(dict.fromkeys(mentioned)) or conv["participants"]):
+                if procs.is_cancelled(cid):
+                    break
                 _speak(store, cid, project, who, executor)
         else:
             _moderate(store, cid, project, executor)
     finally:
+        _ctx.key = None
         store.update(cid, lambda c: c.update(busy=False))
 
 
@@ -303,6 +353,8 @@ def _moderate(store: Store, cid: str, project: dict, executor: Executor) -> None
     agents = [p for p in store.get_conversation(cid)["participants"] if p != ORCHESTRATOR]
     step = 0
     while True:
+        if procs.is_cancelled(cid):
+            return
         final = step >= MAX_MODERATED_STEPS
         conv = store.get_conversation(cid)
         r = executor(store.paths, project, ORCHESTRATOR, _moderator_prompt(conv, project, step, final))

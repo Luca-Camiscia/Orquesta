@@ -25,13 +25,15 @@ from typing import Iterator
 from filelock import FileLock, Timeout
 
 from orquesta import manifest as mf
+from orquesta import procs
 from orquesta import worktrees
 from orquesta.config import load_backends
 from orquesta.paths import Paths
 from orquesta.schema import Backend, ConfigError, ModeSpec
 
 EXIT_CODES = {"OK": 0, "ERROR": 2, "ORQUESTA_OFF": 3, "NO_GIT": 4, "OCUPADO": 5,
-              "FALLO_BACKEND": 6, "VIOLACION_READ_ONLY": 7, "RATE_LIMIT": 75, "TIMEOUT": 124}
+              "FALLO_BACKEND": 6, "VIOLACION_READ_ONLY": 7, "RATE_LIMIT": 75, "TIMEOUT": 124,
+              "CANCELADO": 130}
 
 
 @dataclass
@@ -41,6 +43,7 @@ class RunRequest:
     prompt: str
     task: str | None = None
     wait_s: float = 60.0
+    cancel_key: str | None = None
 
 
 @dataclass
@@ -152,21 +155,22 @@ def _rate_limited(backend: Backend, text: str) -> bool:
     return any(p.lower() in low for p in backend.rate_limit_patterns)
 
 
-def _execute(cmd: Command, backend: Backend, cwd: Path, timeout: float) -> RunResult:
+def _execute(cmd: Command, backend: Backend, cwd: Path, timeout: float,
+             cancel_key: str | None = None) -> RunResult:
     exe = cmd.argv[0]
     if shutil.which(exe) is None and not Path(exe).is_file():
         hint = " (instalalo con: sudo apt install bubblewrap)" if exe == "bwrap" else ""
         return RunResult("ERROR", detail=f"no encuentro {exe!r} en el PATH{hint}")
-    kwargs = {"input": cmd.stdin} if cmd.stdin is not None else {"stdin": subprocess.DEVNULL}
     try:
-        proc = subprocess.run(cmd.argv, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                              **kwargs)
-    except subprocess.TimeoutExpired as exc:
-        return RunResult("TIMEOUT", detail=f"el backend no terminó en {timeout:g} s",
-                         stderr_tail=_tail(exc.stderr))
+        proc = procs.run(cmd.argv, cwd=cwd, input=cmd.stdin, timeout=timeout, key=cancel_key)
     finally:
         for f in cmd.temp_files:
             f.unlink(missing_ok=True)
+    if proc.cancelled:
+        return RunResult("CANCELADO", detail="lo cortó el usuario", stderr_tail=_tail(proc.stderr))
+    if proc.timed_out:
+        return RunResult("TIMEOUT", detail=f"el backend no terminó en {timeout:g} s",
+                         stderr_tail=_tail(proc.stderr))
     stdout, stderr = proc.stdout or "", proc.stderr or ""
     text, parse_err = parse_output(backend, stdout)
     failed = proc.returncode != 0 or parse_err is not None or not text
@@ -340,7 +344,8 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                                 prompt=prompt, state_dir=paths.state_dir)
             meta["warnings"] = cmd.warnings
             before = tree_state(work_cwd) if entry.mode == "read-only" else None
-            result = _execute(cmd, backend, work_cwd, spec.timeout_s if spec else 540)
+            result = _execute(cmd, backend, work_cwd, spec.timeout_s if spec else 540,
+                              req.cancel_key)
             if before is not None:
                 after = tree_state(work_cwd)
                 if after is not None and after.digest != before.digest:

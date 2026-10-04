@@ -178,3 +178,71 @@ def test_api_chat_flujo(env, proyecto):
 ])
 def test_se_saca_el_tag_de_mood_del_orquestador(crudo, limpio):
     assert chat.strip_mood_tag(crudo) == limpio
+
+
+# --- tanda UI 1: cancelar, estado, exportar ------------------------------------------------
+
+def test_procs_cancel_mata_el_grupo_de_procesos():
+    import threading
+    from orquesta import procs
+    res = {}
+    t = threading.Thread(target=lambda: res.update(r=procs.run(
+        ["bash", "-c", "sleep 30 & sleep 30; echo fin"], key="k1", timeout=60)))
+    t.start()
+    for _ in range(50):
+        if procs.active("k1"):
+            break
+        time.sleep(0.05)
+    t0 = time.monotonic()
+    assert procs.cancel("k1") >= 1
+    t.join(10)
+    assert not t.is_alive() and time.monotonic() - t0 < 5
+    assert res["r"].cancelled is True
+
+
+def test_cancelar_un_turno_marca_el_mensaje_y_corta_la_ronda(store, proyecto):
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "r", "reunion", ["gemini-lector", "codex-critico"], mode="rondas")
+
+    def lento(paths, project, who, prompt):
+        chat.request_cancel(conv["id"])  # el usuario aprieta Detener durante el primer turno
+        return chat.Reply("", error=chat.CANCELLED)
+    chat.run_turn(store, conv["id"], "hola", executor=lento)
+    msgs = store.get_conversation(conv["id"])["messages"]
+    assert [m["author"] for m in msgs] == ["usuario", "gemini-lector"]
+    assert msgs[1]["status"] == "interrupted"
+
+
+def test_estado_de_la_conversacion(store, proyecto):
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "c", "individual", ["codex-critico"])
+    assert store.list_conversations()[0]["status"] == "nueva"
+    chat.run_turn(store, conv["id"], "hola", executor=FakeExec())
+    assert store.list_conversations()[0]["status"] == "lista"
+    store.update(conv["id"], lambda c: c["worktrees"].append({"agent": "x", "branch": "b", "status": "abierto"}))
+    assert store.list_conversations()[0]["status"] == "esperando-revision"
+    store.update(conv["id"], lambda c: c.update(busy=True))
+    assert store.list_conversations()[0]["status"] == "respondiendo"
+
+
+def test_exportar_a_markdown(store, proyecto):
+    pr = store.create_project("Empanadas", str(proyecto))
+    conv = store.create_conversation(pr["id"], "Charla", "individual", ["codex-critico"])
+    chat.run_turn(store, conv["id"], "¿qué opinás?", executor=FakeExec())
+    md = chat.export_markdown(store, conv["id"])
+    assert md.startswith("# Charla")
+    assert "Empanadas" in md and "## usuario" in md and "## codex-critico" in md
+    assert "respuesta de codex-critico" in md
+
+
+def test_api_cancelar_y_exportar(env, proyecto):
+    apply_plan(build_plan(env), "deploy", run_tests=None)
+    app = create_app(env, port=8787, token="t", run_tests=None, chat_executor=FakeExec())
+    c = TestClient(app, base_url="http://127.0.0.1:8787", headers={"X-Orquesta-Token": "t"})
+    pr = c.post("/api/chat/projects", json={"name": "P", "dir": str(proyecto)}).json()
+    conv = c.post("/api/chat/conversations", json={"project_id": pr["id"], "title": "Exp", "kind": "individual",
+                                                   "participants": ["codex-critico"]}).json()
+    assert c.post(f"/api/chat/conversations/{conv['id']}/cancel").json()["ok"] is True
+    r = c.get(f"/api/chat/conversations/{conv['id']}/export.md")
+    assert r.status_code == 200 and r.text.startswith("# Exp")
+    assert "attachment" in r.headers["content-disposition"]

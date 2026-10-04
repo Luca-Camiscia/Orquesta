@@ -30,7 +30,7 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="claro"]) {
     --papel: #121827;
     --hoja: #1A2235;
     --tinta: #E5E9F1;
@@ -47,6 +47,22 @@
     color-scheme: dark;
   }
 }
+:root[data-theme="oscuro"] {
+    --papel: #121827;
+    --hoja: #1A2235;
+    --tinta: #E5E9F1;
+    --tinta-suave: #A8B1C5;
+    --pauta: #36415B;
+    --pauta-suave: #252F45;
+    --claude: #B39AF0;
+    --codex: #4FC1CC;
+    --agy: #86A5F5;
+    --ok: #6CC27A;
+    --warn: #E7A94A;
+    --fail: #F07B70;
+    --foco: #86A5F5;
+    color-scheme: dark;
+}
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
@@ -62,7 +78,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* cabecera */
 .cabecera {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto auto;
   align-items: center;
   gap: 24px;
   padding: 14px 32px;
@@ -272,6 +288,8 @@ code.cmd { display: block; padding: 12px 14px; border-radius: 8px; background: v
 .lista-conv { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 55vh; overflow: auto; }
 .lista-conv button { width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 7px; cursor: pointer; }
 .lista-conv button[aria-current="true"] { background: var(--hoja); outline: 1px solid var(--pauta); }
+.badge { display: inline-block; font-size: .72rem; padding: 0 7px; border-radius: 999px; margin-left: 6px; border: 1px solid currentColor; vertical-align: 1px; }
+.badge.respondiendo { color: var(--agy); } .badge.esperando-revision { color: var(--warn); } .badge.error { color: var(--fail); }
 .lista-conv small { display: block; color: var(--tinta-suave); font-size: .8rem; }
 .sala { background: var(--hoja); border: 1px solid var(--pauta); border-radius: 10px; display: grid; grid-template-rows: auto 1fr auto; min-height: 70vh; }
 .sala-cab { padding: 14px 18px; border-bottom: 1px solid var(--pauta); display: grid; gap: 8px; }
@@ -345,6 +363,7 @@ dialog .acciones { justify-content: flex-end; margin-top: 16px; }
     <span class="mood-palabra" id="mood-actual">…</span>
     <span class="mood-nota">mood por defecto</span>
   </div>
+  <button class="enlace" id="tema" type="button" title="Tema">Tema: auto</button>
   <label class="interruptor"><span class="switch"><input type="checkbox" id="orq-toggle"><span class="riel"></span></span><span>Orquestación</span></label>
 </header>
 <nav class="pestanas" role="tablist" id="pestanas"></nav>
@@ -808,6 +827,13 @@ async function abrirConv(id) {
   if (st.tab === "chat") renderPanel();
   programarSondeo();
 }
+let pendientesDeVer = 0;
+function avisarFin(v) {
+  if (!document.hidden) return;
+  pendientesDeVer++; document.title = `(${pendientesDeVer}) orquesta`;
+  try { if ("Notification" in window && Notification.permission === "granted") new Notification("orquesta", {body: `Terminó el turno en «${v.title}»`}); } catch { /* sin notificaciones */ }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { pendientesDeVer = 0; document.title = "orquesta"; } });
 function programarSondeo() {
   clearTimeout(programarSondeo.t);
   const c = st.chat.conv;
@@ -816,6 +842,7 @@ function programarSondeo() {
     if (!st.chat.conv || st.chat.conv.id !== c.id) return;
     const nuevo = await api("GET", `/api/chat/conversations/${c.id}`);
     const cambio = JSON.stringify(nuevo.messages) !== JSON.stringify(c.messages) || nuevo.busy !== c.busy || nuevo.worktrees.length !== c.worktrees.length;
+    if (c.busy && !nuevo.busy) avisarFin(nuevo);
     st.chat.conv = nuevo;
     if (cambio && st.tab === "chat") { const borrador = $("#chat-texto") ? $("#chat-texto").value : ""; renderPanel(); if ($("#chat-texto")) $("#chat-texto").value = borrador; }
     if (!nuevo.busy) cargarChat();
@@ -828,7 +855,7 @@ function panelChat() {
     <div class="campo"><label for="chat-proy">Proyecto</label><select id="chat-proy">${c.projects.map((p) => `<option value="${esc(p.id)}" ${p.id === c.pid ? "selected" : ""}>${esc(p.name)}</option>`).join("")}${c.projects.length ? "" : "<option>Sin proyectos</option>"}</select>
       ${c.pid ? `<small class="ayuda">${esc((c.projects.find((p) => p.id === c.pid) || {}).dir || "")}</small>` : ""}</div>
     <div class="acciones"><button class="btn chico" data-action="chat-proyecto">Nuevo proyecto</button>${c.pid ? '<button class="btn chico primario" data-action="chat-nueva">Nueva conversación</button>' : ""}</div>
-    <ul class="lista-conv">${c.convs.map((v) => `<li><button data-action="chat-abrir" data-name="${esc(v.id)}" aria-current="${c.conv && c.conv.id === v.id}">${esc(v.title)}<small>${v.kind === "reunion" ? `Reunión ${v.mode}` : "Individual"}: ${esc(v.participants.join(", "))}${v.busy ? ", respondiendo" : ""}</small></button></li>`).join("") || (c.pid ? '<li class="ayuda">Todavía no hay conversaciones.</li>' : "")}</ul></aside>`;
+    <ul class="lista-conv">${c.convs.map((v) => `<li><button data-action="chat-abrir" data-name="${esc(v.id)}" aria-current="${c.conv && c.conv.id === v.id}">${esc(v.title)}${{"respondiendo": '<span class="badge respondiendo">respondiendo</span>', "esperando-revision": '<span class="badge esperando-revision">revisá los cambios</span>', "error": '<span class="badge error">error</span>'}[v.status] || ""}<small>${v.kind === "reunion" ? `Reunión ${v.mode}` : "Individual"}: ${esc(v.participants.join(", "))}</small></button></li>`).join("") || (c.pid ? '<li class="ayuda">Todavía no hay conversaciones.</li>' : "")}</ul></aside>`;
   let centro;
   if (!c.projects.length) centro = `<div class="panel"><h2>Conversaciones</h2><p class="ayuda">Un proyecto es un directorio de trabajo, por ejemplo un repo. Creá uno para empezar a hablar con los agentes.</p></div>`;
   else if (c.nueva || !c.conv) centro = formNuevaConv();
@@ -855,7 +882,7 @@ function sala(v) {
   const libres = st.chat.participantes.filter((p) => !v.participants.includes(p));
   const msgs = v.messages.map((m) => {
     if (m.author === "usuario") return `<div class="msg usuario"><span class="autor">Vos</span><div class="cuerpo">${esc(m.text)}</div></div>`;
-    const cuerpo = m.status === "pending" ? '<span class="pensando">Pensando</span>' : md(m.author === "orquestador" ? m.text.replace(/^\s*\[mood:[^\]\n]*\]\s*/, "") : m.text);
+    const cuerpo = m.status === "interrupted" ? '<em class="ayuda">Interrumpido.</em>' + (m.text ? md(m.text) : "") : m.status === "pending" ? '<span class="pensando">Pensando</span>' : md(m.author === "orquestador" ? m.text.replace(/^\s*\[mood:[^\]\n]*\]\s*/, "") : m.text);
     return `<div class="msg ${m.status === "error" ? "error" : ""}"><span class="autor ${colorDe(m.author)}">${esc(m.author)}${m.meta && m.meta.latency_s ? ` <span class="ayuda">(${esc(m.meta.latency_s)} s)</span>` : ""}</span>
       ${m.meta && m.meta.pregunta ? `<span class="pregunta">El moderador le preguntó: ${esc(m.meta.pregunta)}</span>` : ""}<div class="cuerpo md">${cuerpo}</div></div>`;
   }).join("") || '<p class="ayuda">Escribí el primer mensaje.</p>';
@@ -867,7 +894,8 @@ function sala(v) {
         <span class="ayuda">${reunion ? `Reunión ${esc(v.mode)}${v.mode === "rondas" ? ". Con @agente le hablás a uno solo." : ". El orquestador modera y cierra con una síntesis."}` : "Individual"}</span></div></header>
     <div class="mensajes" aria-live="polite">${msgs}${wts}</div>
     <form class="redactar" id="chat-enviar"><textarea id="chat-texto" aria-label="Mensaje" placeholder="${v.busy ? "Esperá a que terminen de responder" : "Escribí tu mensaje (Ctrl+Enter para enviar)"}"></textarea>
-      <div class="acciones"><button class="btn primario" ${v.busy ? "disabled" : ""}>${v.busy ? "Respondiendo…" : "Enviar"}</button></div></form></section>`;
+      <div class="acciones">${v.busy ? '<button type="button" class="btn peligro" data-action="chat-detener">Detener (Esc)</button>' : '<button class="btn primario">Enviar</button>'}
+        <a class="enlace" href="/api/chat/conversations/${esc(v.id)}/export.md" download>Exportar a Markdown</a></div></form></section>`;
 }
 
 /* ---------- eventos ---------- */
@@ -925,6 +953,7 @@ document.addEventListener("click", async (ev) => {
         st.aviso = `Desinstalado ${n}. ${r.note}`; st.plugins = null; await cargar(); break;
       }
       case "chat-abrir": await abrirConv(n); break;
+      case "chat-detener": await api("POST", `/api/chat/conversations/${st.chat.conv.id}/cancel`); toast("Cortando el turno…"); break;
       case "chat-nueva": st.chat.nueva = true; renderPanel(); break;
       case "chat-cancelar": st.chat.nueva = false; renderPanel(); break;
       case "chat-proyecto": {
@@ -1013,7 +1042,10 @@ document.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const texto = $("#chat-texto").value.trim();
     if (!texto) return;
-    try { await api("POST", `/api/chat/conversations/${st.chat.conv.id}/messages`, {text: texto}); await abrirConv(st.chat.conv.id); }
+    try {
+      if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+      await api("POST", `/api/chat/conversations/${st.chat.conv.id}/messages`, {text: texto}); await abrirConv(st.chat.conv.id);
+    }
     catch (e) { mostrarError(e, null); }
     return;
   }
@@ -1031,8 +1063,22 @@ document.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   await moodAccion({action: "add", name: $("#m-nombre").value.trim(), description: $("#m-desc").value}, "Mood agregado.");
 });
+const TEMAS = ["auto", "claro", "oscuro"];
+function aplicarTema(tema) {
+  if (tema === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", tema);
+  $("#tema").textContent = `Tema: ${tema}`;
+  try { localStorage.setItem("orquesta-tema", tema); } catch { /* sin storage */ }
+}
+try { aplicarTema(localStorage.getItem("orquesta-tema") || "auto"); } catch { aplicarTema("auto"); }
+$("#tema").addEventListener("click", () => {
+  const actual = document.documentElement.getAttribute("data-theme") || "auto";
+  aplicarTema(TEMAS[(TEMAS.indexOf(actual) + 1) % TEMAS.length]);
+});
 $("#salud-chip").addEventListener("click", () => { st.tab = "salud"; render(); });
 document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && st.tab === "chat" && st.chat.conv && st.chat.conv.busy && !$("#dlg").open) {
+    api("POST", `/api/chat/conversations/${st.chat.conv.id}/cancel`).then(() => toast("Cortando el turno…"));
+  }
   if (ev.target.id === "chat-texto" && ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); $("#chat-enviar").requestSubmit(); }
 });
 

@@ -486,6 +486,19 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         threading.Thread(target=chat.run_turn, args=(store, cid, text, executor), daemon=True).start()
         return JSONResponse({"ok": True}, status_code=202)
 
+    @app.post("/api/chat/conversations/{cid}/cancel")
+    def chat_cancel(cid: str):
+        store.get_conversation(cid)
+        return {"ok": True, "killed": chat.request_cancel(cid)}
+
+    @app.get("/api/chat/conversations/{cid}/export.md")
+    def chat_export(cid: str):
+        from fastapi.responses import Response
+        md = chat.export_markdown(store, cid)
+        name = re.sub(r"[^a-z0-9-]+", "-", store.get_conversation(cid)["title"].lower()).strip("-") or "conversacion"
+        return Response(md, media_type="text/markdown; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}.md"'})
+
     @app.post("/api/chat/conversations/{cid}/worktrees/merge")
     def chat_merge(cid: str, body: dict = Body(...)):
         chat.merge_worktree(store, cid, body.get("branch", ""))
