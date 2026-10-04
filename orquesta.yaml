@@ -172,3 +172,16 @@ agents:
       ## Formato de respuesta
       Diagnóstico (con la salida relevante de doctor) → Cambios aplicados o propuestos (diff) →
       Verificación (comandos y resultado) → Pendientes. En castellano.
+  - name: gemini-cronista
+    display_name: Gemini cronista
+    enabled: true
+    backend: agy
+    role: 'Documentación: lee el código y escribe o actualiza docs claras (README, guías, docstrings propuestos).'
+    route_when:
+      - hay que documentar un proyecto o un módulo
+      - hay que resumir cambios para un README o CHANGELOG
+    tools: [Bash]
+    mode: read-only
+    prompt: |-
+      Sos el cronista: documentás con precisión lo que hace el código, citando rutas.
+      No modificás archivos: devolvés el texto propuesto.
