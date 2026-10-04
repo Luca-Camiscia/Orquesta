@@ -236,7 +236,7 @@ def _has_block(text: str) -> bool:
 def run_test_suite(paths: Paths) -> tuple[bool, str]:
     env = dict(os.environ, ORQUESTA_IN_GENERATE="1")
     try:
-        proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"],
+        proc = subprocess.run([sys.executable, "-m", "pytest", "-x", "-p", "no:cacheprovider"],
                               cwd=paths.home, capture_output=True, text=True, timeout=900, env=env)
     except subprocess.TimeoutExpired:
         return False, "los tests tardaron más de 15 minutos"

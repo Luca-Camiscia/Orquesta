@@ -260,3 +260,18 @@ def test_json_y_render(denv):
     assert d["overall"] == "ok" and d["generated_at"]
     assert all({"id", "name", "status", "message", "suggestion"} <= set(c) for c in d["checks"])
     assert "Resumen" in r.render()
+
+
+
+def test_tests_no_duplica_el_flag_q_de_addopts(denv):
+    # addopts ya trae -q; con -q otra vez pytest pasa a -qq y no imprime el resumen
+    fake = FakeEnv()
+    correr(denv, fake)
+    pytest_calls = [c for c in fake.calls if "pytest" in " ".join(c)]
+    assert pytest_calls and all("-q" not in c for c in pytest_calls)
+
+
+def test_tests_usa_la_linea_de_resumen_aunque_no_sea_la_ultima(denv):
+    salida = "........ [100%]\n16 passed in 0.5s\nwarning: algo al final\n"
+    fake = FakeEnv({"pytest": (0, salida, "")})
+    assert check(correr(denv, fake), "tests").message == "16 passed in 0.5s"

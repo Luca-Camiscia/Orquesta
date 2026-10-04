@@ -548,10 +548,13 @@ def _tests(ctx: _Ctx) -> list[Check]:
     sig = hashlib.sha256((head + status + diff).encode()).hexdigest()[:16]
 
     def compute() -> dict:
-        code, out, err = ctx.deps.run([sys.executable, "-m", "pytest", "-q", "-x", "-p",
+        # sin -q: ya viene en addopts (con -qq pytest no imprime el resumen)
+        code, out, err = ctx.deps.run([sys.executable, "-m", "pytest", "-x", "-p",
                                        "no:cacheprovider"], 900, cwd=home)
-        last = ((out + err).strip().splitlines() or ["sin salida"])[-1]
-        return {"status": "ok" if code == 0 else "fail", "message": last}
+        lines = (out + err).strip().splitlines() or ["sin salida"]
+        summary = next((ln for ln in reversed(lines)
+                        if re.search(r"\d+ (passed|failed|error)", ln)), lines[-1])
+        return {"status": "ok" if code == 0 else "fail", "message": summary.strip("= ")}
     value, cached = ctx.cache.get_or(f"tests:{sig}", None, compute)
     hint = "" if value["status"] == "ok" else "Corré `uv run pytest` en ~/orquesta y arreglá lo que falle."
     return [Check("tests", "Tests de orquesta", value["status"], value["message"], hint, cached)]
