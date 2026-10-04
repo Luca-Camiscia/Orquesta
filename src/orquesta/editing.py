@@ -29,6 +29,7 @@ FIELD_ORDER = ["name", "display_name", "enabled", "backend", "wrapper_model", "b
                "role", "route_when", "description", "tools", "mode", "isolation", "protected",
                "manual", "extra_frontmatter", "prompt"]
 ALWAYS = {"name", "enabled", "backend", "role", "tools", "mode"}
+IMPLICIT = {"enabled": True, "mode": "read-only"}  # lo que vale un campo ALWAYS si el YAML no lo tiene
 DEFAULTS: dict[str, Any] = {"display_name": None, "wrapper_model": None, "backend_model": None,
                             "description": "", "isolation": None, "protected": False,
                             "manual": False, "extra_frontmatter": {}, "route_when": [], "prompt": ""}
@@ -101,7 +102,10 @@ def session(paths: Paths, expected_hash: str | None) -> Iterator[Any]:
         if expected_hash != current:
             raise Conflict("orquesta.yaml cambió desde que lo cargaste (¿that-it-guy u otra pestaña?). "
                            "Recargá para ver la versión actual.")
+        before = to_plain(doc)
         yield doc
+        if to_plain(doc) == before:
+            return  # sin cambios lógicos: no se reescribe (ni se re-indenta) el archivo
         errors = validate(paths, doc)
         if errors:
             raise EditError(errors)
@@ -171,15 +175,29 @@ def upsert_agent(doc: Any, name: str, data: dict, confirm: str | None = None) ->
         agents.append(entry)
         return
     entry = agents[idx]
-    _require_confirm(entry, name, confirm, "editarlo")
+    if "tools" in data and "tools" in entry and sorted(data["tools"]) == sorted(entry["tools"]):
+        data = {**data, "tools": list(entry["tools"])}  # mismo conjunto: se respeta el orden original
+    # Fase 1: cambios semánticos (un default implícito que el YAML no escribe no cuenta).
+    changes = []
     for key in FIELD_ORDER:
         if key not in data:
             continue
         value = data[key]
+        if key in entry:
+            if entry[key] == value:
+                continue
+        elif value == IMPLICIT.get(key, DEFAULTS.get(key)) or _is_default(key, value):
+            continue
+        changes.append((key, value))
+    if not changes:
+        return  # nada cambió: ni siquiera pide confirmación
+    # Fase 2: confirmar si está protegido y recién ahí tocar el documento.
+    _require_confirm(entry, name, confirm, "editarlo")
+    for key, value in changes:
         if _is_default(key, value):
             if key in entry:
                 del entry[key]
-        elif key not in entry or entry[key] != value:
+        else:
             _set_ordered(entry, key, _yaml_value(key, value))
 
 

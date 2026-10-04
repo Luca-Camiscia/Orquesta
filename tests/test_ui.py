@@ -310,3 +310,11 @@ def test_salud_usa_doctor(client, monkeypatch):
     d = client.get("/api/health").json()
     assert d["overall"] == "warn" and d["checks"][0]["id"] == "git"
     assert client.post("/api/health/refresh").json()["overall"] == "warn"
+
+
+def test_reordenar_las_mismas_tools_no_cambia_el_yaml(client, app_env):
+    antes = app_env.registry.read_text()
+    a = agente(client, "mantenedor")
+    a["tools"] = sorted(a["tools"])  # mismo conjunto, otro orden (como lo manda un formulario)
+    assert guardar(client, a, confirm="mantenedor").status_code == 200
+    assert app_env.registry.read_text() == antes
