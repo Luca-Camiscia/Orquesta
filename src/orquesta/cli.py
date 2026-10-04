@@ -1,6 +1,6 @@
 """CLI `orquesta`.
 
-    orquesta                         abre la UI local (paso 6)
+    orquesta [ui] [--port N] [--no-browser]   abre la UI local (http://127.0.0.1:8787)
     orquesta generate [--dry-run] [-m MSG] [--confirm AGENTE ...]
     orquesta run AGENTE [--cwd DIR] [--task SLUG] [--prompt-file F | stdin] [--ping]
     orquesta doctor [--json] [--no-cache] [--skip-live] [--only ID]
@@ -76,6 +76,31 @@ def cmd_run(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    import socket
+    import threading
+    import webbrowser
+
+    port = args.port
+    with socket.socket() as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            print(f"❌ El puerto {port} está ocupado. Probá con `orquesta ui --port {port + 1}`.")
+            return 1
+    import uvicorn
+
+    from orquesta.ui.app import create_app
+
+    url = f"http://127.0.0.1:{port}/"
+    app = create_app(default_paths(), port=port)
+    print(f"orquesta UI en {url} (Ctrl+C para cerrar)")
+    if not args.no_browser:
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     import json
 
@@ -124,6 +149,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="orquesta", description="Ecosistema multi-modelo para Claude Code.")
     sub = p.add_subparsers(dest="cmd")
 
+    u = sub.add_parser("ui", help="abrir la UI local (es lo que corre `orquesta` sin argumentos)")
+    u.add_argument("--port", type=int, default=int(os.environ.get("ORQUESTA_PORT", "8787")))
+    u.add_argument("--no-browser", action="store_true", help="no abrir el navegador")
+    u.set_defaults(func=cmd_ui)
+
     g = sub.add_parser("generate", help="orquesta.yaml → agentes .md y bloque de CLAUDE.md")
     g.add_argument("--dry-run", action="store_true", help="mostrar el diff sin escribir")
     g.add_argument("-m", "--message", help="mensaje del commit y de la entrada del CHANGELOG")
@@ -165,8 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):
-        parser.print_help()
-        return 0
+        args = parser.parse_args(["ui"])  # `orquesta` a secas abre la UI
     return args.func(args)
 
 

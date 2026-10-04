@@ -90,3 +90,13 @@ def test_doctor_json(usar_env, capsys, monkeypatch):
     monkeypatch.setattr("orquesta.doctor.run_doctor", lambda *a, **k: _reporte("warn"))
     assert cli.main(["doctor", "--json", "--skip-live"]) == 0
     assert json.loads(capsys.readouterr().out)["overall"] == "warn"
+
+
+def test_ui_con_puerto_ocupado_avisa_y_sale_con_1(usar_env, capsys):
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        puerto = s.getsockname()[1]
+        assert cli.main(["ui", "--port", str(puerto), "--no-browser"]) == 1
+    assert "ocupado" in capsys.readouterr().out

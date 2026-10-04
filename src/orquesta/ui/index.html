@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="orquesta-token" content="__ORQUESTA_TOKEN__">
+<title>orquesta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&family=Libre+Caslon+Text:ital,wght@0,400;1,400&display=swap">
+<style>
+:root {
+  --papel: #F3F5F7;
+  --hoja: #FFFFFF;
+  --tinta: #18213A;
+  --tinta-suave: #4E5873;
+  --pauta: #C9D0DA;
+  --pauta-suave: #E4E8EE;
+  --claude: #6E46B8;
+  --codex: #0E7480;
+  --agy: #2C54C1;
+  --ok: #2E7D3A;
+  --warn: #A9650A;
+  --fail: #BE3128;
+  --foco: #2C54C1;
+  --sans: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --serif: "Libre Caslon Text", Georgia, "Times New Roman", serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --papel: #121827;
+    --hoja: #1A2235;
+    --tinta: #E5E9F1;
+    --tinta-suave: #A8B1C5;
+    --pauta: #36415B;
+    --pauta-suave: #252F45;
+    --claude: #B39AF0;
+    --codex: #4FC1CC;
+    --agy: #86A5F5;
+    --ok: #6CC27A;
+    --warn: #E7A94A;
+    --fail: #F07B70;
+    --foco: #86A5F5;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--papel);
+  color: var(--tinta);
+  font: 16px/1.5 var(--sans);
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--foco); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* cabecera */
+.cabecera {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 32px;
+  background: var(--hoja);
+  border-bottom: 1px solid var(--pauta);
+}
+.marca { font-weight: 700; font-size: 1.15rem; letter-spacing: .01em; }
+.marca span { color: var(--tinta-suave); font-weight: 400; }
+.salud-chip {
+  justify-self: start;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--pauta);
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+  font-size: .92rem;
+}
+.salud-chip .punto { width: 10px; height: 10px; border-radius: 50%; background: var(--pauta); }
+.salud-chip.ok .punto { background: var(--ok); }
+.salud-chip.warn .punto { background: var(--warn); }
+.salud-chip.fail .punto { background: var(--fail); }
+.mood-marca { position: relative; display: grid; justify-items: center; padding: 0 26px; min-width: 210px; }
+.mood-marca svg { position: absolute; inset: 7px 0 auto 0; width: 100%; height: 34px; color: var(--pauta); }
+.mood-palabra {
+  position: relative;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.85rem;
+  line-height: 48px;
+  padding: 0 10px;
+  background: linear-gradient(transparent 22%, var(--hoja) 22%, var(--hoja) 78%, transparent 78%);
+}
+.mood-nota { font-size: .8rem; color: var(--tinta-suave); margin-top: -4px; }
+.interruptor { display: inline-flex; align-items: center; gap: 10px; font-size: .95rem; }
+
+/* switch */
+.switch { position: relative; display: inline-block; width: 42px; height: 24px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.switch .riel { position: absolute; inset: 0; border-radius: 999px; background: var(--pauta); transition: background .15s; }
+.switch .riel::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--hoja); transition: transform .15s;
+}
+.switch input:checked + .riel { background: var(--tinta); }
+.switch input:checked + .riel::after { transform: translateX(18px); }
+.switch input:focus-visible + .riel { outline: 2px solid var(--foco); outline-offset: 2px; }
+
+/* pestañas */
+.pestanas { display: flex; gap: 4px; padding: 0 32px; background: var(--hoja); border-bottom: 1px solid var(--pauta); overflow-x: auto; }
+.pestanas button {
+  border: 0; background: none; padding: 12px 14px 10px; cursor: pointer; color: var(--tinta-suave);
+  border-bottom: 2px solid transparent; white-space: nowrap;
+}
+.pestanas button[aria-selected="true"] { color: var(--tinta); border-bottom-color: var(--tinta); font-weight: 700; }
+.pestanas .contador {
+  display: inline-block; min-width: 20px; margin-left: 6px; padding: 0 6px; border-radius: 999px;
+  background: var(--warn); color: var(--hoja); font-size: .78rem; font-weight: 700; text-align: center;
+}
+
+/* avisos */
+#avisos { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+.aviso {
+  display: flex; align-items: center; gap: 14px; justify-content: space-between;
+  margin-top: 18px; padding: 12px 16px; border-radius: 8px;
+  border: 1px solid var(--pauta); background: var(--hoja);
+}
+.aviso.importante { border-color: var(--tinta); border-width: 2px; }
+.aviso.error { border-color: var(--fail); }
+.aviso.error ul { margin: 4px 0 0; padding-left: 18px; }
+.aviso p { margin: 0; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 24px 32px 64px; }
+h2 { font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 1.6rem; margin: 0; }
+h3 { font-size: 1.05rem; margin: 0; }
+.barra { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.ayuda { color: var(--tinta-suave); font-size: .92rem; margin: 4px 0 0; max-width: 70ch; }
+
+/* botones */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--pauta); background: var(--hoja);
+}
+.btn:hover { border-color: var(--tinta-suave); }
+.btn.primario { background: var(--tinta); border-color: var(--tinta); color: var(--hoja); font-weight: 700; }
+.btn.peligro { color: var(--fail); border-color: var(--fail); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn.chico { padding: 4px 10px; font-size: .88rem; }
+.enlace { border: 0; background: none; padding: 4px 6px; cursor: pointer; color: var(--tinta); text-decoration: underline; text-underline-offset: 3px; }
+.enlace.peligro { color: var(--fail); }
+
+/* agentes */
+.seccion { margin-top: 26px; }
+.seccion-titulo { display: flex; align-items: center; gap: 10px; font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 1.25rem; padding-bottom: 8px; border-bottom: 1px solid var(--pauta); }
+.seccion-titulo .cuenta { font-family: var(--sans); font-style: normal; font-size: .85rem; color: var(--tinta-suave); }
+.muestra { width: 12px; height: 12px; border-radius: 3px; background: currentColor; }
+.c-claude { color: var(--claude); } .c-codex { color: var(--codex); } .c-agy { color: var(--agy); }
+.grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-top: 14px; }
+.tarjeta { background: var(--hoja); border: 1px solid var(--pauta); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.tarjeta.apagada { background: transparent; border-style: dashed; }
+.tarjeta.apagada .rol, .tarjeta.apagada h4 { color: var(--tinta-suave); }
+.tarjeta > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.tarjeta h4 { margin: 0; font-size: 1.08rem; display: flex; align-items: center; gap: 6px; }
+.slug { font-family: var(--mono); font-size: .8rem; color: var(--tinta-suave); }
+.rol { margin: 0; font-size: .94rem; }
+.insignias { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ins { font-size: .8rem; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--pauta); color: var(--tinta-suave); }
+.ins.backend { border-color: currentColor; font-weight: 700; }
+.estado { margin: 0; font-size: .86rem; color: var(--tinta-suave); display: flex; align-items: center; gap: 7px; }
+.estado::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--pauta); }
+.estado.desplegado::before { background: var(--ok); }
+.estado.pendiente::before { background: var(--warn); }
+.tarjeta footer { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; border-top: 1px solid var(--pauta-suave); padding-top: 8px; margin-top: auto; }
+.mas { position: relative; margin-left: auto; }
+.mas summary { list-style: none; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.mas summary::-webkit-details-marker { display: none; }
+.mas[open] summary { background: var(--pauta-suave); }
+.mas .menu { position: absolute; right: 0; top: 100%; z-index: 5; display: grid; min-width: 150px; padding: 6px; background: var(--hoja); border: 1px solid var(--pauta); border-radius: 8px; }
+.mas .menu button { text-align: left; }
+.prueba { font-size: .86rem; border-left: 3px solid var(--pauta); padding: 4px 10px; margin: 0; }
+.prueba.ok { border-color: var(--ok); } .prueba.mal { border-color: var(--fail); }
+.prueba pre { margin: 4px 0 0; white-space: pre-wrap; font-family: var(--mono); font-size: .8rem; max-height: 120px; overflow: auto; }
+.candado { width: 15px; height: 15px; color: var(--tinta-suave); }
+
+/* editor */
+.editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.editor-pestanas { display: flex; gap: 4px; margin: 6px 0 16px; }
+.editor-pestanas button { border: 1px solid var(--pauta); background: var(--hoja); padding: 6px 14px; border-radius: 7px; cursor: pointer; }
+.editor-pestanas button[aria-selected="true"] { background: var(--tinta); color: var(--hoja); border-color: var(--tinta); }
+form.campos { display: grid; gap: 16px; background: var(--hoja); border: 1px solid var(--pauta); border-radius: 10px; padding: 20px; }
+.campo { display: grid; gap: 5px; }
+.campo > label, .campo > span.etiqueta, fieldset legend { font-weight: 700; font-size: .94rem; }
+.campo small { color: var(--tinta-suave); font-size: .84rem; }
+.fila { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+input[type=text], select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--pauta); border-radius: 7px; background: var(--papel);
+}
+textarea { resize: vertical; min-height: 70px; }
+textarea.prompt { min-height: 260px; line-height: 1.45; }
+textarea.codigo, textarea.crudo { font-family: var(--mono); font-size: .86rem; }
+textarea.crudo { min-height: 520px; }
+fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+.opciones { display: flex; gap: 18px; flex-wrap: wrap; }
+.opciones label { display: inline-flex; gap: 6px; align-items: center; }
+.tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; max-height: 210px; overflow: auto; padding: 8px; border: 1px solid var(--pauta-suave); border-radius: 7px; }
+.tools label { display: flex; gap: 6px; align-items: center; font-size: .9rem; }
+.casos { display: grid; gap: 6px; }
+.caso { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.vista { position: sticky; top: 16px; display: grid; gap: 10px; }
+.vista pre, pre.bloque {
+  margin: 0; padding: 16px; border-radius: 10px; border: 1px solid var(--pauta); background: var(--hoja);
+  font-family: var(--mono); font-size: .8rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  max-height: 70vh; overflow: auto;
+}
+.errores { margin: 0; padding: 10px 14px 10px 30px; border: 1px solid var(--fail); border-radius: 8px; color: var(--fail); font-size: .92rem; }
+.acciones { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* moods */
+.moods-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.mood { display: grid; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--pauta); }
+.mood-cab { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.mood-cab strong { font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 1.3rem; }
+.etiqueta-default { font-size: .8rem; color: var(--hoja); background: var(--tinta); border-radius: 999px; padding: 1px 9px; }
+.panel { background: var(--hoja); border: 1px solid var(--pauta); border-radius: 10px; padding: 18px 20px; }
+
+/* aplicar */
+.diff { margin: 0; border: 1px solid var(--pauta); border-radius: 10px; background: var(--hoja); font-family: var(--mono); font-size: .8rem; line-height: 1.5; overflow: auto; max-height: 62vh; }
+.diff div { padding: 0 14px; white-space: pre-wrap; word-break: break-word; }
+.diff .add { background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.diff .del { background: color-mix(in srgb, var(--fail) 13%, transparent); }
+.diff .hunk { color: var(--tinta-suave); }
+.diff .archivo { font-weight: 500; background: var(--pauta-suave); padding-top: 4px; padding-bottom: 4px; }
+.resumen { margin: 10px 0; padding-left: 20px; }
+.violacion { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 2px solid var(--fail); border-radius: 8px; margin: 8px 0; }
+
+/* salud */
+.chequeos { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--pauta); }
+.chequeo { display: grid; grid-template-columns: 18px 1fr auto; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--pauta); align-items: start; }
+.chequeo .luz { width: 12px; height: 12px; border-radius: 50%; margin-top: 6px; }
+.luz.ok { background: var(--ok); } .luz.warn { background: var(--warn); } .luz.fail { background: var(--fail); }
+.chequeo p { margin: 0; }
+.chequeo .sug { color: var(--tinta-suave); font-size: .9rem; }
+.chequeo .nombre { font-weight: 700; }
+.semaforo { display: flex; align-items: center; gap: 12px; font-size: 1.05rem; }
+.semaforo .luz { width: 16px; height: 16px; border-radius: 50%; }
+code.cmd { display: block; padding: 12px 14px; border-radius: 8px; background: var(--papel); border: 1px solid var(--pauta); font-family: var(--mono); font-size: .84rem; white-space: pre-wrap; word-break: break-all; }
+
+/* historial */
+.historia { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.commits { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--pauta); }
+.commits li { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px 2px; border-bottom: 1px solid var(--pauta); }
+.commits .meta { color: var(--tinta-suave); font-size: .84rem; }
+.changelog h3 { margin: 16px 0 6px; font-size: .98rem; }
+.changelog ul { margin: 0; padding-left: 18px; }
+
+/* plugins */
+.plugin { padding: 14px 0; border-bottom: 1px solid var(--pauta); }
+.plugin table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: .9rem; }
+.plugin th, .plugin td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--pauta-suave); vertical-align: top; }
+
+/* diálogo y toast */
+dialog { border: 1px solid var(--pauta); border-radius: 12px; padding: 22px 24px; max-width: 520px; width: calc(100% - 32px); background: var(--hoja); color: var(--tinta); }
+dialog::backdrop { background: rgb(24 33 58 / .35); }
+dialog h3 { font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 1.35rem; margin-bottom: 8px; }
+dialog p { margin: 0 0 14px; }
+dialog .acciones { justify-content: flex-end; margin-top: 16px; }
+#toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--tinta); color: var(--hoja); padding: 10px 18px; border-radius: 8px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: calc(100% - 32px); }
+#toast.visible { opacity: 1; }
+.cargando { color: var(--tinta-suave); }
+
+@media (max-width: 860px) {
+  .cabecera { grid-template-columns: 1fr auto; padding: 12px 16px; gap: 12px; }
+  .mood-marca { grid-column: 1 / -1; grid-row: 2; }
+  .salud-chip { justify-self: end; }
+  .pestanas, #avisos, main { padding-left: 16px; padding-right: 16px; }
+  .editor, .moods-grid, .historia, .fila { grid-template-columns: 1fr; }
+  .vista { position: static; }
+  .grilla { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="cabecera">
+  <div class="marca">orquesta <span>local</span></div>
+  <button class="salud-chip" id="salud-chip" type="button"><span class="punto"></span><span id="salud-texto">Revisando salud…</span></button>
+  <div class="mood-marca" title="Mood por defecto del orquestador">
+    <svg viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true">
+      <g stroke="currentColor" stroke-width="1"><line x1="0" y1="1" x2="200" y2="1"/><line x1="0" y1="9" x2="200" y2="9"/><line x1="0" y1="17" x2="200" y2="17"/><line x1="0" y1="25" x2="200" y2="25"/><line x1="0" y1="33" x2="200" y2="33"/></g>
+    </svg>
+    <span class="mood-palabra" id="mood-actual">…</span>
+    <span class="mood-nota">mood por defecto</span>
+  </div>
+  <label class="interruptor"><span class="switch"><input type="checkbox" id="orq-toggle"><span class="riel"></span></span><span>Orquestación</span></label>
+</header>
+<nav class="pestanas" role="tablist" id="pestanas"></nav>
+<div id="avisos" aria-live="polite"></div>
+<main id="panel"><p class="cargando">Cargando…</p></main>
+<dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const TOKEN = $('meta[name="orquesta-token"]').content;
+const NOMBRE_BACKEND = {claude: "Claude", codex: "Codex", agy: "Antigravity"};
+const ORDEN_BACKEND = ["claude", "codex", "agy"];
+const PESTANAS = [["agentes", "Agentes"], ["moods", "Moods"], ["aplicar", "Aplicar"], ["salud", "Salud"], ["historial", "Historial"], ["plugins", "Plugins"]];
+const CANDADO = '<svg class="candado" viewBox="0 0 16 16" aria-label="protegido" role="img"><path fill="currentColor" d="M5 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5Zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2Z"/></svg>';
+
+const st = {data: null, tab: "agentes", ed: null, salud: null, saludCargando: false, dry: null, confirmados: new Set(),
+            historia: null, changelog: "", plugins: null, aviso: null, pruebas: {}, mensaje: "Aplicar cambios desde la UI"};
+
+class ApiError extends Error {
+  constructor(status, data) {
+    super((data && (data.detail || (data.errors || []).join("; "))) || `Error ${status}`);
+    this.status = status; this.data = data || {};
+  }
+}
+async function api(method, path, body) {
+  const res = await fetch(path, {method, headers: {"Content-Type": "application/json", "X-Orquesta-Token": TOKEN},
+                                 body: body === undefined ? undefined : JSON.stringify(body)});
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok) throw new ApiError(res.status, data);
+  return data;
+}
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("visible");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("visible"), 3600);
+}
+function dialogo({titulo, texto = "", aceptar = "Aceptar", cancelar = "Cancelar", input = null, peligro = false, html = ""}) {
+  const dlg = $("#dlg");
+  $("#dlg-form").innerHTML = `<h3>${esc(titulo)}</h3>${texto ? `<p>${esc(texto)}</p>` : ""}${html}
+    ${input !== null ? `<input type="text" id="dlg-input" autocomplete="off" value="${esc(input)}" aria-label="${esc(titulo)}">` : ""}
+    <div class="acciones">${cancelar ? `<button class="btn" value="cancel">${esc(cancelar)}</button>` : ""}
+    <button class="btn ${peligro ? "peligro" : "primario"}" value="ok" id="dlg-ok">${esc(aceptar)}</button></div>`;
+  return new Promise((resolve) => {
+    dlg.onclose = () => resolve(dlg.returnValue === "ok" ? (input !== null ? $("#dlg-input").value : true) : null);
+    dlg.showModal();
+    (input !== null ? $("#dlg-input") : $("#dlg-ok")).focus();
+  });
+}
+function mostrarError(e, destino) {
+  const errores = e.data && e.data.errors ? e.data.errors : [e.message];
+  const html = `<ul class="errores">${errores.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` +
+    (e.status === 409 && !e.data.needs_confirmation ? `<p><button class="btn chico" data-action="recargar">Recargar</button></p>` : "");
+  if (destino) destino.innerHTML = html; else toast(errores[0]);
+}
+async function conConfirmacion(nombre, fn) {
+  try { return await fn(undefined); }
+  catch (e) {
+    if (!(e instanceof ApiError && e.status === 409 && e.data.needs_confirmation)) throw e;
+    const seguir = await dialogo({titulo: `${nombre} está protegido`, texto: "Cambiar un agente protegido requiere tu confirmación explícita. ¿Querés seguir?", aceptar: "Seguir"});
+    if (!seguir) return null;
+    const escrito = await dialogo({titulo: "Confirmá con el nombre", texto: `Escribí ${nombre} para confirmar el cambio.`, aceptar: "Confirmar", input: ""});
+    if (escrito !== nombre) { toast("El nombre no coincide: no se guardó nada."); return null; }
+    return await fn(nombre);
+  }
+}
+const hash = () => st.data.yaml_hash;
+
+async function cargar() {
+  try { st.data = await api("GET", "/api/state"); }
+  catch (e) { $("#panel").innerHTML = `<div class="aviso error"><p>No pude leer el estado: ${esc(e.message)}</p></div>`; return; }
+  if (st.ed && !st.ed.nuevo && !st.data.agents.some((a) => a.name === st.ed.agent.name)) st.ed = null;
+  render();
+}
+async function cargarSalud(refrescar = false) {
+  st.saludCargando = true; renderCabecera(); if (st.tab === "salud") renderPanel();
+  try { st.salud = await api(refrescar ? "POST" : "GET", refrescar ? "/api/health/refresh" : "/api/health"); }
+  catch (e) { toast(`No pude correr doctor: ${e.message}`); }
+  st.saludCargando = false; renderCabecera(); if (st.tab === "salud") renderPanel();
+}
+
+function render() { renderCabecera(); renderPestanas(); renderAvisos(); renderPanel(); }
+function renderCabecera() {
+  const o = st.data.orchestrator || {};
+  $("#mood-actual").textContent = o.default_mood || "—";
+  $("#orq-toggle").checked = !!o.enabled;
+  const chip = $("#salud-chip");
+  chip.className = "salud-chip " + (st.salud ? st.salud.overall : "");
+  if (st.saludCargando && !st.salud) { $("#salud-texto").textContent = "Revisando salud…"; return; }
+  if (!st.salud) { $("#salud-texto").textContent = "Salud sin datos"; return; }
+  const n = {ok: 0, warn: 0, fail: 0};
+  st.salud.checks.forEach((c) => n[c.status]++);
+  $("#salud-texto").textContent = `${n.ok} bien, ${n.warn} avisos, ${n.fail} fallas`;
+}
+function renderPestanas() {
+  const pend = st.data.pending.changes;
+  $("#pestanas").innerHTML = PESTANAS.map(([id, nombre]) =>
+    `<button role="tab" aria-selected="${st.tab === id}" data-tab="${id}">${nombre}${id === "aplicar" && pend ? `<span class="contador" aria-label="${pend} cambios">${pend}</span>` : ""}</button>`).join("");
+}
+function renderAvisos() {
+  const partes = [];
+  if (st.aviso) partes.push(`<div class="aviso importante"><p>${esc(st.aviso)}</p><button class="enlace" data-action="cerrar-aviso">Cerrar</button></div>`);
+  if (st.data.errors.length) partes.push(`<div class="aviso error"><div><p><strong>orquesta.yaml tiene errores</strong>; no se puede aplicar hasta corregirlos:</p><ul>${st.data.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div></div>`);
+  else if (st.data.pending.changes && st.tab !== "aplicar") partes.push(`<div class="aviso"><p>Hay cambios sin aplicar (${st.data.pending.changes} archivo${st.data.pending.changes === 1 ? "" : "s"}). Hasta que los apliques, Claude Code sigue usando la versión anterior.</p><button class="btn chico" data-tab="aplicar">Revisar y aplicar</button></div>`);
+  $("#avisos").innerHTML = partes.join("");
+}
+function renderPanel() {
+  const p = $("#panel");
+  const fn = {agentes: st.ed ? panelEditor : panelAgentes, moods: panelMoods, aplicar: panelAplicar, salud: panelSalud, historial: panelHistorial, plugins: panelPlugins}[st.tab];
+  p.innerHTML = fn();
+  if (st.tab === "agentes" && st.ed) montarEditor();
+  if (st.tab === "moods") previewBloque();
+}
+
+/* ---------- agentes ---------- */
+function panelAgentes() {
+  const grupos = {};
+  st.data.agents.forEach((a) => (grupos[a.backend] = grupos[a.backend] || []).push(a));
+  const orden = [...ORDEN_BACKEND.filter((b) => grupos[b]), ...Object.keys(grupos).filter((b) => !ORDEN_BACKEND.includes(b))];
+  const secciones = orden.map((b) => `<section class="seccion">
+      <h3 class="seccion-titulo"><span class="muestra c-${esc(b)}"></span>${esc(NOMBRE_BACKEND[b] || b)}<span class="cuenta">${grupos[b].length} agente${grupos[b].length === 1 ? "" : "s"}</span></h3>
+      <div class="grilla">${grupos[b].map(tarjeta).join("")}</div></section>`).join("");
+  return `<div class="barra"><div><h2>Agentes</h2><p class="ayuda">Cada agente se convierte en un subagente de Claude Code en ${esc(st.data.paths.agents_dir)}. Los cambios quedan pendientes hasta que los apliques.</p></div>
+    <button class="btn primario" data-action="nuevo">Nuevo agente</button></div>${secciones || '<p class="ayuda">No hay agentes. Creá el primero.</p>'}`;
+}
+function tarjeta(a) {
+  const n = esc(a.name);
+  let estado = ["", "sin desplegar"];
+  if (!a.enabled) estado = ["", "deshabilitado"];
+  else if (a.pending) estado = ["pendiente", "con cambios sin aplicar"];
+  else if (a.deployed) estado = ["desplegado", "desplegado"];
+  const pr = st.pruebas[a.name];
+  const prueba = !pr ? "" : pr.cargando ? `<p class="prueba">Probando ${n}…</p>` :
+    `<div class="prueba ${pr.status === "OK" ? "ok" : "mal"}"><strong>${pr.status === "OK" ? "Respondió" : esc(pr.status)}</strong> en ${esc(pr.latency_s)} s${pr.detail ? `: ${esc(pr.detail)}` : ""}${pr.output ? `<pre>${esc(pr.output)}</pre>` : ""}</div>`;
+  return `<article class="tarjeta ${a.enabled ? "" : "apagada"}">
+    <header><div><h4>${esc(a.display_name || a.name)}${a.protected ? CANDADO : ""}</h4><span class="slug">${n}</span></div>
+      <label class="switch" title="${a.enabled ? "Deshabilitar" : "Habilitar"}"><input type="checkbox" data-action="toggle" data-name="${n}" ${a.enabled ? "checked" : ""} aria-label="Habilitar ${n}"><span class="riel"></span></label></header>
+    <p class="rol">${esc(a.role)}</p>
+    <ul class="insignias"><li class="ins backend c-${esc(a.backend)}">${esc(NOMBRE_BACKEND[a.backend] || a.backend)}</li>
+      <li class="ins">${a.mode === "write" ? "escritura" : "solo lectura"}</li>
+      ${a.effective_isolation === "worktree" ? '<li class="ins">worktree</li>' : ""}
+      <li class="ins">${a.manual ? "manual" : "generado"}</li></ul>
+    <p class="estado ${estado[0]}">${estado[1]}</p>${prueba}
+    <footer><button class="enlace" data-action="editar" data-name="${n}">Editar</button>
+      <button class="enlace" data-action="probar" data-name="${n}" ${a.deployed ? "" : 'disabled title="Aplicá primero para poder probarlo"'}>Probar</button>
+      <details class="mas"><summary>Más</summary><div class="menu">
+        <button class="enlace" data-action="duplicar" data-name="${n}">Duplicar</button>
+        <button class="enlace" data-action="renombrar" data-name="${n}">Renombrar</button>
+        <button class="enlace peligro" data-action="eliminar" data-name="${n}">Eliminar</button></div></details></footer>
+  </article>`;
+}
+function agenteVacio() {
+  return {name: "", display_name: null, enabled: true, backend: "codex", wrapper_model: null, backend_model: null, role: "", route_when: [],
+          description: "", tools: ["Bash"], mode: "read-only", isolation: null, protected: false, manual: false, extra_frontmatter: {}, prompt: ""};
+}
+function sinCalculados(a) {
+  const c = {...a}; ["effective_isolation", "effective_wrapper_model", "deployed", "pending"].forEach((k) => delete c[k]); return c;
+}
+
+/* ---------- editor ---------- */
+function panelEditor() {
+  const e = st.ed, a = e.agent;
+  const titulo = e.nuevo ? "Nuevo agente" : `Editando ${a.display_name || a.name}`;
+  return `<div class="barra"><div><h2>${esc(titulo)}</h2>${a.protected ? `<p class="ayuda">Este agente está protegido: guardar cambios te va a pedir doble confirmación.</p>` : ""}</div>
+      <button class="btn" data-action="volver">Volver a la lista</button></div>
+    ${e.nuevo ? "" : `<div class="editor-pestanas" role="tablist"><button role="tab" data-action="ed-tab" data-v="form" aria-selected="${e.vista === "form"}">Formulario</button>
+      <button role="tab" data-action="ed-tab" data-v="raw" aria-selected="${e.vista === "raw"}">.md crudo</button></div>`}
+    ${e.vista === "raw" ? editorCrudo() : editorFormulario(a)}`;
+}
+function editorFormulario(a) {
+  const be = Object.keys(st.data.backends);
+  const conocidas = new Set(st.data.tools);
+  const otras = (a.tools || []).filter((t) => !conocidas.has(t));
+  const modelos = ["", ...st.data.models];
+  return `<div class="editor"><form class="campos" id="form-agente" autocomplete="off">
+    <div class="fila"><div class="campo"><label for="f-name">Nombre</label>
+        <input type="text" id="f-name" name="name" value="${esc(a.name)}" ${st.ed.nuevo ? "" : "readonly"} pattern="[a-z0-9]+(-[a-z0-9]+)*" required>
+        <small>${st.ed.nuevo ? "Minúsculas, números y guiones. Es el nombre que usa Claude Code." : "Para cambiarlo usá «Renombrar» en la tarjeta."}</small></div>
+      <div class="campo"><label for="f-display">Nombre visible</label><input type="text" id="f-display" name="display_name" value="${esc(a.display_name || "")}"><small>Solo para esta UI.</small></div></div>
+    <div class="fila"><div class="campo"><label for="f-backend">Backend</label><select id="f-backend" name="backend">${be.map((b) => `<option value="${esc(b)}" ${a.backend === b ? "selected" : ""}>${esc(st.data.backends[b].label)}</option>`).join("")}</select></div>
+      <div class="campo"><label for="f-wrapper">Modelo de Claude que lo corre</label><select id="f-wrapper" name="wrapper_model">${modelos.map((m) => `<option value="${esc(m)}" ${(a.wrapper_model || "") === m ? "selected" : ""}>${m ? esc(m) : "por defecto (haiku si es externo)"}</option>`).join("")}</select></div></div>
+    <div class="fila"><div class="campo"><label for="f-bmodel">Modelo del backend</label><input type="text" id="f-bmodel" name="backend_model" value="${esc(a.backend_model || "")}" placeholder="el default del CLI"><small>Por ejemplo gemini-3.1-pro-high. Vacío = el default de codex o agy.</small></div>
+      <div class="campo"><span class="etiqueta">Habilitado</span><label class="switch"><input type="checkbox" name="enabled" ${a.enabled ? "checked" : ""} aria-label="Habilitado"><span class="riel"></span></label></div></div>
+    <div class="campo"><label for="f-role">Rol</label><textarea id="f-role" name="role" rows="2">${esc(a.role)}</textarea></div>
+    <div class="campo"><span class="etiqueta">Cuándo usarlo</span><div class="casos" id="casos">${(a.route_when || []).map(caso).join("")}</div>
+      <button type="button" class="btn chico" data-action="agregar-caso">Agregar caso</button><small>Cada caso entra en la descripción y en la tabla de ruteo de CLAUDE.md.</small></div>
+    <div class="campo"><label for="f-desc">Descripción</label><textarea id="f-desc" name="description" rows="3" placeholder="Vacía = se arma sola desde el rol y los casos, orientada a delegación automática.">${esc(a.description || "")}</textarea></div>
+    <fieldset><legend>Modo</legend><div class="opciones">
+      <label><input type="radio" name="mode" value="read-only" ${a.mode !== "write" ? "checked" : ""}> Solo lectura</label>
+      <label><input type="radio" name="mode" value="write" ${a.mode === "write" ? "checked" : ""}> Escritura</label></div></fieldset>
+    <fieldset id="f-iso"><legend>Aislamiento (agentes de escritura)</legend><div class="opciones">
+      <label><input type="radio" name="isolation" value="worktree" ${a.isolation !== "none" ? "checked" : ""}> git worktree propio</label>
+      <label><input type="radio" name="isolation" value="none" ${a.isolation === "none" ? "checked" : ""}> Ninguno</label></div></fieldset>
+    <div class="campo"><span class="etiqueta">Tools de Claude Code</span><div class="tools">${st.data.tools.map((t) => `<label><input type="checkbox" name="tool" value="${esc(t)}" ${(a.tools || []).includes(t) ? "checked" : ""}> ${esc(t)}</label>`).join("")}</div>
+      <input type="text" name="tools_extra" value="${esc(otras.join(", "))}" placeholder="Otras, separadas por coma (mcp__servidor__tool, Agent(...))"><small>Least privilege: los wrappers de codex y agy solo necesitan Bash.</small></div>
+    <div class="campo"><span class="etiqueta">Protegido</span><label class="switch"><input type="checkbox" name="protected" ${a.protected ? "checked" : ""} aria-label="Protegido"><span class="riel"></span></label>
+      <small>Nadie, ni that_it_guy, puede cambiarlo sin tu confirmación explícita.</small></div>
+    <div class="campo"><label for="f-extra">Frontmatter extra (JSON)</label><textarea id="f-extra" name="extra" class="codigo" rows="3" placeholder='{"maxTurns": 20, "color": "cyan"}'>${esc(Object.keys(a.extra_frontmatter || {}).length ? JSON.stringify(a.extra_frontmatter, null, 2) : "")}</textarea>
+      <small>Campos válidos: ${esc(st.data.frontmatter_fields.join(", "))}.</small></div>
+    <div class="campo"><label for="f-prompt">Prompt</label><textarea id="f-prompt" name="prompt" class="prompt">${esc(a.prompt || "")}</textarea>
+      <small>En agentes externos son las instrucciones que el runner le antepone al backend. Podés usar {orquesta_home}, {agents_dir} y {claude_md}.</small></div>
+    <div id="ed-errores"></div>
+    <div class="acciones"><button type="submit" class="btn primario">${st.ed.nuevo ? "Crear agente" : "Guardar cambios"}</button><button type="button" class="btn" data-action="volver">Cancelar</button></div>
+  </form>
+  <div class="vista"><h3>Así queda el .md generado</h3><div id="vista-errores"></div><pre id="vista-md">…</pre></div></div>`;
+}
+const caso = (v) => `<div class="caso"><input type="text" data-caso value="${esc(v)}" aria-label="Caso"><button type="button" class="btn chico" data-action="quitar-caso" aria-label="Quitar caso">Quitar</button></div>`;
+function editorCrudo() {
+  const e = st.ed;
+  return `<div class="campos panel"><p class="ayuda">${e.agent.manual ? "Este agente es manual: el generador copia este .md tal cual." : "Si guardás acá, el agente pasa a <strong>manual</strong>: el generador deja de armarlo desde el formulario y copia este .md tal cual."}</p>
+    <textarea class="crudo" id="crudo" spellcheck="false" aria-label=".md del agente">${esc(e.crudo ?? "Cargando…")}</textarea>
+    <div id="ed-errores"></div>
+    <div class="acciones"><button class="btn primario" data-action="guardar-crudo">Guardar .md (pasa a manual)</button>
+      ${e.agent.manual ? '<button class="btn" data-action="desmanual">Volver a generarlo desde el formulario</button>' : ""}</div></div>`;
+}
+function montarEditor() {
+  const f = $("#form-agente");
+  if (!f) { if (st.ed.crudo === undefined) cargarCrudo(); return; }
+  const sync = () => { $("#f-iso").disabled = f.querySelector('input[name="mode"]:checked').value !== "write"; };
+  sync();
+  f.addEventListener("input", () => { sync(); programarPreview(); });
+  f.addEventListener("change", () => { sync(); programarPreview(); });
+  f.addEventListener("submit", (ev) => { ev.preventDefault(); guardarAgente(); });
+  programarPreview(0);
+}
+async function cargarCrudo() {
+  try { const r = await api("GET", `/api/agents/${encodeURIComponent(st.ed.agent.name)}/raw`); st.ed.crudo = r.content; }
+  catch (e) { st.ed.crudo = ""; toast(e.message); }
+  if (st.ed && st.ed.vista === "raw") $("#crudo").value = st.ed.crudo;
+}
+function leerFormulario() {
+  const f = $("#form-agente"), a = {...st.ed.agent};
+  a.name = f.name.value.trim();
+  a.display_name = f.display_name.value.trim() || null;
+  a.enabled = f.enabled.checked;
+  a.backend = f.backend.value;
+  a.wrapper_model = f.wrapper_model.value || null;
+  a.backend_model = f.backend_model.value.trim() || null;
+  a.role = f.role.value.trim();
+  a.route_when = $$("[data-caso]", f).map((i) => i.value.trim()).filter(Boolean);
+  a.description = f.description.value.trim();
+  a.mode = f.querySelector('input[name="mode"]:checked').value;
+  a.isolation = a.mode === "write" ? f.querySelector('input[name="isolation"]:checked').value : null;
+  const extra = f.tools_extra.value.split(",").map((t) => t.trim()).filter(Boolean);
+  a.tools = [...$$('input[name="tool"]:checked', f).map((i) => i.value), ...extra];
+  a.protected = f.protected.checked;
+  a.prompt = f.prompt.value;
+  const raw = f.extra.value.trim();
+  try { a.extra_frontmatter = raw ? JSON.parse(raw) : {}; }
+  catch { throw new ApiError(422, {errors: ["El frontmatter extra no es JSON válido."]}); }
+  return a;
+}
+function programarPreview(ms = 280) { clearTimeout(programarPreview.t); programarPreview.t = setTimeout(previewAgente, ms); }
+async function previewAgente() {
+  if (!$("#form-agente")) return;
+  let a;
+  try { a = leerFormulario(); } catch (e) { $("#vista-errores").innerHTML = `<ul class="errores"><li>${esc(e.message)}</li></ul>`; return; }
+  if (!a.name) { $("#vista-md").textContent = "Poné un nombre para ver el .md."; return; }
+  try {
+    const r = await api("POST", "/api/preview/agent", {agent: a});
+    $("#vista-md").textContent = r.md || "(no se puede renderizar todavía)";
+    $("#vista-errores").innerHTML = r.errors.length ? `<ul class="errores">${r.errors.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+  } catch (e) { $("#vista-errores").innerHTML = `<ul class="errores"><li>${esc(e.message)}</li></ul>`; }
+}
+async function guardarAgente() {
+  let a;
+  try { a = leerFormulario(); } catch (e) { mostrarError(e, $("#ed-errores")); return; }
+  try {
+    const r = await conConfirmacion(a.name, (confirm) => api("PUT", `/api/agents/${encodeURIComponent(a.name)}`, {agent: a, expected_hash: hash(), confirm}));
+    if (!r) return;
+    toast(st.ed.nuevo ? `Creado ${a.name}. Queda pendiente hasta que apliques.` : "Cambios guardados. Quedan pendientes hasta que apliques.");
+    st.ed = null; await cargar();
+  } catch (e) { mostrarError(e, $("#ed-errores")); }
+}
+
+/* ---------- moods ---------- */
+function panelMoods() {
+  const o = st.data.orchestrator, moods = o.moods || {};
+  const filas = Object.entries(moods).map(([n, d]) => `<div class="mood">
+      <div class="mood-cab"><strong>${esc(n)}</strong>${n === o.default_mood ? '<span class="etiqueta-default">default</span>' : ""}</div>
+      <textarea rows="2" data-mood-desc="${esc(n)}" aria-label="Descripción de ${esc(n)}">${esc(d)}</textarea>
+      <div class="acciones"><button class="btn chico" data-action="mood-guardar" data-name="${esc(n)}">Guardar descripción</button>
+        <button class="enlace" data-action="mood-renombrar" data-name="${esc(n)}">Renombrar</button>
+        ${n === o.default_mood ? '<span class="ayuda">Es el default: elegí otro antes de borrarlo.</span>' : `<button class="enlace" data-action="mood-default" data-name="${esc(n)}">Hacerlo default</button><button class="enlace peligro" data-action="mood-borrar" data-name="${esc(n)}">Borrar</button>`}</div></div>`).join("");
+  return `<div class="barra"><div><h2>Moods</h2><p class="ayuda">Cambian solo cómo te presento cada respuesta. Nunca relajan la verificación ni los guardrails. En una sesión podés cambiarlo escribiendo <code>mood: &lt;nombre&gt;</code>.</p></div></div>
+  <div class="moods-grid"><div>
+    <div class="panel"><div class="fila"><div class="campo"><label for="m-default">Mood por defecto</label>
+      <select id="m-default">${Object.keys(moods).map((n) => `<option ${n === o.default_mood ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+      <div class="campo"><span class="etiqueta">Tag de mood en cada respuesta</span><label class="switch"><input type="checkbox" id="m-tag" ${o.show_mood_tag ? "checked" : ""} aria-label="Mostrar tag de mood"><span class="riel"></span></label></div></div></div>
+    ${filas}
+    <form class="panel" id="m-nuevo" style="margin-top:18px"><h3>Nuevo mood</h3>
+      <div class="campo" style="margin-top:10px"><label for="m-nombre">Nombre</label><input type="text" id="m-nombre" required pattern="[a-z0-9][a-z0-9_-]*"></div>
+      <div class="campo"><label for="m-desc">Qué mostrar</label><textarea id="m-desc" rows="2" required></textarea></div>
+      <div class="acciones" style="margin-top:10px"><button class="btn primario">Agregar mood</button></div></form>
+  </div>
+  <div class="vista"><h3>Así queda el bloque de CLAUDE.md</h3><pre class="bloque" id="vista-bloque">…</pre></div></div>`;
+}
+async function previewBloque() {
+  try { const r = await api("POST", "/api/preview/block", {}); const v = $("#vista-bloque"); if (v) v.textContent = r.block || r.errors.join("\n"); } catch (e) { /* sin preview */ }
+}
+async function moodAccion(cuerpo, ok) {
+  try { await api("POST", "/api/moods", {...cuerpo, expected_hash: hash()}); toast(ok); await cargar(); }
+  catch (e) { toast((e.data.errors || [e.message])[0]); }
+}
+
+/* ---------- aplicar ---------- */
+function lineasDiff(diff) {
+  return diff.split("\n").map((l) => {
+    let c = "";
+    if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("~ ")) c = "archivo";
+    else if (l.startsWith("+")) c = "add"; else if (l.startsWith("-")) c = "del"; else if (l.startsWith("@@")) c = "hunk";
+    return `<div class="${c}">${esc(l) || " "}</div>`;
+  }).join("");
+}
+function panelAplicar() {
+  const d = st.dry;
+  const intro = `<div class="barra"><div><h2>Aplicar</h2><p class="ayuda">Revisá el diff que se va a escribir en ${esc(st.data.paths.agents_dir)} y en el bloque de ${esc(st.data.paths.claude_md)}. Al aplicar se hace un backup, se escriben los archivos, se corren los tests y se commitea con una entrada en el CHANGELOG.</p></div>
+    <button class="btn" data-action="dry-run">${d ? "Volver a revisar" : "Revisar cambios"}</button></div>`;
+  if (!d) return intro + `<p class="ayuda">Tocá «Revisar cambios» para ver el diff (no escribe nada).</p>`;
+  if (d.errors.length) return intro + `<ul class="errores">${d.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>`;
+  if (d.empty) return intro + `<div class="panel"><p>Todo sincronizado: no hay cambios para aplicar.</p></div>`;
+  const viol = d.violations.map((v) => `<label class="violacion"><input type="checkbox" data-confirmar="${esc(v.agent)}" ${st.confirmados.has(v.agent) ? "checked" : ""}>
+      <span><strong>${esc(v.agent)}</strong>: ${esc(v.detail)}. Confirmo explícitamente este cambio.</span></label>`).join("");
+  return intro + `<div class="panel"><h3>Resumen</h3><ul class="resumen">${d.summary.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
+      ${viol ? `<h3>Requiere tu confirmación</h3>${viol}` : ""}
+      <div class="campo" style="margin-top:12px"><label for="ap-msg">Mensaje del commit y del CHANGELOG</label><input type="text" id="ap-msg" value="${esc(st.mensaje)}"></div>
+      <div id="ap-errores"></div>
+      <div class="acciones" style="margin-top:12px"><button class="btn primario" data-action="aplicar" ${d.violations.some((v) => !st.confirmados.has(v.agent)) ? "disabled" : ""}>Aplicar</button>
+        <button class="enlace peligro" data-action="descartar">Descartar los cambios sin aplicar</button></div></div>
+    <h3 style="margin:22px 0 8px">Diff</h3><div class="diff">${lineasDiff(d.diff)}</div>`;
+}
+async function correrDryRun() {
+  try { st.dry = await api("POST", "/api/apply/dry-run", {confirm: [...st.confirmados]}); }
+  catch (e) { st.dry = {errors: [e.message], violations: [], summary: [], diff: "", empty: false}; }
+  if (st.dry.violations) {
+    const pendientes = new Set(st.dry.violations.map((v) => v.agent));
+    st.confirmados.forEach((a) => { if (!pendientes.has(a)) st.confirmados.delete(a); });
+  }
+  renderPanel();
+}
+async function aplicar() {
+  st.mensaje = $("#ap-msg").value.trim() || "Aplicar cambios desde la UI";
+  const ok = await dialogo({titulo: "¿Aplicar los cambios?", texto: `Se escriben los archivos de Claude Code, se corren los tests y se commitea «${st.mensaje}». Si algo falla, se restaura el backup.`, aceptar: "Aplicar"});
+  if (!ok) return;
+  const btn = $('[data-action="aplicar"]'); btn.disabled = true; btn.textContent = "Aplicando (corren los tests)…";
+  try {
+    const r = await api("POST", "/api/apply", {message: st.mensaje, confirm: [...st.confirmados]});
+    st.aviso = r.applied ? `Aplicado (commit ${r.commit}). ${r.note}` : r.note;
+    st.dry = null; st.confirmados.clear(); await cargar(); cargarSalud();
+  } catch (e) { btn.disabled = false; btn.textContent = "Aplicar"; mostrarError(e, $("#ap-errores")); }
+}
+
+/* ---------- salud ---------- */
+function panelSalud() {
+  const s = st.salud;
+  const cab = `<div class="barra"><div><h2>Salud</h2><p class="ayuda">Chequeos de <code>orquesta doctor</code>. «Re-chequear» ignora el cache y hace los pings reales (gasta un ping mínimo de agy y de Claude, unos 20 a 40 segundos).</p></div>
+    <button class="btn" data-action="rechequear" ${st.saludCargando ? "disabled" : ""}>${st.saludCargando ? "Chequeando…" : "Re-chequear"}</button></div>`;
+  if (!s) return cab + `<p class="cargando">${st.saludCargando ? "Corriendo doctor…" : "Sin datos todavía."}</p>`;
+  const txt = {ok: "Todo en orden", warn: "Funciona, con avisos", fail: "Hay fallas que resolver"}[s.overall];
+  return cab + `<p class="semaforo"><span class="luz ${s.overall}"></span>${txt}<span class="ayuda">(${esc(s.generated_at)})</span></p>
+    <ul class="chequeos">${s.checks.map((c) => `<li class="chequeo"><span class="luz ${c.status}" aria-label="${c.status}"></span>
+      <div><p><span class="nombre">${esc(c.name)}</span>: ${esc(c.message)}${c.cached ? ' <span class="ayuda">(cache)</span>' : ""}</p>
+      ${c.suggestion && c.status !== "ok" ? `<p class="sug">${esc(c.suggestion)}</p>` : ""}</div>
+      ${c.status !== "ok" ? `<button class="btn chico" data-action="llamar" data-name="${esc(c.name)}" data-msg="${esc(c.message)}">Llamar a that_it_guy</button>` : "<span></span>"}</li>`).join("")}</ul>`;
+}
+async function llamarThatItGuy(nombre, mensaje) {
+  try {
+    const r = await api("POST", "/api/that-it-guy", {name: nombre, message: mensaje});
+    const copiar = await dialogo({titulo: "Llamar a that_it_guy", texto: "La UI no ejecuta agentes. Copiá este comando y correlo en una terminal:", html: `<code class="cmd">${esc(r.command)}</code>`, aceptar: "Copiar comando", cancelar: "Cerrar"});
+    if (copiar) { await navigator.clipboard.writeText(r.command); toast("Comando copiado."); }
+  } catch (e) { toast(e.message); }
+}
+
+/* ---------- historial ---------- */
+function panelHistorial() {
+  if (!st.historia) { cargarHistoria(); return `<h2>Historial</h2><p class="cargando">Cargando…</p>`; }
+  const cl = st.changelog.split("\n").map((l) => l.startsWith("## ") ? `<h3>${esc(l.slice(3))}</h3>` : l.startsWith("- ") ? `<li>${esc(l.slice(2))}</li>` : l.startsWith("# ") || !l.trim() ? "" : `<p class="ayuda">${esc(l)}</p>`).join("")
+    .replace(/(<li>.*?<\/li>)+/gs, (m) => `<ul>${m}</ul>`);
+  return `<div class="barra"><div><h2>Historial</h2><p class="ayuda">Restaurar una versión trae su orquesta.yaml como cambio sin aplicar: después revisás el diff y aplicás. Nunca se borra historia.</p></div></div>
+  <div class="historia"><ul class="commits">${st.historia.map((c) => `<li><div><div>${esc(c.message)}</div><div class="meta">${esc(c.short)}, ${esc(new Date(c.date).toLocaleString("es-AR"))}</div></div>
+      <button class="enlace" data-action="restaurar" data-sha="${esc(c.sha)}" data-msg="${esc(c.message)}">Restaurar</button></li>`).join("")}</ul>
+    <div class="panel changelog"><h3 style="margin-top:0">CHANGELOG.md</h3>${cl || '<p class="ayuda">Vacío.</p>'}</div></div>`;
+}
+async function cargarHistoria() {
+  try { const [h, c] = await Promise.all([api("GET", "/api/history"), api("GET", "/api/changelog")]); st.historia = h.commits; st.changelog = c.content; }
+  catch (e) { st.historia = []; toast(e.message); }
+  if (st.tab === "historial") renderPanel();
+}
+
+/* ---------- plugins ---------- */
+function panelPlugins() {
+  if (!st.plugins) { api("GET", "/api/plugins").then((r) => { st.plugins = r.plugins; if (st.tab === "plugins") renderPanel(); }).catch((e) => toast(e.message)); return `<h2>Plugins</h2><p class="cargando">Cargando…</p>`; }
+  const estado = (p) => p.official ? "oficial de Anthropic" : p.audit === "ok" ? "auditado, coincide el commit" : p.audit ? `auditoría: ${p.audit}` : "sin auditoría para este commit";
+  return `<div class="barra"><div><h2>Plugins</h2><p class="ayuda">Solo lectura. Los agentes de plugins no se editan acá: los maneja Claude Code (<code>claude plugin</code>) y no forman parte del ruteo de orquesta.</p></div></div>
+    ${st.plugins.map((p) => `<div class="plugin"><h3>${esc(p.id)} <span class="ayuda">versión ${esc(p.version)}, commit ${esc(p.sha || "?")}, ${esc(estado(p))}</span></h3>
+      ${p.agents.length ? `<table><thead><tr><th>Agente</th><th>Modelo</th><th>Tools</th><th>Descripción</th></tr></thead><tbody>${p.agents.map((a) => `<tr><td>${esc(a.name)}</td><td>${esc(a.model)}</td><td>${esc(a.tools)}</td><td>${esc(a.description)}</td></tr>`).join("")}</tbody></table>` : '<p class="ayuda">No trae agentes.</p>'}</div>`).join("") || '<p class="ayuda">No hay plugins instalados.</p>'}`;
+}
+
+/* ---------- eventos ---------- */
+document.addEventListener("click", async (ev) => {
+  const t = ev.target.closest("[data-tab], [data-action]");
+  if (!t) return;
+  if (t.dataset.tab) { st.tab = t.dataset.tab; if (st.tab === "historial") st.historia = null; if (st.tab === "plugins") st.plugins = null; render(); return; }
+  const n = t.dataset.name, act = t.dataset.action;
+  try {
+    switch (act) {
+      case "recargar": st.ed = null; await cargar(); break;
+      case "cerrar-aviso": st.aviso = null; renderAvisos(); break;
+      case "nuevo": st.ed = {agent: agenteVacio(), nuevo: true, vista: "form"}; renderPanel(); break;
+      case "editar": st.ed = {agent: sinCalculados(st.data.agents.find((a) => a.name === n)), nuevo: false, vista: "form"}; renderPanel(); break;
+      case "volver": st.ed = null; renderPanel(); break;
+      case "ed-tab": st.ed.vista = t.dataset.v; renderPanel(); break;
+      case "agregar-caso": $("#casos").insertAdjacentHTML("beforeend", caso("")); $("#casos .caso:last-child input").focus(); break;
+      case "quitar-caso": t.closest(".caso").remove(); programarPreview(); break;
+      case "probar":
+        st.pruebas[n] = {cargando: true}; renderPanel();
+        try { st.pruebas[n] = await api("POST", `/api/agents/${encodeURIComponent(n)}/test`); }
+        catch (e) { st.pruebas[n] = {status: "ERROR", latency_s: 0, detail: e.message}; }
+        renderPanel(); break;
+      case "duplicar": { const r = await api("POST", `/api/agents/${encodeURIComponent(n)}/duplicate`, {expected_hash: hash()}); toast(`Duplicado como ${r.name} (deshabilitado).`); await cargar(); break; }
+      case "renombrar": {
+        const nuevo = await dialogo({titulo: `Renombrar ${n}`, texto: "Nuevo nombre (minúsculas, números y guiones):", input: n, aceptar: "Renombrar"});
+        if (!nuevo || nuevo === n) break;
+        const r = await conConfirmacion(n, (confirm) => api("POST", `/api/agents/${encodeURIComponent(n)}/rename`, {new_name: nuevo.trim(), expected_hash: hash(), confirm}));
+        if (r) { toast(`Renombrado a ${r.name}.`); await cargar(); } break;
+      }
+      case "eliminar": {
+        const ok = await dialogo({titulo: `Eliminar ${n}`, texto: "Se borra del registro. Al aplicar, también su .md de Claude Code.", aceptar: "Eliminar", peligro: true});
+        if (!ok) break;
+        const r = await conConfirmacion(n, (confirm) => api("DELETE", `/api/agents/${encodeURIComponent(n)}`, {expected_hash: hash(), confirm}));
+        if (r) { toast(`Eliminado ${n}. Aplicá para sacarlo de Claude Code.`); await cargar(); } break;
+      }
+      case "guardar-crudo": {
+        const contenido = $("#crudo").value;
+        const r = await conConfirmacion(st.ed.agent.name, (confirm) => api("POST", `/api/agents/${encodeURIComponent(st.ed.agent.name)}/raw`, {content: contenido, expected_hash: hash(), confirm}));
+        if (r) { await dialogo({titulo: "El agente ahora es manual", texto: r.warning, aceptar: "Entendido", cancelar: null}); st.ed = null; await cargar(); } break;
+      }
+      case "desmanual": {
+        const r = await conConfirmacion(st.ed.agent.name, (confirm) => api("POST", `/api/agents/${encodeURIComponent(st.ed.agent.name)}/unmanual`, {expected_hash: hash(), confirm}));
+        if (r) { toast(r.warning); st.ed = null; await cargar(); } break;
+      }
+      case "mood-guardar": await moodAccion({action: "update", name: n, description: $(`[data-mood-desc="${CSS.escape(n)}"]`).value}, `Guardado ${n}.`); break;
+      case "mood-default": await moodAccion({action: "default", name: n}, `${n} es el nuevo default.`); break;
+      case "mood-borrar": { const ok = await dialogo({titulo: `Borrar el mood ${n}`, aceptar: "Borrar", peligro: true}); if (ok) await moodAccion({action: "delete", name: n}, `Borrado ${n}.`); break; }
+      case "mood-renombrar": { const nuevo = await dialogo({titulo: `Renombrar ${n}`, input: n, aceptar: "Renombrar"}); if (nuevo && nuevo !== n) await moodAccion({action: "rename", name: n, new_name: nuevo.trim()}, `Renombrado a ${nuevo}.`); break; }
+      case "dry-run": await correrDryRun(); break;
+      case "aplicar": await aplicar(); break;
+      case "descartar": {
+        const ok = await dialogo({titulo: "Descartar los cambios sin aplicar", texto: "orquesta.yaml vuelve a la última versión commiteada. Lo que editaste y no aplicaste se pierde.", aceptar: "Descartar", peligro: true});
+        if (ok) { await api("POST", "/api/discard", {confirm: true}); st.dry = null; toast("Cambios descartados."); await cargar(); } break;
+      }
+      case "rechequear": await cargarSalud(true); break;
+      case "llamar": await llamarThatItGuy(n, t.dataset.msg); break;
+      case "restaurar": {
+        const ok = await dialogo({titulo: "Restaurar esta versión", texto: `orquesta.yaml vuelve a como estaba en «${t.dataset.msg}». Queda como cambio sin aplicar: después revisás el diff y aplicás.`, aceptar: "Restaurar"});
+        if (!ok) break;
+        st.dry = await api("POST", `/api/history/${t.dataset.sha}/restore`, {expected_hash: hash()});
+        st.mensaje = `Rollback a ${t.dataset.sha.slice(0, 7)}: ${t.dataset.msg}`; st.tab = "aplicar"; await cargar(); break;
+      }
+    }
+  } catch (e) { mostrarError(e, null); }
+});
+document.addEventListener("change", async (ev) => {
+  const t = ev.target;
+  try {
+    if (t.dataset.action === "toggle") {
+      const a = sinCalculados(st.data.agents.find((x) => x.name === t.dataset.name));
+      a.enabled = t.checked;
+      const r = await conConfirmacion(a.name, (confirm) => api("PUT", `/api/agents/${encodeURIComponent(a.name)}`, {agent: a, expected_hash: hash(), confirm}));
+      if (r) toast(`${a.name} ${a.enabled ? "habilitado" : "deshabilitado"}. Aplicá para que tome efecto.`);
+      await cargar();
+    } else if (t.id === "orq-toggle") {
+      await api("PUT", "/api/orchestrator", {enabled: t.checked, expected_hash: hash()});
+      toast(t.checked ? "Orquestación activada. Aplicá para que tome efecto." : "Orquestación desactivada. Aplicá para que tome efecto.");
+      await cargar();
+    } else if (t.id === "m-default") {
+      await moodAccion({action: "default", name: t.value}, `${t.value} es el nuevo default.`);
+    } else if (t.id === "m-tag") {
+      await api("PUT", "/api/orchestrator", {show_mood_tag: t.checked, expected_hash: hash()}); await cargar();
+    } else if (t.dataset.confirmar) {
+      if (t.checked) st.confirmados.add(t.dataset.confirmar); else st.confirmados.delete(t.dataset.confirmar);
+      renderPanel();
+    }
+  } catch (e) { mostrarError(e, null); await cargar(); }
+});
+document.addEventListener("submit", async (ev) => {
+  if (ev.target.id !== "m-nuevo") return;
+  ev.preventDefault();
+  await moodAccion({action: "add", name: $("#m-nombre").value.trim(), description: $("#m-desc").value}, "Mood agregado.");
+});
+$("#salud-chip").addEventListener("click", () => { st.tab = "salud"; render(); });
+
+cargar().then(() => cargarSalud(false));
+</script>
+</body>
+</html>
