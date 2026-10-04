@@ -40,7 +40,7 @@ class Violation:
 
 # Campos agregados al esquema después del primer deploy: en su valor por defecto no entran al hash,
 # así un agente que no cambió no aparece como "cambio protegido" tras una actualización de orquesta.
-_LATER_FIELDS = {"plugins": []}
+_LATER_FIELDS = {"plugins": [], "avoid_when": []}
 
 
 def entry_hash(agent: Agent, manual_text: str | None = None) -> str:

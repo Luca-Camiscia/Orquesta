@@ -225,6 +225,26 @@ def tree_state(cwd: Path) -> TreeState | None:
     return TreeState(entries, h.hexdigest())
 
 
+CONTRACT = ("Cerrá tu respuesta con estas cuatro líneas, exactas:\n"
+            "RESULTADO: OK | PARCIAL | BLOQUEADO\n"
+            "CONFIANZA: <0-100>\n"
+            "EVIDENCIA: <archivo:línea, comando o fuente que sostiene tu respuesta>\n"
+            "SIGUIENTE PASO: <qué haría falta después, o 'nada'>")
+
+
+def parse_contract(text: str) -> dict:
+    """Extrae RESULTADO y CONFIANZA del contrato de salida (vacío si no está o no es válido)."""
+    out: dict = {}
+    import re as _re
+    m = _re.search(r"^\s*RESULTADO:\s*(OK|PARCIAL|BLOQUEADO)\b", text, _re.M | _re.I)
+    c = _re.search(r"^\s*CONFIANZA:\s*(\d{1,3})\s*%?\s*$", text, _re.M)
+    if m and c and 0 <= int(c.group(1)) <= 100:
+        out = {"resultado": m.group(1).upper(), "confianza": int(c.group(1))}
+    elif c and 0 <= int(c.group(1)) <= 100 and m is None:
+        out = {}
+    return out
+
+
 def compose_prompt(agent: mf.DeployedAgent, task: str, wt: worktrees.Worktree | None) -> str:
     parts = [agent.backend_prompt.strip()] if agent.backend_prompt.strip() else []
     if agent.mode == "read-only":
@@ -234,6 +254,7 @@ def compose_prompt(agent: mf.DeployedAgent, task: str, wt: worktrees.Worktree | 
         parts.append(f"Trabajás en un git worktree aislado ({wt.path}, rama {wt.branch}). Hacé solo "
                      f"los cambios pedidos y no hagas commits: el runner commitea.")
     parts.append(task.strip())
+    parts.append(CONTRACT)
     return "\n\n---\n\n".join(parts)
 
 
@@ -362,7 +383,7 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                 meta.setdefault("warnings", []).append("el backend no dejó cambios en el worktree")
         except worktrees.WorktreeError as exc:
             meta.setdefault("warnings", []).append(f"no se pudo commitear en el worktree: {exc}")
-    result.meta = {**meta, **result.meta}
+    result.meta = {**meta, **result.meta, "contrato": parse_contract(result.output)}
     result.latency_s = round(time.monotonic() - t0, 1)
     return result
 

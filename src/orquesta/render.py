@@ -86,6 +86,8 @@ def effective_description(agent: Agent, backend: Backend | None) -> str:
         else:
             how = "escribe en el proyecto"
         parts.append(f"Delega en {backend.label}: {how}.")
+    if agent.avoid_when:
+        parts.append("NO usar si " + "; ".join(a.strip().rstrip(".") for a in agent.avoid_when) + ".")
     return " ".join(parts)
 
 
@@ -236,6 +238,8 @@ def render_block_inner(reg: Registry, ctx: RenderContext) -> str:
     ]
     for a in agents:
         when = "; ".join(_cell(r) for r in a.route_when) or _cell(a.role)
+        if a.avoid_when:
+            when += ". NO usar si " + "; ".join(_cell(x) for x in a.avoid_when)
         lines.append(f"| `{a.name}` | {a.backend} | {a.mode} | {a.effective_isolation} | {when} |")
     lines += [
         "",

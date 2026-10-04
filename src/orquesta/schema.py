@@ -76,6 +76,7 @@ class Agent(_Strict):
     backend_model: str | None = None
     role: str
     route_when: list[str] = Field(default_factory=list)
+    avoid_when: list[str] = Field(default_factory=list)
     description: str = ""
     tools: list[str] = Field(default_factory=list)
     mode: Mode = "read-only"

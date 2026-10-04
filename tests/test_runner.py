@@ -111,7 +111,8 @@ def test_run_antepone_la_persona_y_el_modo(env, proyecto):
     r = correr(env, "codex-critico", "ECHOARGS", proyecto)
     prompt = json.loads(r.output)["prompt"]
     assert prompt.startswith("Sos el crítico.")
-    assert "SOLO LECTURA" in prompt and prompt.rstrip().endswith("ECHOARGS")
+    assert "SOLO LECTURA" in prompt and "ECHOARGS\n\n---\n\n" in prompt
+    assert prompt.rstrip().endswith(runner.CONTRACT.splitlines()[-1])
 
 
 def test_run_ok_con_agy_devuelve_el_texto_de_la_respuesta_json(env, proyecto):
