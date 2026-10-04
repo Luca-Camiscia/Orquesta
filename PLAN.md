@@ -37,6 +37,11 @@ plugin oficial de Codex.
 11. **Plugins.** El SHA instalado tiene que coincidir con el auditado.
 12. **Rutas de Claude Code inyectables** (respeta `CLAUDE_CONFIG_DIR`). Los tests nunca tocan `~/.claude`.
 
+## Alcance de plataforma
+
+Linux es la prioridad. Windows quedó fuera de las prioridades (pedido del usuario el 2026-10-04):
+se escribe Python portable cuando no cuesta nada extra, pero no se diseña ni se prueba para Windows.
+
 ## Progreso
 
 - [x] 0. Diagnóstico y carpeta — codex oficial 0.160.0 (npm), ambos autenticados
