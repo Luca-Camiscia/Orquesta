@@ -2,6 +2,22 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-04 20:54 — Tanda 2: personas mejoradas (guías Codex/Gemini), anti-disparadores, contrato de salida y 9 roles nuevos
+
+- CLAUDE.md: bloque actualizado
+- + agente `claude-arquitecto` (claude, read-only)
+- + agente `claude-centinela` (claude, read-only)
+- + agente `claude-detective` (claude, read-only)
+- + agente `claude-juez` (claude, read-only)
+- ~ agente `codex-abogado-del-diablo`
+- ~ agente `codex-forjador`
+- + agente `codex-perfilador` (codex, read-only)
+- + agente `codex-refactorista` (codex, write)
+- + agente `codex-tester` (codex, write)
+- ~ agente `gemini-bibliotecario`
+- + agente `gemini-investigador` (agy, read-only)
+- + agente `gemini-ux-revisor` (agy, read-only)
+
 ## 2026-10-04 20:22 — Migración del manifiesto: registra plugins por agente
 
 - manifiesto de deploy actualizado
