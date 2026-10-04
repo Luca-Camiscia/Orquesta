@@ -19,7 +19,7 @@ from ruamel.yaml import YAML
 
 from orquesta import catalog, doctor, editing
 from orquesta import manifest as mf
-from orquesta import moods, runner
+from orquesta import chat, moods, runner
 from orquesta import plugins as plugins_mod
 from orquesta.config import load_backends, read_manual
 from orquesta.generate import GenerateError, apply_plan, build_plan, run_test_suite
@@ -61,7 +61,8 @@ def _with_defaults(raw: dict) -> dict:
 
 
 def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | None = None,
-               run_tests=run_test_suite, doctor_deps: doctor.Env | None = None) -> FastAPI:
+               run_tests=run_test_suite, doctor_deps: doctor.Env | None = None,
+               chat_executor=None) -> FastAPI:
     paths = paths or default_paths()
     token = token or secrets.token_urlsafe(24)
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -96,6 +97,10 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
     @app.exception_handler(editing.EditError)
     async def _edit(_, exc):
         return JSONResponse({"errors": exc.errors}, status_code=422)
+
+    @app.exception_handler(chat.ChatError)
+    async def _chat(_, exc):
+        return JSONResponse({"errors": [str(exc)]}, status_code=422)
 
     @app.exception_handler(moods.MoodError)
     async def _mood(_, exc):
@@ -423,5 +428,72 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         except plugins_mod.PluginError as exc:
             return JSONResponse({"errors": [str(exc)]}, status_code=422)
         return {"ok": True, "note": RESTART_NOTE}
+
+    # --- chat --------------------------------------------------------------------------------
+
+    store = chat.Store(paths)
+    executor = chat_executor or chat.default_executor
+
+    @app.get("/api/chat/participants")
+    def chat_participants():
+        return {"participants": store.participants()}
+
+    @app.get("/api/chat/projects")
+    def chat_projects():
+        return {"projects": store.list_projects()}
+
+    @app.post("/api/chat/projects")
+    def chat_new_project(body: dict = Body(...)):
+        return store.create_project(body.get("name", ""), body.get("dir", ""))
+
+    @app.get("/api/chat/conversations")
+    def chat_conversations(project: str | None = None):
+        return {"conversations": store.list_conversations(project)}
+
+    @app.post("/api/chat/conversations")
+    def chat_new_conversation(body: dict = Body(...)):
+        return store.create_conversation(body.get("project_id", ""), body.get("title", ""),
+                                         body.get("kind", "individual"), body.get("participants") or [],
+                                         body.get("mode", "rondas"))
+
+    @app.get("/api/chat/conversations/{cid}")
+    def chat_conversation(cid: str):
+        return store.get_conversation(cid)
+
+    @app.delete("/api/chat/conversations/{cid}")
+    def chat_delete(cid: str):
+        store.delete_conversation(cid)
+        return {"ok": True}
+
+    @app.post("/api/chat/conversations/{cid}/participants")
+    def chat_set_participants(cid: str, body: dict = Body(...)):
+        return store.set_participants(cid, body.get("participants") or [])
+
+    @app.post("/api/chat/conversations/{cid}/messages")
+    def chat_send(cid: str, body: dict = Body(...)):
+        import threading
+        text = (body.get("text") or "").strip()
+        if not text:
+            raise chat.ChatError("el mensaje está vacío")
+        claimed = {}
+
+        def claim(c):
+            if c.get("busy"):
+                raise chat.ChatError("la conversación todavía está respondiendo: esperá a que termine")
+            c["busy"] = True
+            claimed["ok"] = True
+        store.update(cid, claim)
+        threading.Thread(target=chat.run_turn, args=(store, cid, text, executor), daemon=True).start()
+        return JSONResponse({"ok": True}, status_code=202)
+
+    @app.post("/api/chat/conversations/{cid}/worktrees/merge")
+    def chat_merge(cid: str, body: dict = Body(...)):
+        chat.merge_worktree(store, cid, body.get("branch", ""))
+        return {"ok": True}
+
+    @app.post("/api/chat/conversations/{cid}/worktrees/discard")
+    def chat_discard(cid: str, body: dict = Body(...)):
+        chat.discard_worktree(store, cid, body.get("branch", ""))
+        return {"ok": True}
 
     return app

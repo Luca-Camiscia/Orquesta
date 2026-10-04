@@ -266,6 +266,39 @@ code.cmd { display: block; padding: 12px 14px; border-radius: 8px; background: v
 .plugin table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: .9rem; }
 .plugin th, .plugin td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--pauta-suave); vertical-align: top; }
 
+/* conversaciones */
+.chat { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; align-items: start; }
+.lateral { display: grid; gap: 14px; position: sticky; top: 16px; }
+.lista-conv { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 55vh; overflow: auto; }
+.lista-conv button { width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 7px; cursor: pointer; }
+.lista-conv button[aria-current="true"] { background: var(--hoja); outline: 1px solid var(--pauta); }
+.lista-conv small { display: block; color: var(--tinta-suave); font-size: .8rem; }
+.sala { background: var(--hoja); border: 1px solid var(--pauta); border-radius: 10px; display: grid; grid-template-rows: auto 1fr auto; min-height: 70vh; }
+.sala-cab { padding: 14px 18px; border-bottom: 1px solid var(--pauta); display: grid; gap: 8px; }
+.sala-cab h2 { font-size: 1.35rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: .85rem; padding: 2px 4px 2px 10px; border-radius: 999px; border: 1px solid currentColor; }
+.chip button { border: 0; background: none; cursor: pointer; color: inherit; padding: 0 6px; font-size: 1rem; line-height: 1; }
+.mensajes { padding: 18px; display: grid; gap: 14px; align-content: start; overflow: auto; max-height: 62vh; }
+.msg { max-width: 82%; display: grid; gap: 4px; }
+.msg .autor { font-size: .82rem; font-weight: 700; }
+.msg .cuerpo { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--pauta); white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.msg.usuario { justify-self: end; }
+.msg.usuario .cuerpo { background: var(--tinta); color: var(--hoja); border-color: var(--tinta); }
+.msg.usuario .autor { text-align: right; color: var(--tinta-suave); }
+.msg.error .cuerpo { border-color: var(--fail); }
+.msg .pregunta { font-size: .84rem; color: var(--tinta-suave); font-style: italic; }
+.pensando { color: var(--tinta-suave); font-style: italic; }
+.pensando::after { content: "…"; animation: puntos 1.2s steps(3) infinite; }
+@keyframes puntos { 0% { content: "."; } 50% { content: ".."; } 100% { content: "..."; } }
+.wt { border: 2px solid var(--codex); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; }
+.wt pre { margin: 0; font-family: var(--mono); font-size: .8rem; white-space: pre-wrap; }
+.redactar { border-top: 1px solid var(--pauta); padding: 12px 14px; display: grid; gap: 8px; }
+.redactar textarea { min-height: 70px; background: var(--hoja); }
+.c-orquestador { color: var(--tinta); }
+@media (max-width: 860px) { .chat { grid-template-columns: 1fr; } .lateral { position: static; } .msg { max-width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .pensando::after { animation: none; content: "…"; } }
+
 /* diálogo y toast */
 dialog { border: 1px solid var(--pauta); border-radius: 12px; padding: 22px 24px; max-width: 520px; width: calc(100% - 32px); background: var(--hoja); color: var(--tinta); }
 dialog::backdrop { background: rgb(24 33 58 / .35); }
@@ -316,10 +349,10 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<
 const TOKEN = $('meta[name="orquesta-token"]').content;
 const NOMBRE_BACKEND = {claude: "Claude", codex: "Codex", agy: "Antigravity"};
 const ORDEN_BACKEND = ["claude", "codex", "agy"];
-const PESTANAS = [["agentes", "Agentes"], ["moods", "Moods"], ["aplicar", "Aplicar"], ["salud", "Salud"], ["historial", "Historial"], ["plugins", "Plugins"]];
+const PESTANAS = [["chat", "Conversaciones"], ["agentes", "Agentes"], ["moods", "Moods"], ["aplicar", "Aplicar"], ["salud", "Salud"], ["historial", "Historial"], ["plugins", "Plugins"]];
 const CANDADO = '<svg class="candado" viewBox="0 0 16 16" aria-label="protegido" role="img"><path fill="currentColor" d="M5 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5Zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2Z"/></svg>';
 
-const st = {data: null, tab: "agentes", ed: null, salud: null, saludCargando: false, dry: null, confirmados: new Set(),
+const st = {chat: {projects: [], pid: null, convs: [], conv: null, nueva: false, participantes: []}, data: null, tab: "chat", ed: null, salud: null, saludCargando: false, dry: null, confirmados: new Set(),
             historia: null, changelog: "", plugins: null, aviso: null, pruebas: {}, mensaje: "Aplicar cambios desde la UI"};
 
 class ApiError extends Error {
@@ -411,10 +444,11 @@ function renderAvisos() {
 }
 function renderPanel() {
   const p = $("#panel");
-  const fn = {agentes: st.ed ? panelEditor : panelAgentes, moods: panelMoods, aplicar: panelAplicar, salud: panelSalud, historial: panelHistorial, plugins: panelPlugins}[st.tab];
+  const fn = {chat: panelChat, agentes: st.ed ? panelEditor : panelAgentes, moods: panelMoods, aplicar: panelAplicar, salud: panelSalud, historial: panelHistorial, plugins: panelPlugins}[st.tab];
   p.innerHTML = fn();
   if (st.tab === "agentes" && st.ed) montarEditor();
   if (st.tab === "moods") previewBloque();
+  if (st.tab === "chat") { const m = $(".mensajes"); if (m) m.scrollTop = m.scrollHeight; }
 }
 
 /* ---------- agentes ---------- */
@@ -715,6 +749,83 @@ function panelPlugins() {
       ${p.agents.length ? `<table><thead><tr><th>Agente</th><th>Modelo</th><th>Tools</th><th>Descripción</th></tr></thead><tbody>${p.agents.map((a) => `<tr><td>${esc(a.name)}</td><td>${esc(a.model)}</td><td>${esc(a.tools)}</td><td>${esc(a.description)}</td></tr>`).join("")}</tbody></table>` : '<p class="ayuda">No trae agentes.</p>'}</div>`).join("") || '<p class="ayuda">No hay plugins instalados.</p>'}`;
 }
 
+/* ---------- conversaciones ---------- */
+const colorDe = (p) => p === "orquestador" ? "c-orquestador" : `c-${(st.data.agents.find((a) => a.name === p) || {}).backend || ""}`;
+async function cargarChat() {
+  const c = st.chat;
+  const [pr, pa] = await Promise.all([api("GET", "/api/chat/projects"), api("GET", "/api/chat/participants")]);
+  c.projects = pr.projects; c.participantes = pa.participants;
+  if (!c.pid && c.projects.length) c.pid = c.projects[0].id;
+  c.convs = c.pid ? (await api("GET", `/api/chat/conversations?project=${c.pid}`)).conversations : [];
+  if (st.tab === "chat") renderPanel();
+}
+async function abrirConv(id) {
+  st.chat.conv = await api("GET", `/api/chat/conversations/${id}`); st.chat.nueva = false;
+  if (st.tab === "chat") renderPanel();
+  programarSondeo();
+}
+function programarSondeo() {
+  clearTimeout(programarSondeo.t);
+  const c = st.chat.conv;
+  if (!c || !(c.busy || c.messages.some((m) => m.status === "pending"))) return;
+  programarSondeo.t = setTimeout(async () => {
+    if (!st.chat.conv || st.chat.conv.id !== c.id) return;
+    const nuevo = await api("GET", `/api/chat/conversations/${c.id}`);
+    const cambio = JSON.stringify(nuevo.messages) !== JSON.stringify(c.messages) || nuevo.busy !== c.busy || nuevo.worktrees.length !== c.worktrees.length;
+    st.chat.conv = nuevo;
+    if (cambio && st.tab === "chat") { const borrador = $("#chat-texto") ? $("#chat-texto").value : ""; renderPanel(); if ($("#chat-texto")) $("#chat-texto").value = borrador; }
+    if (!nuevo.busy) cargarChat();
+    programarSondeo();
+  }, 1500);
+}
+function panelChat() {
+  const c = st.chat;
+  const lado = `<aside class="lateral">
+    <div class="campo"><label for="chat-proy">Proyecto</label><select id="chat-proy">${c.projects.map((p) => `<option value="${esc(p.id)}" ${p.id === c.pid ? "selected" : ""}>${esc(p.name)}</option>`).join("")}${c.projects.length ? "" : "<option>Sin proyectos</option>"}</select>
+      ${c.pid ? `<small class="ayuda">${esc((c.projects.find((p) => p.id === c.pid) || {}).dir || "")}</small>` : ""}</div>
+    <div class="acciones"><button class="btn chico" data-action="chat-proyecto">Nuevo proyecto</button>${c.pid ? '<button class="btn chico primario" data-action="chat-nueva">Nueva conversación</button>' : ""}</div>
+    <ul class="lista-conv">${c.convs.map((v) => `<li><button data-action="chat-abrir" data-name="${esc(v.id)}" aria-current="${c.conv && c.conv.id === v.id}">${esc(v.title)}<small>${v.kind === "reunion" ? `Reunión ${v.mode}` : "Individual"}: ${esc(v.participants.join(", "))}${v.busy ? ", respondiendo" : ""}</small></button></li>`).join("") || (c.pid ? '<li class="ayuda">Todavía no hay conversaciones.</li>' : "")}</ul></aside>`;
+  let centro;
+  if (!c.projects.length) centro = `<div class="panel"><h2>Conversaciones</h2><p class="ayuda">Un proyecto es un directorio de trabajo, por ejemplo un repo. Creá uno para empezar a hablar con los agentes.</p></div>`;
+  else if (c.nueva || !c.conv) centro = formNuevaConv();
+  else centro = sala(c.conv);
+  return `<div class="chat">${lado}${centro}</div>`;
+}
+function formNuevaConv() {
+  const ps = st.chat.participantes;
+  return `<form class="panel campos" id="chat-form"><h2>Nueva conversación</h2>
+    <div class="campo"><label for="nc-titulo">Título</label><input type="text" id="nc-titulo" required placeholder="Por ejemplo: diseño del endpoint de ventas"></div>
+    <fieldset><legend>Tipo</legend><div class="opciones">
+      <label><input type="radio" name="nc-kind" value="individual" checked> Individual (un agente)</label>
+      <label><input type="radio" name="nc-kind" value="reunion"> Reunión</label></div></fieldset>
+    <fieldset id="nc-modo" disabled><legend>Modo de la reunión</legend><div class="opciones">
+      <label><input type="radio" name="nc-mode" value="rondas" checked> Rondas: responden en orden, @agente para hablarle a uno</label>
+      <label><input type="radio" name="nc-mode" value="moderada"> Moderada: el orquestador pregunta y cierra con una síntesis</label></div></fieldset>
+    <fieldset><legend>Participantes</legend><div class="tools">${ps.map((p, i) => `<label class="${colorDe(p)}"><input type="checkbox" name="nc-p" value="${esc(p)}" ${i === 0 ? "checked" : ""}> ${esc(p)}</label>`).join("")}</div>
+      <small class="ayuda">Los agentes de escritura trabajan en su worktree: vos decidís si mergear. El orquestador y los agentes claude responden en solo lectura. Cada mensaje gasta cuota real.</small></fieldset>
+    <div id="nc-err"></div>
+    <div class="acciones"><button class="btn primario">Crear conversación</button>${st.chat.conv ? '<button type="button" class="btn" data-action="chat-cancelar">Cancelar</button>' : ""}</div></form>`;
+}
+function sala(v) {
+  const reunion = v.kind === "reunion";
+  const libres = st.chat.participantes.filter((p) => !v.participants.includes(p));
+  const msgs = v.messages.map((m) => {
+    if (m.author === "usuario") return `<div class="msg usuario"><span class="autor">Vos</span><div class="cuerpo">${esc(m.text)}</div></div>`;
+    const cuerpo = m.status === "pending" ? '<span class="pensando">Pensando</span>' : esc(m.text);
+    return `<div class="msg ${m.status === "error" ? "error" : ""}"><span class="autor ${colorDe(m.author)}">${esc(m.author)}${m.meta && m.meta.latency_s ? ` <span class="ayuda">(${esc(m.meta.latency_s)} s)</span>` : ""}</span>
+      ${m.meta && m.meta.pregunta ? `<span class="pregunta">El moderador le preguntó: ${esc(m.meta.pregunta)}</span>` : ""}<div class="cuerpo">${cuerpo}</div></div>`;
+  }).join("") || '<p class="ayuda">Escribí el primer mensaje.</p>';
+  const wts = v.worktrees.map((w) => `<div class="wt"><strong>${esc(w.agent)} dejó cambios en ${esc(w.branch)}</strong>${w.diffstat ? `<pre>${esc(w.diffstat)}</pre>` : ""}
+      ${w.status === "abierto" ? `<div class="acciones"><button class="btn primario chico" data-action="chat-merge" data-name="${esc(w.branch)}">Mergear</button><button class="btn chico peligro" data-action="chat-descartar" data-name="${esc(w.branch)}">Descartar</button></div>` : `<span class="ayuda">${esc(w.status)}</span>`}</div>`).join("");
+  return `<section class="sala"><header class="sala-cab"><div class="barra" style="margin:0"><h2>${esc(v.title)}</h2><button class="enlace peligro" data-action="chat-borrar">Borrar conversación</button></div>
+      <div class="chips">${v.participants.map((p) => `<span class="chip ${colorDe(p)}">${esc(p)}${reunion && v.participants.length > 1 ? `<button data-action="chat-quitar" data-name="${esc(p)}" aria-label="Sacar a ${esc(p)}">×</button>` : ""}</span>`).join("")}
+        ${reunion && libres.length ? `<select id="chat-sumar" aria-label="Sumar participante"><option value="">Sumar participante…</option>${libres.map((p) => `<option>${esc(p)}</option>`).join("")}</select>` : ""}
+        <span class="ayuda">${reunion ? `Reunión ${esc(v.mode)}${v.mode === "rondas" ? ". Con @agente le hablás a uno solo." : ". El orquestador modera y cierra con una síntesis."}` : "Individual"}</span></div></header>
+    <div class="mensajes" aria-live="polite">${msgs}${wts}</div>
+    <form class="redactar" id="chat-enviar"><textarea id="chat-texto" aria-label="Mensaje" placeholder="${v.busy ? "Esperá a que terminen de responder" : "Escribí tu mensaje (Ctrl+Enter para enviar)"}"></textarea>
+      <div class="acciones"><button class="btn primario" ${v.busy ? "disabled" : ""}>${v.busy ? "Respondiendo…" : "Enviar"}</button></div></form></section>`;
+}
+
 /* ---------- eventos ---------- */
 document.addEventListener("click", async (ev) => {
   const t = ev.target.closest("[data-tab], [data-action]");
@@ -769,6 +880,33 @@ document.addEventListener("click", async (ev) => {
         const r = await api("POST", "/api/plugins/uninstall", {id: n, confirm: n});
         st.aviso = `Desinstalado ${n}. ${r.note}`; st.plugins = null; await cargar(); break;
       }
+      case "chat-abrir": await abrirConv(n); break;
+      case "chat-nueva": st.chat.nueva = true; renderPanel(); break;
+      case "chat-cancelar": st.chat.nueva = false; renderPanel(); break;
+      case "chat-proyecto": {
+        const nombre = await dialogo({titulo: "Nuevo proyecto", texto: "Nombre del proyecto:", input: "", aceptar: "Seguir"});
+        if (!nombre) break;
+        const dir = await dialogo({titulo: "Directorio del proyecto", texto: "Ruta absoluta del directorio de trabajo (idealmente un repo git):", input: "", aceptar: "Crear proyecto"});
+        if (!dir) break;
+        const pr = await api("POST", "/api/chat/projects", {name: nombre, dir});
+        st.chat.pid = pr.id; st.chat.conv = null; st.chat.nueva = true; await cargarChat(); break;
+      }
+      case "chat-borrar": {
+        if (!await dialogo({titulo: "Borrar conversación", texto: "Se borra el historial. Los worktrees abiertos quedan (los ves con orquesta wt list).", aceptar: "Borrar", peligro: true})) break;
+        await api("DELETE", `/api/chat/conversations/${st.chat.conv.id}`); st.chat.conv = null; await cargarChat(); break;
+      }
+      case "chat-quitar": {
+        const v = st.chat.conv;
+        st.chat.conv = await api("POST", `/api/chat/conversations/${v.id}/participants`, {participants: v.participants.filter((p) => p !== n)}); renderPanel(); break;
+      }
+      case "chat-merge": {
+        if (!await dialogo({titulo: "Mergear los cambios", texto: `Se mergea ${n} en tu proyecto y se borra el worktree.`, aceptar: "Mergear"})) break;
+        await api("POST", `/api/chat/conversations/${st.chat.conv.id}/worktrees/merge`, {branch: n}); toast("Mergeado."); await abrirConv(st.chat.conv.id); break;
+      }
+      case "chat-descartar": {
+        if (!await dialogo({titulo: "Descartar los cambios", texto: `Se borran el worktree y la rama ${n}.`, aceptar: "Descartar", peligro: true})) break;
+        await api("POST", `/api/chat/conversations/${st.chat.conv.id}/worktrees/discard`, {branch: n}); toast("Descartado."); await abrirConv(st.chat.conv.id); break;
+      }
       case "dry-run": await correrDryRun(); break;
       case "aplicar": await aplicar(); break;
       case "descartar": {
@@ -803,6 +941,13 @@ document.addEventListener("change", async (ev) => {
       await moodAccion({action: "default", name: t.value}, `${t.value} es el nuevo default.`);
     } else if (t.id === "m-tag") {
       await api("PUT", "/api/orchestrator", {show_mood_tag: t.checked, expected_hash: hash()}); await cargar();
+    } else if (t.id === "chat-proy") {
+      st.chat.pid = t.value; st.chat.conv = null; st.chat.nueva = false; await cargarChat();
+    } else if (t.name === "nc-kind") {
+      $("#nc-modo").disabled = t.value !== "reunion";
+    } else if (t.id === "chat-sumar" && t.value) {
+      const v = st.chat.conv;
+      st.chat.conv = await api("POST", `/api/chat/conversations/${v.id}/participants`, {participants: [...v.participants, t.value]}); renderPanel();
     } else if (t.dataset.confirmar) {
       if (t.checked) st.confirmados.add(t.dataset.confirmar); else st.confirmados.delete(t.dataset.confirmar);
       renderPanel();
@@ -810,6 +955,24 @@ document.addEventListener("change", async (ev) => {
   } catch (e) { mostrarError(e, null); await cargar(); }
 });
 document.addEventListener("submit", async (ev) => {
+  if (ev.target.id === "chat-form") {
+    ev.preventDefault();
+    const kind = $('input[name="nc-kind"]:checked').value;
+    const participants = $$('input[name="nc-p"]:checked').map((i) => i.value);
+    try {
+      const v = await api("POST", "/api/chat/conversations", {project_id: st.chat.pid, title: $("#nc-titulo").value, kind, mode: $('input[name="nc-mode"]:checked').value, participants});
+      await cargarChat(); await abrirConv(v.id);
+    } catch (e) { mostrarError(e, $("#nc-err")); }
+    return;
+  }
+  if (ev.target.id === "chat-enviar") {
+    ev.preventDefault();
+    const texto = $("#chat-texto").value.trim();
+    if (!texto) return;
+    try { await api("POST", `/api/chat/conversations/${st.chat.conv.id}/messages`, {text: texto}); await abrirConv(st.chat.conv.id); }
+    catch (e) { mostrarError(e, null); }
+    return;
+  }
   if (ev.target.id === "pl-nuevo") {
     ev.preventDefault();
     const repo = $("#pl-repo").value.trim(), id = $("#pl-id").value.trim();
@@ -825,8 +988,11 @@ document.addEventListener("submit", async (ev) => {
   await moodAccion({action: "add", name: $("#m-nombre").value.trim(), description: $("#m-desc").value}, "Mood agregado.");
 });
 $("#salud-chip").addEventListener("click", () => { st.tab = "salud"; render(); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.id === "chat-texto" && ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); $("#chat-enviar").requestSubmit(); }
+});
 
-cargar().then(() => cargarSalud(false));
+cargar().then(() => { cargarSalud(false); cargarChat(); });
 </script>
 </body>
 </html>
