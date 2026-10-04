@@ -51,8 +51,8 @@ se escribe Python portable cuando no cuesta nada extra, pero no se diseña ni se
 - [x] 4. Registro, generador y tests (TDD) + `uv tool install -e` — 165 tests, deploy inicial 04c71df, Claude Code carga los 4 agentes, pings OK
 - [x] 5. Doctor + that-it-guy — 18 ok · 3 warn reales (snap de codex, parches de node y python)
 - [x] 6. UI local — probada en navegador real con Playwright (copia aislada), 229 tests
-- [ ] 7. E2E (puede requerir `/exit` + `claude --continue` para cargar los agentes)
-- [ ] 8. Resumen final
+- [x] 7. E2E — 7.1–7.5 OK (override de mood por sesión: lo prueba el usuario escribiendo `mood: <nombre>`)
+- [x] 8. Resumen final
 
 ## Paso 7: cómo retomarlo después de reiniciar la sesión
 
