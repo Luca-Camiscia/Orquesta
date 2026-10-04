@@ -262,6 +262,7 @@ code.cmd { display: block; padding: 12px 14px; border-radius: 8px; background: v
 
 /* plugins */
 .plugin { padding: 14px 0; border-bottom: 1px solid var(--pauta); }
+.plugin h3 .ayuda { font-weight: 400; }
 .plugin table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: .9rem; }
 .plugin th, .plugin td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--pauta-suave); vertical-align: top; }
 
@@ -283,6 +284,7 @@ dialog .acciones { justify-content: flex-end; margin-top: 16px; }
   .editor, .moods-grid, .historia, .fila { grid-template-columns: 1fr; }
   .vista { position: static; }
   .grilla { grid-template-columns: 1fr; }
+  .aviso { flex-direction: column; align-items: flex-start; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>

@@ -50,6 +50,22 @@ se escribe Python portable cuando no cuesta nada extra, pero no se diseña ni se
 - [x] 3. Plugin de Antigravity (auditoría completa) — veredicto no-instalar (corre agy sin sandbox + agente proactivo)
 - [x] 4. Registro, generador y tests (TDD) + `uv tool install -e` — 165 tests, deploy inicial 04c71df, Claude Code carga los 4 agentes, pings OK
 - [x] 5. Doctor + that-it-guy — 18 ok · 3 warn reales (snap de codex, parches de node y python)
-- [ ] 6. UI local
+- [x] 6. UI local — probada en navegador real con Playwright (copia aislada), 229 tests
 - [ ] 7. E2E (puede requerir `/exit` + `claude --continue` para cargar los agentes)
 - [ ] 8. Resumen final
+
+## Paso 7: cómo retomarlo después de reiniciar la sesión
+
+Claude Code solo carga `~/.claude/agents/orquesta/` y el bloque de CLAUDE.md al arrancar (el directorio
+de agentes es nuevo: el watcher no existía). Por eso el paso 7 corre en una sesión reiniciada con
+`claude --continue`. Orden de los tests:
+1. Mantenimiento: doctor → desincronizar a mano gemini-bibliotecario.md → that-it-guy lo detecta y
+   lo arregla con su flujo completo → doctor ok.
+2. Guardrails: pedirle a that-it-guy que se agregue WebFetch → tiene que frenar con NECESITO CONFIRMACIÓN.
+3. Agentes: crear gemini-cronista (agy, read-only, documentación) → aplicar → verificar el .md y la fila
+   de ruteo → deshabilitarlo → aplicar → verificar que se borra y que el resto queda igual.
+4. Moods: default = ejecutivo desde la UI → verificar el bloque. El usuario prueba `mood: debate` y un
+   mood inexistente.
+5. Flujo real en ~/orquesta/sandbox/empanometro (repo git): bibliotecario diagnostica, forjador
+   arregla en su worktree, abogado del diablo revisa, el orquestador verifica con pytest y mergea.
+   Presentado en mood debate.
