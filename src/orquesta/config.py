@@ -53,6 +53,8 @@ def load_all(paths: Paths) -> tuple[Registry, BackendsConfig]:
         errors += exc.errors
     if reg is not None and backends is not None:
         errors += [f"orquesta.yaml: {e}" for e in check_registry(reg, backends)]
+        from orquesta import plugins
+        errors += [f"orquesta.yaml: {e}" for e in plugins.check_agents(reg, plugins.installed(paths))]
     if errors:
         raise ConfigError(errors)
     return reg, backends

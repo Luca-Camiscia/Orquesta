@@ -456,7 +456,7 @@ function tarjeta(a) {
 }
 function agenteVacio() {
   return {name: "", display_name: null, enabled: true, backend: "codex", wrapper_model: null, backend_model: null, role: "", route_when: [],
-          description: "", tools: ["Bash"], mode: "read-only", isolation: null, protected: false, manual: false, extra_frontmatter: {}, prompt: ""};
+          description: "", tools: ["Bash"], mode: "read-only", isolation: null, protected: false, manual: false, extra_frontmatter: {}, plugins: [], prompt: ""};
 }
 function sinCalculados(a) {
   const c = {...a}; ["effective_isolation", "effective_wrapper_model", "deployed", "pending"].forEach((k) => delete c[k]); return c;
@@ -498,6 +498,9 @@ function editorFormulario(a) {
       <label><input type="radio" name="isolation" value="none" ${a.isolation === "none" ? "checked" : ""}> Ninguno</label></div></fieldset>
     <div class="campo"><span class="etiqueta">Tools de Claude Code</span><div class="tools">${st.data.tools.map((t) => `<label><input type="checkbox" name="tool" value="${esc(t)}" ${(a.tools || []).includes(t) ? "checked" : ""}> ${esc(t)}</label>`).join("")}</div>
       <input type="text" name="tools_extra" value="${esc(otras.join(", "))}" placeholder="Otras, separadas por coma (mcp__servidor__tool, Agent(...))"><small>Least privilege: los wrappers de codex y agy solo necesitan Bash.</small></div>
+    <div class="campo" id="f-plugins"><span class="etiqueta">Plugins</span>
+      <div class="tools">${st.data.installed_plugins.length ? st.data.installed_plugins.map((p) => `<label><input type="checkbox" name="plugin" value="${esc(p)}" ${(a.plugins || []).includes(p) ? "checked" : ""}> ${esc(p)}</label>`).join("") : '<span class="ayuda">No hay plugins instalados.</span>'}</div>
+      <small>Solo para agentes claude: le pasa al agente las skills y los MCP del plugin. Agregarle un plugin requiere tu confirmación al aplicar.</small></div>
     <div class="campo"><span class="etiqueta">Protegido</span><label class="switch"><input type="checkbox" name="protected" ${a.protected ? "checked" : ""} aria-label="Protegido"><span class="riel"></span></label>
       <small>Nadie, ni that_it_guy, puede cambiarlo sin tu confirmación explícita.</small></div>
     <div class="campo"><label for="f-extra">Frontmatter extra (JSON)</label><textarea id="f-extra" name="extra" class="codigo" rows="3" placeholder='{"maxTurns": 20, "color": "cyan"}'>${esc(Object.keys(a.extra_frontmatter || {}).length ? JSON.stringify(a.extra_frontmatter, null, 2) : "")}</textarea>
@@ -521,7 +524,10 @@ function editorCrudo() {
 function montarEditor() {
   const f = $("#form-agente");
   if (!f) { if (st.ed.crudo === undefined) cargarCrudo(); return; }
-  const sync = () => { $("#f-iso").disabled = f.querySelector('input[name="mode"]:checked').value !== "write"; };
+  const sync = () => {
+    $("#f-iso").disabled = f.querySelector('input[name="mode"]:checked').value !== "write";
+    $("#f-plugins").querySelectorAll("input").forEach((i) => { i.disabled = f.backend.value !== "claude"; });
+  };
   sync();
   f.addEventListener("input", () => { sync(); programarPreview(); });
   f.addEventListener("change", () => { sync(); programarPreview(); });
@@ -550,6 +556,7 @@ function leerFormulario() {
   const elegidas = [...$$('input[name="tool"]:checked', f).map((i) => i.value), ...extra];
   const previas = (st.ed.agent.tools || []).filter((t) => elegidas.includes(t));
   a.tools = [...new Set([...previas, ...elegidas])];  // respeta el orden que ya tenían
+  a.plugins = $$('input[name="plugin"]:checked', f).map((i) => i.value);
   a.protected = f.protected.checked;
   a.prompt = f.prompt.value;
   const raw = f.extra.value.trim();
@@ -698,8 +705,13 @@ async function cargarHistoria() {
 function panelPlugins() {
   if (!st.plugins) { api("GET", "/api/plugins").then((r) => { st.plugins = r.plugins; if (st.tab === "plugins") renderPanel(); }).catch((e) => toast(e.message)); return `<h2>Plugins</h2><p class="cargando">Cargando…</p>`; }
   const estado = (p) => p.official ? "oficial de Anthropic" : p.audit === "ok" ? "auditado, coincide el commit" : p.audit ? `auditoría: ${p.audit}` : "sin auditoría para este commit";
-  return `<div class="barra"><div><h2>Plugins</h2><p class="ayuda">Solo lectura. Los agentes de plugins no se editan acá: los maneja Claude Code (<code>claude plugin</code>) y no forman parte del ruteo de orquesta.</p></div></div>
+  return `<div class="barra"><div><h2>Plugins</h2><p class="ayuda">Los agentes que traen los plugins no se editan acá y no forman parte del ruteo de orquesta. Instalar exige una auditoría con veredicto ok del commit exacto (en <code>audits/</code>); desinstalar se niega si algún agente lo usa.</p></div></div>
+    <form class="panel" id="pl-nuevo" style="margin-bottom:16px"><h3>Instalar plugin</h3>
+      <div class="fila" style="margin-top:10px"><div class="campo"><label for="pl-repo">Repo de GitHub (owner/repo)</label><input type="text" id="pl-repo" required></div>
+      <div class="campo"><label for="pl-id">Plugin (plugin@marketplace)</label><input type="text" id="pl-id" required></div></div>
+      <div class="acciones" style="margin-top:10px"><button class="btn primario">Instalar</button></div></form>
     ${st.plugins.map((p) => `<div class="plugin"><h3>${esc(p.id)} <span class="ayuda">versión ${esc(p.version)}, commit ${esc(p.sha || "?")}, ${esc(estado(p))}</span></h3>
+      <p class="ayuda">Lo usan: ${esc((p.used_by || []).join(", ") || "ningún agente de orquesta")} <button class="enlace peligro" data-action="pl-desinstalar" data-name="${esc(p.id)}">Desinstalar</button></p>
       ${p.agents.length ? `<table><thead><tr><th>Agente</th><th>Modelo</th><th>Tools</th><th>Descripción</th></tr></thead><tbody>${p.agents.map((a) => `<tr><td>${esc(a.name)}</td><td>${esc(a.model)}</td><td>${esc(a.tools)}</td><td>${esc(a.description)}</td></tr>`).join("")}</tbody></table>` : '<p class="ayuda">No trae agentes.</p>'}</div>`).join("") || '<p class="ayuda">No hay plugins instalados.</p>'}`;
 }
 
@@ -750,6 +762,13 @@ document.addEventListener("click", async (ev) => {
       case "mood-default": await moodAccion({action: "default", name: n}, `${n} es el nuevo default.`); break;
       case "mood-borrar": { const ok = await dialogo({titulo: `Borrar el mood ${n}`, aceptar: "Borrar", peligro: true}); if (ok) await moodAccion({action: "delete", name: n}, `Borrado ${n}.`); break; }
       case "mood-renombrar": { const nuevo = await dialogo({titulo: `Renombrar ${n}`, input: n, aceptar: "Renombrar"}); if (nuevo && nuevo !== n) await moodAccion({action: "rename", name: n, new_name: nuevo.trim()}, `Renombrado a ${nuevo}.`); break; }
+      case "pl-desinstalar": {
+        const escrito = await dialogo({titulo: `Desinstalar ${n}`, texto: `Toca la config global de Claude Code. Escribí ${n} para confirmar.`, input: "", aceptar: "Desinstalar", peligro: true});
+        if (escrito === null) break;
+        if (escrito !== n) { toast("No coincide: no se desinstaló nada."); break; }
+        const r = await api("POST", "/api/plugins/uninstall", {id: n, confirm: n});
+        st.aviso = `Desinstalado ${n}. ${r.note}`; st.plugins = null; await cargar(); break;
+      }
       case "dry-run": await correrDryRun(); break;
       case "aplicar": await aplicar(); break;
       case "descartar": {
@@ -791,6 +810,16 @@ document.addEventListener("change", async (ev) => {
   } catch (e) { mostrarError(e, null); await cargar(); }
 });
 document.addEventListener("submit", async (ev) => {
+  if (ev.target.id === "pl-nuevo") {
+    ev.preventDefault();
+    const repo = $("#pl-repo").value.trim(), id = $("#pl-id").value.trim();
+    const escrito = await dialogo({titulo: `Instalar ${id}`, texto: `Se instala globalmente en Claude Code, solo si hay auditoría ok del commit actual de ${repo}. Escribí ${id} para confirmar.`, input: "", aceptar: "Instalar"});
+    if (escrito === null) return;
+    if (escrito !== id) { toast("No coincide: no se instaló nada."); return; }
+    try { const r = await api("POST", "/api/plugins/install", {repo, id, confirm: id}); st.aviso = `Instalado ${r.id} (commit ${r.sha}). ${r.note}`; st.plugins = null; await cargar(); }
+    catch (e) { mostrarError(e, null); }
+    return;
+  }
   if (ev.target.id !== "m-nuevo") return;
   ev.preventDefault();
   await moodAccion({action: "add", name: $("#m-nombre").value.trim(), description: $("#m-desc").value}, "Mood agregado.");

@@ -35,8 +35,18 @@ backends.yaml ──────────▶  orquesta run <agente>          
 | `orquesta run <agente> --cwd DIR [--task SLUG] <<'EOF' … EOF` | Delega en el backend del agente |
 | `orquesta run <agente> --ping` | Ping mínimo por el backend |
 | `orquesta wt list \| new \| clean <rama> \| prune` | Worktrees de agentes write |
+| `orquesta plugins list` | Plugins instalados, sus skills y MCP, y qué agentes los usan |
+| `orquesta plugins install <owner/repo> <plugin@mkt> --yes` | Instala solo si hay auditoría ok del commit exacto; verifica el SHA |
+| `orquesta plugins uninstall <plugin> --yes` | Desinstala; se niega si algún agente lo usa |
 
 `python generate.py` y `python doctor.py` son atajos equivalentes (con `uv run`).
+
+## Plugins por agente
+
+Cada agente `claude` puede tener `plugins: [id, ...]` en orquesta.yaml. Claude Code instala los plugins
+de forma global, así que lo que se asigna por agente es lo que traen: sus skills (frontmatter `skills`,
+`plugin:skill`) y sus MCP (`mcp__plugin_<plugin>_<servidor>__*` en `tools`). Agregarle un plugin a un
+agente existente es una escalada y requiere `--confirm`. Los wrappers de codex y agy no usan plugins.
 
 ## Guardrails
 

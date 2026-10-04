@@ -20,6 +20,7 @@ from ruamel.yaml import YAML
 from orquesta import catalog, doctor, editing
 from orquesta import manifest as mf
 from orquesta import moods, runner
+from orquesta import plugins as plugins_mod
 from orquesta.config import load_backends, read_manual
 from orquesta.generate import GenerateError, apply_plan, build_plan, run_test_suite
 from orquesta.paths import Paths, default_paths
@@ -153,6 +154,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
             "tools": sorted(catalog.KNOWN_TOOLS),
             "frontmatter_fields": sorted(catalog.EXTRA_ALLOWED),
             "models": sorted(catalog.MODEL_ALIASES),
+            "installed_plugins": sorted(plugins_mod.installed(paths)),
             "errors": errors,
             "pending": {"changes": len(plan.changes), "summary": plan.summary,
                         "violations": [v.agent for v in plan.violations]},
@@ -361,7 +363,11 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         p = paths.changelog
         return {"content": p.read_text(encoding="utf-8") if p.exists() else ""}
 
-    # --- plugins (solo lectura) --------------------------------------------------------------
+    def editing_registry():
+        from orquesta.config import load_registry
+        return load_registry(paths)
+
+    # --- plugins --------------------------------------------------------------
 
     @app.get("/api/plugins")
     def plugins():
@@ -385,9 +391,37 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
                     agents.append({"name": f"{pid.split('@')[0]}:{fm['name']}",
                                    "description": fm.get("description", ""),
                                    "model": fm.get("model", "inherit"), "tools": fm.get("tools", "")})
-            out.append({"id": pid, "version": e.get("version"), "sha": sha[:7],
+            try:
+                used = plugins_mod.users(editing_registry(), pid)
+            except Exception:
+                used = []
+            out.append({"id": pid, "version": e.get("version"), "sha": sha[:7], "used_by": used,
                         "audit": audit["verdict"] if audit else None,
                         "official": pid.endswith("@claude-plugins-official"), "agents": agents})
         return {"plugins": out}
+
+    @app.post("/api/plugins/install")
+    def plugin_install(body: dict = Body(...)):
+        pid = body.get("id", "")
+        if body.get("confirm") != pid:
+            return JSONResponse({"needs_confirmation": True, "detail": "Instalar un plugin requiere "
+                                 "confirmación explícita (escribí su id)."}, status_code=409)
+        try:
+            info = plugins_mod.install(paths, body.get("repo", ""), pid)
+        except plugins_mod.PluginError as exc:
+            return JSONResponse({"errors": [str(exc)]}, status_code=422)
+        return {"ok": True, "id": info.id, "sha": info.sha[:12], "note": RESTART_NOTE}
+
+    @app.post("/api/plugins/uninstall")
+    def plugin_uninstall(body: dict = Body(...)):
+        pid = body.get("id", "")
+        if body.get("confirm") != pid:
+            return JSONResponse({"needs_confirmation": True, "detail": "Desinstalar un plugin requiere "
+                                 "confirmación explícita (escribí su id)."}, status_code=409)
+        try:
+            plugins_mod.uninstall(paths, pid)
+        except plugins_mod.PluginError as exc:
+            return JSONResponse({"errors": [str(exc)]}, status_code=422)
+        return {"ok": True, "note": RESTART_NOTE}
 
     return app

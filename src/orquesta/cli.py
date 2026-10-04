@@ -115,6 +115,43 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if report.overall == "fail" else 0
 
 
+def cmd_plugins(args: argparse.Namespace) -> int:
+    from orquesta import plugins
+    from orquesta.config import load_registry
+
+    paths = default_paths()
+    if args.pl_cmd in ("install", "uninstall") and not args.yes:
+        print("⛔ Instalar o desinstalar plugins toca la config global de Claude Code: agregá --yes "
+              "para confirmar explícitamente.")
+        return 2
+    try:
+        if args.pl_cmd == "install":
+            info = plugins.install(paths, args.repo, args.plugin_id)
+            print(f"✅ Instalado {info.id} {info.version} (commit {info.sha[:12]} = auditado). "
+                  f"{RESTART_NOTE}")
+        elif args.pl_cmd == "uninstall":
+            plugins.uninstall(paths, args.plugin_id)
+            print(f"✅ Desinstalado {args.plugin_id}. {RESTART_NOTE}")
+        else:
+            inst = plugins.installed(paths)
+            try:
+                reg = load_registry(paths)
+            except Exception:
+                reg = None
+            if not inst:
+                print("No hay plugins instalados.")
+            for pid, info in sorted(inst.items()):
+                used = plugins.users(reg, pid) if reg else []
+                print(f"{pid}  {info.version}  commit {info.sha[:7] or '?'}")
+                print(f"    skills: {', '.join(info.skills) or '-'}")
+                print(f"    mcp: {', '.join(info.mcp_tools) or '-'}")
+                print(f"    lo usan: {', '.join(used) or 'ningún agente de orquesta'}")
+    except plugins.PluginError as exc:
+        print(f"❌ {exc}")
+        return 1
+    return 0
+
+
 def cmd_wt(args: argparse.Namespace) -> int:
     from orquesta import worktrees
 
@@ -175,6 +212,18 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--skip-live", action="store_true", help="saltear los chequeos que gastan cuota")
     d.add_argument("--only", metavar="ID", help="solo los chequeos cuyo id empieza así")
     d.set_defaults(func=cmd_doctor)
+
+    pl = sub.add_parser("plugins", help="plugins de Claude Code: listar, instalar (auditado), desinstalar")
+    plsub = pl.add_subparsers(dest="pl_cmd")
+    plsub.add_parser("list", help="instalados, sus skills/MCP y qué agentes los usan")
+    pi = plsub.add_parser("install", help="instalar (exige auditoría ok del commit exacto)")
+    pi.add_argument("repo", help="owner/repo de GitHub del marketplace")
+    pi.add_argument("plugin_id", help="plugin@marketplace")
+    pi.add_argument("--yes", action="store_true", help="confirmación explícita del usuario")
+    pu = plsub.add_parser("uninstall", help="desinstalar (se niega si algún agente lo usa)")
+    pu.add_argument("plugin_id")
+    pu.add_argument("--yes", action="store_true", help="confirmación explícita del usuario")
+    pl.set_defaults(func=cmd_plugins)
 
     w = sub.add_parser("wt", help="worktrees de agentes write")
     wsub = w.add_subparsers(dest="wt_cmd")

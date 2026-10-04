@@ -84,6 +84,7 @@ class Agent(_Strict):
     protected: bool = False
     manual: bool = False
     extra_frontmatter: dict[str, Any] = Field(default_factory=dict)
+    plugins: list[str] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod

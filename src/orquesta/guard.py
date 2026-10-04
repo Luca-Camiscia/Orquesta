@@ -24,6 +24,7 @@ class Baseline:
     mode: str
     protected: bool
     permission_mode: str | None
+    plugins: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,7 @@ def baseline_from_registry(reg: Registry,
                            manual_texts: dict[str, str] | None = None) -> dict[str, Baseline]:
     manual_texts = manual_texts or {}
     return {a.name: Baseline(entry_hash(a, manual_texts.get(a.name)), a.mode, a.protected,
-                             _permission_mode(a))
+                             _permission_mode(a), tuple(a.plugins))
             for a in reg.agents}
 
 
@@ -63,7 +64,8 @@ def baseline_from_manifest(manifest: dict) -> dict[str, Baseline]:
     out = {}
     for name, e in (manifest.get("guard") or manifest.get("agents") or {}).items():
         out[name] = Baseline(e.get("entry_sha256", ""), e.get("mode", "read-only"),
-                             bool(e.get("protected")), e.get("permission_mode"))
+                             bool(e.get("protected")), e.get("permission_mode"),
+                             tuple(e.get("plugins") or ()))
     return out
 
 
@@ -86,6 +88,10 @@ def check(baseline: dict[str, Baseline] | None, new: Registry,
         base = baseline.get(agent.name)
         if base and base.mode == "read-only" and agent.mode == "write":
             out.append(Violation(agent.name, "escalation", "pasa de read-only a write"))
+        if base:
+            added = sorted(set(agent.plugins) - set(base.plugins))
+            if added:
+                out.append(Violation(agent.name, "plugins", f"se le agregan plugins ({', '.join(added)})"))
         pm = _permission_mode(agent)
         if pm in ELEVATED_PERMISSION_MODES and (base is None or base.permission_mode != pm):
             out.append(Violation(agent.name, "permission_mode", f"permissionMode elevado ({pm})"))

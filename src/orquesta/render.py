@@ -174,6 +174,19 @@ def render_agent_md(agent: Agent, ctx: RenderContext) -> str:
     }
     for key in sorted(agent.extra_frontmatter):
         fields[key] = agent.extra_frontmatter[key]
+    if agent.plugins and not agent.is_external:
+        from orquesta.plugins import installed
+        inst = installed(ctx.paths)
+        skills = list(fields.get("skills") or [])
+        tools = list(agent.tools)
+        for pid in agent.plugins:
+            info = inst.get(pid)
+            if info:
+                skills += [s for s in info.skills if s not in skills]
+                tools += [t for t in info.mcp_tools if t not in tools]
+        fields["tools"] = _tools_value(tools)
+        if skills:
+            fields["skills"] = skills
     if agent.is_external and backend is not None:
         body = _external_body(agent, backend, ctx)
     else:

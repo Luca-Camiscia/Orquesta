@@ -176,7 +176,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         "agents": deployed,
         "guard": {a.name: {"entry_sha256": guard.entry_hash(a, manual_texts.get(a.name)),
                            "mode": a.mode, "protected": a.protected,
-                           "permission_mode": a.extra_frontmatter.get("permissionMode")}
+                           "permission_mode": a.extra_frontmatter.get("permissionMode"),
+                           "plugins": list(a.plugins)}
                   for a in reg.agents},
         "limits": reg.limits.model_dump(),
         "claude_md_block_sha256": manifest.sha256(block),

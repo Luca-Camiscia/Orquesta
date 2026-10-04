@@ -27,12 +27,12 @@ from orquesta.schema import ConfigError, check_registry, parse_registry
 
 FIELD_ORDER = ["name", "display_name", "enabled", "backend", "wrapper_model", "backend_model",
                "role", "route_when", "description", "tools", "mode", "isolation", "protected",
-               "manual", "extra_frontmatter", "prompt"]
+               "manual", "extra_frontmatter", "plugins", "prompt"]
 ALWAYS = {"name", "enabled", "backend", "role", "tools", "mode"}
 IMPLICIT = {"enabled": True, "mode": "read-only"}  # lo que vale un campo ALWAYS si el YAML no lo tiene
 DEFAULTS: dict[str, Any] = {"display_name": None, "wrapper_model": None, "backend_model": None,
                             "description": "", "isolation": None, "protected": False,
-                            "manual": False, "extra_frontmatter": {}, "route_when": [], "prompt": ""}
+                            "manual": False, "extra_frontmatter": {}, "plugins": [], "route_when": [], "prompt": ""}
 _NAME_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
