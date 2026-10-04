@@ -1,0 +1,207 @@
+"""Worktrees de agentes write.
+
+Cada tarea corre en un `git worktree` propio bajo ~/orquesta/worktrees/<proyecto>-<hash>/, en la rama
+`orquesta/<agente>/<tarea>`. El repo del usuario no se toca: el orquestador revisa el diff y mergea.
+Un registro en state/worktrees.json le permite a doctor detectar huérfanos.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+import unicodedata
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from filelock import FileLock
+
+from orquesta.paths import Paths
+
+
+class WorktreeError(Exception):
+    pass
+
+
+@dataclass
+class Worktree:
+    repo: Path
+    path: Path
+    branch: str
+    base_sha: str
+    agent: str
+    task: str
+    created_at: str
+
+    def to_json(self) -> dict:
+        d = asdict(self)
+        d["repo"], d["path"] = str(self.repo), str(self.path)
+        return d
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Worktree":
+        return cls(**{**d, "repo": Path(d["repo"]), "path": Path(d["path"])})
+
+
+@dataclass
+class Orphan:
+    branch: str
+    path: Path
+    repo: Path
+    reason: str
+
+
+def slugify(text: str, max_len: int = 40) -> str:
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    t = re.sub(r"[^a-z0-9]+", "-", t).strip("-")
+    return t[:max_len].strip("-") or "tarea"
+
+
+def _git(cwd: Path, *args: str, check: bool = True) -> str:
+    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if check and proc.returncode != 0:
+        raise WorktreeError(f"git {' '.join(args)} falló: {(proc.stderr or proc.stdout).strip()}")
+    return proc.stdout.strip()
+
+
+def git_toplevel(path: Path) -> Path | None:
+    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path, capture_output=True,
+                          text=True)
+    return Path(proc.stdout.strip()) if proc.returncode == 0 else None
+
+
+def _branch_tip(repo: Path, branch: str) -> str:
+    return _git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False)
+
+
+def _is_merged(repo: Path, branch: str) -> bool:
+    return subprocess.run(["git", "merge-base", "--is-ancestor", branch, "HEAD"], cwd=repo,
+                          capture_output=True).returncode == 0
+
+
+def project_id(repo: Path) -> str:
+    digest = hashlib.sha1(str(repo.resolve()).encode()).hexdigest()[:8]
+    return f"{slugify(repo.name, 30)}-{digest}"
+
+
+def _registry(paths: Paths) -> Path:
+    return paths.state_dir / "worktrees.json"
+
+
+def _lock(paths: Paths) -> FileLock:
+    paths.state_dir.mkdir(parents=True, exist_ok=True)
+    return FileLock(str(paths.state_dir / "worktrees.lock"), timeout=30)
+
+
+def _load(paths: Paths) -> list[Worktree]:
+    try:
+        return [Worktree.from_json(d) for d in json.loads(_registry(paths).read_text())]
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _save(paths: Paths, items: list[Worktree]) -> None:
+    paths.state_dir.mkdir(parents=True, exist_ok=True)
+    _registry(paths).write_text(json.dumps([w.to_json() for w in items], indent=2,
+                                           ensure_ascii=False) + "\n")
+
+
+def create(paths: Paths, *, repo: Path, agent: str, task: str, base: str = "HEAD") -> Worktree:
+    root = git_toplevel(repo)
+    if root is None:
+        raise WorktreeError(f"{repo} no es un repo git")
+    slug = slugify(task)
+    with _lock(paths):
+        n = 1
+        while True:
+            suffix = "" if n == 1 else f"-{n}"
+            branch = f"orquesta/{agent}/{slug}{suffix}"
+            path = paths.worktrees_dir / project_id(root) / f"{agent}--{slug}{suffix}"
+            if not _branch_tip(root, branch) and not path.exists():
+                break
+            n += 1
+        base_sha = _git(root, "rev-parse", "--verify", base)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _git(root, "worktree", "add", "-q", "-b", branch, str(path), base_sha)
+        wt = Worktree(repo=root, path=path, branch=branch, base_sha=base_sha, agent=agent,
+                      task=task, created_at=datetime.now(timezone.utc).isoformat())
+        _save(paths, [*_load(paths), wt])
+    return wt
+
+
+def commit_all(wt: Worktree, message: str) -> str | None:
+    """Commitea todo lo que haya en el worktree. None si no había cambios."""
+    _git(wt.path, "add", "-A")
+    if not _git(wt.path, "status", "--porcelain"):
+        return None
+    _git(wt.path, "commit", "-q", "-m", message)
+    return _git(wt.path, "rev-parse", "--short", "HEAD")
+
+
+def diffstat(wt: Worktree) -> str:
+    return _git(wt.repo, "diff", "--stat", f"{wt.base_sha}..{wt.branch}")
+
+
+def list_worktrees(paths: Paths) -> list[Worktree]:
+    return _load(paths)
+
+
+def orphans(paths: Paths, now: datetime | None = None) -> list[Orphan]:
+    now = now or datetime.now(timezone.utc)
+    out: list[Orphan] = []
+    for wt in _load(paths):
+        def add(reason: str) -> None:
+            out.append(Orphan(wt.branch, wt.path, wt.repo, reason))
+        if not wt.repo.exists():
+            add("el repo original no existe")
+            continue
+        if not wt.path.exists():
+            add("el directorio del worktree no existe (corré `orquesta wt prune`)")
+            continue
+        tip = _branch_tip(wt.repo, wt.branch)
+        if not tip:
+            add("la rama ya no existe")
+            continue
+        age = now - datetime.fromisoformat(wt.created_at)
+        if tip != wt.base_sha and _is_merged(wt.repo, wt.branch):
+            add(f"ya mergeada: limpiala con `orquesta wt clean {wt.branch}`")
+        elif tip == wt.base_sha and age.total_seconds() > 86400:
+            add("sin commits hace más de un día")
+        elif age.days > 7:
+            add("abierta hace más de 7 días")
+    return out
+
+
+def clean(paths: Paths, branch: str, force: bool = False) -> None:
+    with _lock(paths):
+        items = _load(paths)
+        wt = next((w for w in items if w.branch == branch), None)
+        if wt is None:
+            raise WorktreeError(f"no hay ningún worktree registrado con la rama {branch}")
+        if wt.repo.exists():
+            tip = _branch_tip(wt.repo, branch)
+            if tip and tip != wt.base_sha and not _is_merged(wt.repo, branch) and not force:
+                raise WorktreeError(f"la rama {branch} tiene commits sin mergear; si querés "
+                                    f"descartarla, usá --force")
+            if wt.path.exists():
+                _git(wt.repo, "worktree", "remove", *(["--force"] if force else []), str(wt.path))
+            else:
+                _git(wt.repo, "worktree", "prune")
+            if tip:
+                _git(wt.repo, "branch", "-D" if force else "-d", branch)
+        else:
+            shutil.rmtree(wt.path, ignore_errors=True)
+        _save(paths, [w for w in items if w is not wt])
+
+
+def prune(paths: Paths) -> list[str]:
+    """Saca del registro los worktrees cuyo directorio ya no existe. Devuelve las ramas sacadas."""
+    with _lock(paths):
+        items = _load(paths)
+        gone = [w for w in items if not w.path.exists()]
+        for repo in {w.repo for w in gone if w.repo.exists()}:
+            _git(repo, "worktree", "prune", check=False)
+        _save(paths, [w for w in items if w.path.exists()])
+    return [w.branch for w in gone]
