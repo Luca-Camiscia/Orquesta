@@ -1,0 +1,98 @@
+# backends.yaml: invocaciones headless verificadas en el paso 1 (2026-10-04). Detalle y evidencia
+# en docs/headless.md.
+#
+# Es la ÚNICA fuente de comandos de backend: el runner (`orquesta run`), doctor y la UI lo leen.
+# Nada más en orquesta tiene comandos de backend hardcodeados.
+#
+# Armado del comando:  command + common_flags + modes.<modo>.flags + model_flag + cwd_flag + prompt
+# Placeholders: {model} {cwd}. `~` se expande al home del usuario.
+version: 1
+
+backends:
+  codex:
+    label: GPT (Codex CLI)
+    command: [codex, exec]
+    common_flags: [--skip-git-repo-check, --color, never]
+    cwd_flag: [-C, "{cwd}"]
+    model_flag: [-m, "{model}"]
+    prompt:
+      via: stdin              # `codex exec -` lee el prompt de stdin: sin límite de largo ni quoting
+      flag: ["-"]
+    output:
+      format: text            # stdout trae solo el mensaje final; el progreso va a stderr
+    modes:
+      read-only:
+        flags: [--sandbox, read-only]
+        timeout_s: 540        # < 10 min: tope del Bash tool de Claude Code
+      write:
+        flags: [--sandbox, workspace-write]
+        timeout_s: 540
+    ping:
+      prompt: Reply PONG
+      expect: PONG
+      timeout_s: 120
+      extra_flags: [--ephemeral]
+    auth_check:
+      cmd: [codex, login, status]
+      ok_pattern: Logged in
+    version_cmd: [codex, --version]
+    latest_version:
+      npm: "@openai/codex"
+    rate_limit_patterns: ["usage limit", "rate limit", "Too Many Requests", " 429"]
+
+  agy:
+    label: Gemini (Antigravity CLI)
+    command: [agy]
+    common_flags: [--output-format, json]
+    model_flag: [--model, "{model}"]
+    prompt:
+      via: arg                # agy NO lee el prompt de stdin (`-p -` toma "-" como texto)
+      flag: [-p]              # siempre al final: en agy los flags van antes del prompt
+      max_arg_chars: 24000    # si es más largo → archivo temporal + prompt puntero (límite de Windows)
+    output:
+      format: json            # {"status": "SUCCESS", "response": "...", "usage": {...}}
+      text_key: response
+      status_key: status
+      ok_status: SUCCESS
+    modes:
+      read-only:
+        flags: []             # `--mode plan` NO es read-only (ver docs/headless.md)
+        os_sandbox: readonly  # la garantía la da el SO: todo read-only salvo el estado de agy
+        timeout_s: 540
+      write:
+        flags: [--mode, accept-edits]
+        os_sandbox: workspace # solo el workspace (worktree) es escribible
+        timeout_s: 540
+    os_sandbox:
+      linux:
+        tool: bwrap
+        writable: ["~/.gemini", "~/.cache", "/tmp"]
+      # windows: sin sandbox de SO disponible → el runner solo detecta (git status antes/después)
+    ping:
+      prompt: Reply PONG
+      expect: PONG
+      timeout_s: 120
+      model: gemini-3.8-flash-low   # cada ping de agy consume ~14k tokens de entrada: el más barato
+    auth_check:
+      cmd: [agy, models]
+      ok_pattern: gemini
+    version_cmd: [agy, --version]
+    rate_limit_patterns: ["quota reached", "Individual quota", "RESOURCE_EXHAUSTED", "rate limit", " 429"]
+
+  claude:
+    label: Claude (subagente nativo)
+    native: true              # Claude Code lo corre como subagent: no pasa por el runner
+    command: [claude, -p]
+    model_flag: [--model, "{model}"]
+    prompt:
+      via: arg
+    output:
+      format: text
+    ping:
+      prompt: Reply PONG
+      expect: PONG
+      timeout_s: 120
+      model: haiku
+    version_cmd: [claude, --version]
+    latest_version:
+      npm: "@anthropic-ai/claude-code"

@@ -40,7 +40,7 @@ plugin oficial de Codex.
 ## Progreso
 
 - [x] 0. Diagnóstico y carpeta — codex oficial 0.160.0 (npm), ambos autenticados
-- [ ] 1. Smoke test headless → `backends.yaml`, `docs/headless.md`
+- [x] 1. Smoke test headless → `backends.yaml`, `docs/headless.md` (agy read-only vía bwrap: `--mode plan` no alcanza)
 - [ ] 2. Plugin oficial de Codex (auditoría liviana + install)
 - [ ] 3. Plugin de Antigravity (auditoría completa → install si está limpio)
 - [ ] 4. Registro, generador y tests (TDD) + `uv tool install -e`
