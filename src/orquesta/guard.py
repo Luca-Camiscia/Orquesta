@@ -38,8 +38,16 @@ class Violation:
                 f"(--confirm {self.agent}).")
 
 
+# Campos agregados al esquema después del primer deploy: en su valor por defecto no entran al hash,
+# así un agente que no cambió no aparece como "cambio protegido" tras una actualización de orquesta.
+_LATER_FIELDS = {"plugins": []}
+
+
 def entry_hash(agent: Agent, manual_text: str | None = None) -> str:
     payload = agent.model_dump(mode="json")
+    for key, default in _LATER_FIELDS.items():
+        if payload.get(key) == default:
+            payload.pop(key, None)
     if manual_text is not None:
         payload["__manual_md__"] = manual_text
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)

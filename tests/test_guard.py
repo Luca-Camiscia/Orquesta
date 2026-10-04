@@ -99,3 +99,14 @@ def test_scan_secrets_sin_falsos_positivos():
     texto = ("task-runner-with-a-very-long-name-and-more, risk-free-abcdefghijklmnopqrstu, "
              "orquesta/codex-forjador/fix-promedio, sha 50d32eaef297d9bd5bdbfbb60a4c1a2b4bb8ed01")
     assert scan_secrets(texto) == []
+
+
+def test_campos_nuevos_en_default_no_cambian_el_hash():
+    # Agregar `plugins` al esquema no puede convertir en "cambio protegido" a un agente que no cambió.
+    import hashlib
+    import json
+    from orquesta.guard import entry_hash
+    a = reg().agent("mantenedor")
+    viejo = {k: v for k, v in a.model_dump(mode="json").items() if k != "plugins"}
+    esperado = hashlib.sha256(json.dumps(viejo, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    assert entry_hash(a) == esperado
