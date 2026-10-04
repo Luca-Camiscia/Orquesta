@@ -169,3 +169,12 @@ def test_api_chat_flujo(env, proyecto):
     assert msgs[1]["text"] == "respuesta de codex-critico"
     lista = c.get(f"/api/chat/conversations?project={pr['id']}").json()["conversations"]
     assert lista[0]["id"] == conv["id"]
+
+
+@pytest.mark.parametrize("crudo,limpio", [
+    ("[mood: ejecutivo]\n\nEl riesgo es X.", "El riesgo es X."),
+    ("  [mood: debate]\nHola", "Hola"),
+    ("Sin tag [mood: x] en el medio", "Sin tag [mood: x] en el medio"),
+])
+def test_se_saca_el_tag_de_mood_del_orquestador(crudo, limpio):
+    assert chat.strip_mood_tag(crudo) == limpio

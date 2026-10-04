@@ -177,6 +177,11 @@ class Store:
 
 # --- ejecución -------------------------------------------------------------------------------
 
+def strip_mood_tag(text: str) -> str:
+    """El orquestador lee CLAUDE.md y abre con `[mood: x]`: en el chat no aporta."""
+    return re.sub(r"^\s*\[mood:[^\]\n]*\]\s*", "", text, count=1)
+
+
 def _claude(args: list[str], prompt: str, cwd: str) -> Reply:
     cmd = ["claude", "-p", "--permission-mode", "plan", "--output-format", "json", *args, prompt]
     try:
@@ -192,7 +197,7 @@ def _claude(args: list[str], prompt: str, cwd: str) -> Reply:
         return Reply(p.stdout.strip(), error=f"ESTADO: FALLO_BACKEND — {p.stderr.strip()[-300:]}")
     if data.get("is_error") or p.returncode != 0:
         return Reply(str(data.get("result", "")), error=f"ESTADO: FALLO_BACKEND — {data.get('subtype', '')}")
-    return Reply(str(data.get("result", "")).strip())
+    return Reply(strip_mood_tag(str(data.get("result", ""))).strip())
 
 
 def default_executor(paths: Paths, project: dict, participant: str, prompt: str) -> Reply:
