@@ -174,7 +174,7 @@ agents:
       Verificación (comandos y resultado) → Pendientes. En castellano.
   - name: gemini-cronista
     display_name: Gemini cronista
-    enabled: true
+    enabled: false
     backend: agy
     role: 'Documentación: lee el código y escribe o actualiza docs claras (README, guías, docstrings propuestos).'
     route_when:

@@ -2,6 +2,11 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-04 18:16 — E2E 7.3: deshabilito gemini-cronista
+
+- CLAUDE.md: bloque actualizado
+- - agente `gemini-cronista`
+
 ## 2026-10-04 18:16 — E2E 7.3: alta de gemini-cronista (agy, read-only, documentación)
 
 - CLAUDE.md: bloque actualizado
