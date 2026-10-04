@@ -362,19 +362,10 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
     return result
 
 
-def ping(paths: Paths, agent: str) -> RunResult:
-    """Ping real por el backend del agente (para la UI y doctor)."""
+def _ping(paths: Paths, backend_name: str, backend: Backend, model: str | None) -> RunResult:
     t0 = time.monotonic()
-    entry, _, backend, err = _resolve(paths, agent)
-    if err:
-        return err
     spec = backend.ping
-    if spec.model:
-        model = spec.model
-    elif backend.native:
-        model = entry.wrapper_model if entry.wrapper_model != "inherit" else None
-    else:
-        model = entry.backend_model
+    model = spec.model or model
     cwd = paths.state_dir / "ping"
     cwd.mkdir(parents=True, exist_ok=True)
     mode = "read-only" if "read-only" in backend.modes else None
@@ -384,9 +375,33 @@ def ping(paths: Paths, agent: str) -> RunResult:
     if result.status == "OK" and spec.expect.lower() not in result.output.lower():
         result = RunResult("FALLO_BACKEND", output=result.output,
                            detail=f"la respuesta no contiene {spec.expect!r}")
-    result.meta = {"agent": agent, "backend": entry.backend, "model": model or "default",
-                   "warnings": cmd.warnings}
+    result.meta = {"backend": backend_name, "model": model or "default", "warnings": cmd.warnings}
     result.latency_s = round(time.monotonic() - t0, 1)
+    return result
+
+
+def ping_backend(paths: Paths, backend_name: str) -> RunResult:
+    """Ping mínimo a un backend, sin pasar por un agente (lo usa doctor)."""
+    try:
+        backend = load_backends(paths).backends.get(backend_name)
+    except ConfigError as exc:
+        return RunResult("ERROR", detail="backends.yaml inválido: " + "; ".join(exc.errors))
+    if backend is None:
+        return RunResult("ERROR", detail=f"backends.yaml no define {backend_name!r}")
+    return _ping(paths, backend_name, backend, None)
+
+
+def ping(paths: Paths, agent: str) -> RunResult:
+    """Ping real por el backend del agente (botón "Test" de la UI)."""
+    entry, _, backend, err = _resolve(paths, agent)
+    if err:
+        return err
+    if backend.native:
+        model = entry.wrapper_model if entry.wrapper_model != "inherit" else None
+    else:
+        model = entry.backend_model
+    result = _ping(paths, entry.backend, backend, model)
+    result.meta["agent"] = agent
     return result
 
 

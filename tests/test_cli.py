@@ -71,3 +71,22 @@ def test_run_lee_el_pedido_de_stdin(usar_env, capsys, monkeypatch, tmp_path):
 def test_wt_list_sin_worktrees(usar_env, capsys):
     assert cli.main(["wt", "list"]) == 0
     assert "No hay worktrees" in capsys.readouterr().out
+
+
+def _reporte(status):
+    from orquesta.doctor import Check, Report
+    return Report([Check("x", "X", status, "mensaje", "sugerencia")], "2026-10-04 18:00:00")
+
+
+@pytest.mark.parametrize("status,code", [("ok", 0), ("warn", 0), ("fail", 1)])
+def test_doctor_codigo_de_salida(usar_env, capsys, monkeypatch, status, code):
+    monkeypatch.setattr("orquesta.doctor.run_doctor", lambda *a, **k: _reporte(status))
+    assert cli.main(["doctor"]) == code
+    assert "Resumen" in capsys.readouterr().out
+
+
+def test_doctor_json(usar_env, capsys, monkeypatch):
+    import json
+    monkeypatch.setattr("orquesta.doctor.run_doctor", lambda *a, **k: _reporte("warn"))
+    assert cli.main(["doctor", "--json", "--skip-live"]) == 0
+    assert json.loads(capsys.readouterr().out)["overall"] == "warn"

@@ -168,6 +168,13 @@ class AuthCheck(_Strict):
     ok_pattern: str
 
 
+class LatestVersion(_Strict):
+    """De dónde sacar la última versión publicada (doctor solo avisa, nunca instala)."""
+    npm: str | None = None             # paquete npm: `npm view <pkg> version`
+    cmd: list[str] | None = None       # comando que imprime la última versión...
+    pattern: str | None = None         # ...y regex (grupo 1) para extraerla
+
+
 class OsSandbox(_Strict):
     tool: Literal["bwrap"]
     writable: list[str] = Field(default_factory=list)
@@ -187,7 +194,7 @@ class Backend(_Strict):
     ping: PingSpec = Field(default_factory=PingSpec)
     auth_check: AuthCheck | None = None
     version_cmd: list[str] = Field(default_factory=list)
-    latest_version: dict[str, str] = Field(default_factory=dict)
+    latest_version: LatestVersion | None = None
     rate_limit_patterns: list[str] = Field(default_factory=list)
 
 

@@ -77,6 +77,9 @@ backends:
       cmd: [agy, models]
       ok_pattern: gemini
     version_cmd: [agy, --version]
+    latest_version:
+      cmd: [agy, changelog]   # la primera entrada del changelog es la última versión publicada
+      pattern: '^(\d+\.\d+\.\d+):'
     rate_limit_patterns: ["quota reached", "Individual quota", "RESOURCE_EXHAUSTED", "rate limit", " 429"]
 
   claude:

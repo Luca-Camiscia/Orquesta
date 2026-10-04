@@ -3,6 +3,7 @@
     orquesta                         abre la UI local (paso 6)
     orquesta generate [--dry-run] [-m MSG] [--confirm AGENTE ...]
     orquesta run AGENTE [--cwd DIR] [--task SLUG] [--prompt-file F | stdin] [--ping]
+    orquesta doctor [--json] [--no-cache] [--skip-live] [--only ID]
     orquesta wt list | new | clean RAMA [--force] | prune
 
 Códigos de salida de `generate`: 0 ok/sin cambios, 1 errores, 3 requiere confirmación.
@@ -75,6 +76,20 @@ def cmd_run(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    import json
+
+    from orquesta import doctor
+
+    report = doctor.run_doctor(default_paths(), use_cache=not args.no_cache, live=not args.skip_live,
+                               only=args.only)
+    if args.json:
+        print(json.dumps(report.to_json(), indent=2, ensure_ascii=False))
+    else:
+        print(report.render())
+    return 1 if report.overall == "fail" else 0
+
+
 def cmd_wt(args: argparse.Namespace) -> int:
     from orquesta import worktrees
 
@@ -123,6 +138,13 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--prompt-file", help="leer el pedido de este archivo en vez de stdin")
     r.add_argument("--ping", action="store_true", help="ping mínimo por el backend del agente")
     r.set_defaults(func=cmd_run)
+
+    d = sub.add_parser("doctor", help="chequeos de salud del ecosistema (sin LLM)")
+    d.add_argument("--json", action="store_true", help="salida JSON (para la UI)")
+    d.add_argument("--no-cache", action="store_true", help="ignorar el cache (auth, pings, versiones)")
+    d.add_argument("--skip-live", action="store_true", help="saltear los chequeos que gastan cuota")
+    d.add_argument("--only", metavar="ID", help="solo los chequeos cuyo id empieza así")
+    d.set_defaults(func=cmd_doctor)
 
     w = sub.add_parser("wt", help="worktrees de agentes write")
     wsub = w.add_subparsers(dest="wt_cmd")
