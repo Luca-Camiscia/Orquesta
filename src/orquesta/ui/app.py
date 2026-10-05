@@ -19,7 +19,7 @@ from ruamel.yaml import YAML
 
 from orquesta import catalog, doctor, editing
 from orquesta import manifest as mf
-from orquesta import chat, modelos, moods, rrhh, runner
+from orquesta import chat, modelos, moods, reclutador, rrhh, runner
 from orquesta import worktrees as worktrees_mod
 from orquesta import plugins as plugins_mod
 from orquesta.config import load_backends, load_registry, read_manual
@@ -445,7 +445,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
     store = chat.Store(paths)
     executor = chat_executor or chat.default_executor
 
-    # --- recursos humanos (solo evidencia y catálogos locales) -------------------------------
+    # --- recursos humanos (base local y opinión explícita opcional) --------------------------
 
     @app.get("/api/rrhh/evaluacion")
     def rrhh_evaluacion():
@@ -461,6 +461,15 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         if not isinstance(texto, str) or not texto.strip():
             return JSONResponse({"errors": ["texto debe ser una cadena no vacía"]}, status_code=422)
         return rrhh.triage(texto.strip(), load_registry(paths), model_discovery.local_models())
+
+    @app.post("/api/rrhh/reclutador")
+    def rrhh_reclutador(body: dict = Body(...)):
+        try:
+            return reclutador.consultar(body.get("texto"), paths, model_discovery.local_models())
+        except ValueError as exc:
+            return JSONResponse({"errors": [str(exc)]}, status_code=422)
+        except ConfigError as exc:
+            return JSONResponse({"errors": ["Corregí la configuración: " + str(exc)]}, status_code=422)
 
     @app.get("/api/rrhh/sugerencias/{cid}")
     def rrhh_sugerencias(cid: str):
