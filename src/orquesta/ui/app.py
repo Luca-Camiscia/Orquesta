@@ -19,10 +19,10 @@ from ruamel.yaml import YAML
 
 from orquesta import catalog, doctor, editing
 from orquesta import manifest as mf
-from orquesta import chat, modelos, moods, runner
+from orquesta import chat, modelos, moods, rrhh, runner
 from orquesta import worktrees as worktrees_mod
 from orquesta import plugins as plugins_mod
-from orquesta.config import load_backends, read_manual
+from orquesta.config import load_backends, load_registry, read_manual
 from orquesta.generate import GenerateError, apply_plan, build_plan, run_test_suite
 from orquesta.paths import Paths, default_paths
 from orquesta.render import RenderContext, render_agent_md, render_block_inner
@@ -444,6 +444,27 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
 
     store = chat.Store(paths)
     executor = chat_executor or chat.default_executor
+
+    # --- recursos humanos (solo evidencia y catálogos locales) -------------------------------
+
+    @app.get("/api/rrhh/evaluacion")
+    def rrhh_evaluacion():
+        return {"agentes": rrhh.evaluar(paths)}
+
+    @app.get("/api/rrhh/catalogo")
+    def rrhh_catalogo():
+        return rrhh.catalogar(load_registry(paths))
+
+    @app.post("/api/rrhh/triage")
+    def rrhh_triage(body: dict = Body(...)):
+        texto = body.get("texto")
+        if not isinstance(texto, str) or not texto.strip():
+            return JSONResponse({"errors": ["texto debe ser una cadena no vacía"]}, status_code=422)
+        return rrhh.triage(texto.strip(), load_registry(paths), model_discovery.local_models())
+
+    @app.get("/api/rrhh/sugerencias/{cid}")
+    def rrhh_sugerencias(cid: str):
+        return rrhh.sugerir_participantes(store.get_conversation(cid), load_registry(paths))
 
     @app.get("/api/chat/participants")
     def chat_participants():

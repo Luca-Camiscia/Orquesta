@@ -315,8 +315,8 @@ class Store:
             raise ChatError("tiene que quedar al menos un participante")
 
         def fn(c):
-            if c["kind"] == "individual" and len(participants) != 1:
-                raise ChatError("una conversación individual tiene exactamente un participante")
+            if c["kind"] == "individual" and len(set(participants)) > 1:
+                c["kind"] = "reunion"
             if c.get("project_id") is None:
                 for p in participants:
                     if self.is_write_agent(p):
