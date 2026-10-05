@@ -83,6 +83,8 @@ def cmd_ui(args: argparse.Namespace) -> int:
 
     port = args.port
     with socket.socket() as probe:
+        # Igual que uvicorn: sin esto, conexiones viejas en FIN-WAIT/TIME-WAIT dan falso "ocupado".
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind(("127.0.0.1", port))
         except OSError:
