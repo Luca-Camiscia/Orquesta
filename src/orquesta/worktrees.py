@@ -196,6 +196,40 @@ def clean(paths: Paths, branch: str, force: bool = False) -> None:
         _save(paths, [w for w in items if w is not wt])
 
 
+def _find(paths: Paths, branch: str) -> Worktree:
+    wt = next((w for w in _load(paths) if w.branch == branch), None)
+    if wt is None:
+        raise WorktreeError(f"no hay ningún worktree registrado con la rama {branch}")
+    return wt
+
+
+def changed_files(wt: Worktree) -> set[str]:
+    out = _git(wt.repo, "diff", "--name-only", f"{wt.base_sha}..{wt.branch}", check=False)
+    return {f for f in out.splitlines() if f}
+
+
+def conflicts(paths: Paths, branch: str) -> dict:
+    """¿El merge con la rama actual del repo da conflicto? ¿Qué otras ramas abiertas tocan los mismos archivos?"""
+    wt = _find(paths, branch)
+    proc = subprocess.run(["git", "merge-tree", "--write-tree", "HEAD", branch], cwd=wt.repo,
+                          capture_output=True, text=True)
+    mine = changed_files(wt)
+    overlaps = sorted(o.branch for o in _load(paths)
+                      if o.branch != branch and o.repo == wt.repo and o.path.exists()
+                      and mine & changed_files(o))
+    return {"merge_conflict": proc.returncode == 1, "overlaps": overlaps}
+
+
+def merge(paths: Paths, branch: str) -> None:
+    """Mergea la rama en el repo original (aborta si hay conflicto) y limpia el worktree."""
+    wt = _find(paths, branch)
+    proc = subprocess.run(["git", "merge", "--no-edit", branch], cwd=wt.repo, capture_output=True, text=True)
+    if proc.returncode != 0:
+        subprocess.run(["git", "merge", "--abort"], cwd=wt.repo, capture_output=True)
+        raise WorktreeError(f"el merge falló y se abortó: {(proc.stderr or proc.stdout).strip()[:300]}")
+    clean(paths, branch)
+
+
 def prune(paths: Paths) -> list[str]:
     """Saca del registro los worktrees cuyo directorio ya no existe. Devuelve las ramas sacadas."""
     with _lock(paths):

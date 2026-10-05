@@ -283,3 +283,10 @@ def test_only_no_corre_los_chequeos_que_no_se_pidieron(denv):
     assert [c.id for c in r.checks] == ["git"]
     assert fake.pings == [] and fake.init_calls == 0
     assert not any(c[:2] == ["codex", "login"] for c in fake.calls)
+
+
+def test_sin_tests_no_corre_la_suite(denv):
+    fake = FakeEnv()
+    r = correr(denv, fake, tests=False)
+    assert not any("pytest" in " ".join(c) for c in fake.calls)
+    assert "tests" not in {c.id for c in r.checks}

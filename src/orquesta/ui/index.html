@@ -388,7 +388,7 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<
 const TOKEN = $('meta[name="orquesta-token"]').content;
 const NOMBRE_BACKEND = {claude: "Claude", codex: "Codex", agy: "Antigravity"};
 const ORDEN_BACKEND = ["claude", "codex", "agy"];
-const PESTANAS = [["chat", "Conversaciones"], ["agentes", "Agentes"], ["moods", "Moods"], ["aplicar", "Aplicar"], ["salud", "Salud"], ["historial", "Historial"], ["plugins", "Plugins"]];
+const PESTANAS = [["chat", "Conversaciones"], ["tareas", "Tareas"], ["agentes", "Agentes"], ["moods", "Moods"], ["aplicar", "Aplicar"], ["salud", "Salud"], ["historial", "Historial"], ["plugins", "Plugins"]];
 const CANDADO = '<svg class="candado" viewBox="0 0 16 16" aria-label="protegido" role="img"><path fill="currentColor" d="M5 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5Zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2Z"/></svg>';
 
 const st = {chat: {projects: [], pid: null, convs: [], conv: null, nueva: false, participantes: []}, data: null, tab: "chat", ed: null, salud: null, saludCargando: false, dry: null, confirmados: new Set(),
@@ -483,7 +483,7 @@ function renderAvisos() {
 }
 function renderPanel() {
   const p = $("#panel");
-  const fn = {chat: panelChat, agentes: st.ed ? panelEditor : panelAgentes, moods: panelMoods, aplicar: panelAplicar, salud: panelSalud, historial: panelHistorial, plugins: panelPlugins}[st.tab];
+  const fn = {chat: panelChat, tareas: panelTareas, agentes: st.ed ? panelEditor : panelAgentes, moods: panelMoods, aplicar: panelAplicar, salud: panelSalud, historial: panelHistorial, plugins: panelPlugins}[st.tab];
   p.innerHTML = fn();
   if (st.tab === "agentes" && st.ed) montarEditor();
   if (st.tab === "moods") previewBloque();
@@ -908,6 +908,15 @@ function formNuevaConv() {
     <div id="nc-err"></div>
     <div class="acciones"><button class="btn primario">Crear conversación</button>${st.chat.conv ? '<button type="button" class="btn" data-action="chat-cancelar">Cancelar</button>' : ""}</div></form>`;
 }
+function infoWorktree(w) {
+  const r = w.review, c = w.conflictos, partes = [];
+  if (w.status === "abierto") {
+    partes.push(r ? `<span class="badge ${r.veredicto === "APROBAR" ? "" : "esperando-revision"}">review de ${esc(r.by)}: ${esc(r.veredicto || "sin veredicto claro")}</span>` : '<span class="badge esperando-revision">sin review</span>');
+    if (c && c.merge_conflict) partes.push('<span class="badge error">conflicto con la rama actual</span>');
+    if (c && c.overlaps && c.overlaps.length) partes.push(`<span class="badge esperando-revision">toca los mismos archivos que ${esc(c.overlaps.join(", "))}</span>`);
+  }
+  return partes.length ? `<div>${partes.join(" ")}</div>` : "";
+}
 function sala(v) {
   const reunion = v.kind === "reunion";
   const libres = st.chat.participantes.filter((p) => !v.participants.includes(p));
@@ -916,11 +925,14 @@ function sala(v) {
     const cuerpo = m.status === "interrupted" ? '<em class="ayuda">Interrumpido.</em>' + (m.text ? md(m.text) : "") : m.status === "pending" ? '<span class="pensando">Pensando</span>' : md(m.author === "orquestador" ? m.text.replace(/^\s*\[mood:[^\]\n]*\]\s*/, "") : m.text);
     const mt = m.meta || {}, con = mt.contrato || {};
     const etiquetas = [mt.rol === "veredicto" ? "veredicto" : "", mt.ronda !== undefined ? `ronda ${mt.ronda}` : "", mt.postura ? `postura: ${mt.postura}` : "", mt.aspecto ? `aspecto: ${mt.aspecto}` : "",
-      con.confianza !== undefined ? `confianza ${con.confianza}` : "", mt.latency_s ? `${mt.latency_s} s` : ""].filter(Boolean).map((e) => `<span class="badge">${esc(e)}</span>`).join("");
+      con.confianza !== undefined ? `confianza ${con.confianza}` : "", mt.latency_s ? `${mt.latency_s} s` : "",
+      mt.usage && (mt.usage.input_tokens || mt.usage.output_tokens) ? `${mt.usage.input_tokens ?? "?"}→${mt.usage.output_tokens ?? "?"} tokens` : "",
+      mt.usage && mt.usage.cost_usd ? `US$ ${Number(mt.usage.cost_usd).toFixed(3)}` : "", mt.rol === "review" ? "review automática" : ""].filter(Boolean).map((e) => `<span class="badge">${esc(e)}</span>`).join("");
     return `<div class="msg ${m.status === "error" ? "error" : ""} ${mt.rol === "veredicto" ? "veredicto" : ""}" data-autor="${esc(m.author)}"><span class="autor ${colorDe(m.author)}">${esc(m.author)}${etiquetas}</span>
       ${m.meta && m.meta.pregunta ? `<span class="pregunta">El moderador le preguntó: ${esc(m.meta.pregunta)}</span>` : ""}<div class="cuerpo md">${cuerpo}</div></div>`;
   }).join("") || '<p class="ayuda">Escribí el primer mensaje.</p>';
   const wts = v.worktrees.map((w) => `<div class="wt"><strong>${esc(w.agent)} dejó cambios en ${esc(w.branch)}</strong>${w.diffstat ? `<pre>${esc(w.diffstat)}</pre>` : ""}
+      ${infoWorktree(w)}
       ${w.status === "abierto" ? `<div class="acciones"><button class="btn primario chico" data-action="chat-merge" data-name="${esc(w.branch)}">Mergear</button><button class="btn chico peligro" data-action="chat-descartar" data-name="${esc(w.branch)}">Descartar</button></div>` : `<span class="ayuda">${esc(w.status)}</span>`}</div>`).join("");
   return `<section class="sala"><header class="sala-cab"><div class="barra" style="margin:0"><h2>${esc(v.title)}</h2><button class="enlace peligro" data-action="chat-borrar">Borrar conversación</button></div>
       <div class="chips">${v.participants.map((p) => `<span class="chip ${colorDe(p)}">${esc(p)}${reunion && v.participants.length > 1 ? `<button data-action="chat-quitar" data-name="${esc(p)}" aria-label="Sacar a ${esc(p)}">×</button>` : ""}</span>`).join("")}
@@ -933,11 +945,25 @@ function sala(v) {
         <a class="enlace" href="/api/chat/conversations/${esc(v.id)}/export.md" download>Exportar a Markdown</a></div></form></section>`;
 }
 
+/* ---------- tareas (todos los worktrees) ---------- */
+function panelTareas() {
+  if (!st.tareas) { api("GET", "/api/worktrees").then((r) => { st.tareas = r.worktrees; if (st.tab === "tareas") renderPanel(); }).catch((e) => toast(e.message)); return '<h2>Tareas</h2><p class="cargando">Cargando…</p>'; }
+  const cols = {"Para revisar": [], "Con conflictos": [], "Huérfanos": []};
+  st.tareas.forEach((w) => (w.huerfano ? cols["Huérfanos"] : w.conflictos && (w.conflictos.merge_conflict || w.conflictos.overlaps.length) ? cols["Con conflictos"] : cols["Para revisar"]).push(w));
+  const tarjetaWt = (w) => `<article class="tarjeta"><header><div><h4 class="${colorDe(w.agent)}">${esc(w.agent)}</h4><span class="slug">${esc(w.branch)}</span></div></header>
+    <p class="rol">${esc(w.task)} <span class="ayuda">en ${esc(w.repo)}</span></p>${w.diffstat ? `<pre class="prueba">${esc(w.diffstat)}</pre>` : '<p class="ayuda">Sin cambios todavía.</p>'}
+    ${w.huerfano ? `<p class="estado pendiente">${esc(w.huerfano)}</p>` : ""}${w.conflictos && w.conflictos.merge_conflict ? '<p class="estado pendiente">Conflicto con la rama actual del repo.</p>' : ""}
+    ${w.conflictos && w.conflictos.overlaps.length ? `<p class="estado pendiente">Toca los mismos archivos que ${esc(w.conflictos.overlaps.join(", "))}.</p>` : ""}
+    <footer><button class="enlace" data-action="t-merge" data-name="${esc(w.branch)}">Mergear</button><button class="enlace peligro" data-action="t-descartar" data-name="${esc(w.branch)}">Descartar</button></footer></article>`;
+  return `<div class="barra"><div><h2>Tareas</h2><p class="ayuda">Todos los worktrees abiertos de los agentes de escritura, de todos los proyectos. Desde el chat ves la review de cada uno; acá los mergeás o descartás en bloque.</p></div><button class="btn" data-action="t-recargar">Actualizar</button></div>
+    ${st.tareas.length ? Object.entries(cols).filter(([, xs]) => xs.length).map(([titulo, xs]) => `<section class="seccion"><h3 class="seccion-titulo">${titulo}<span class="cuenta">${xs.length}</span></h3><div class="grilla">${xs.map(tarjetaWt).join("")}</div></section>`).join("") : '<div class="panel"><p>No hay tareas abiertas. Cuando un agente de escritura trabaje en un worktree, aparece acá.</p></div>'}`;
+}
+
 /* ---------- eventos ---------- */
 document.addEventListener("click", async (ev) => {
   const t = ev.target.closest("[data-tab], [data-action]");
   if (!t) return;
-  if (t.dataset.tab) { st.tab = t.dataset.tab; if (st.tab === "historial") st.historia = null; if (st.tab === "plugins") st.plugins = null; render(); return; }
+  if (t.dataset.tab) { st.tab = t.dataset.tab; if (st.tab === "tareas") st.tareas = null; if (st.tab === "historial") st.historia = null; if (st.tab === "plugins") st.plugins = null; render(); return; }
   const n = t.dataset.name, act = t.dataset.action;
   try {
     switch (act) {
@@ -989,6 +1015,15 @@ document.addEventListener("click", async (ev) => {
         st.aviso = `Desinstalado ${n}. ${r.note}`; st.plugins = null; await cargar(); break;
       }
       case "chat-abrir": await abrirConv(n); break;
+      case "t-recargar": st.tareas = null; renderPanel(); break;
+      case "t-merge": {
+        if (!await dialogo({titulo: "Mergear la tarea", texto: `Se mergea ${n} en su repo y se borra el worktree. Si no pasó por la review del chat, revisá el diff antes.`, aceptar: "Mergear"})) break;
+        await api("POST", "/api/worktrees/merge", {branch: n, confirm: true}); toast("Mergeado."); st.tareas = null; renderPanel(); break;
+      }
+      case "t-descartar": {
+        if (!await dialogo({titulo: "Descartar la tarea", texto: `Se borran el worktree y la rama ${n}, aunque no esté mergeada.`, aceptar: "Descartar", peligro: true})) break;
+        await api("POST", "/api/worktrees/discard", {branch: n, confirm: true}); toast("Descartado."); st.tareas = null; renderPanel(); break;
+      }
       case "chat-columnas": st.chat.columnas = !st.chat.columnas; renderPanel(); break;
       case "chat-detener": await api("POST", `/api/chat/conversations/${st.chat.conv.id}/cancel`); toast("Cortando el turno…"); break;
       case "chat-nueva": st.chat.nueva = true; renderPanel(); break;
@@ -1011,7 +1046,13 @@ document.addEventListener("click", async (ev) => {
       }
       case "chat-merge": {
         if (!await dialogo({titulo: "Mergear los cambios", texto: `Se mergea ${n} en tu proyecto y se borra el worktree.`, aceptar: "Mergear"})) break;
-        await api("POST", `/api/chat/conversations/${st.chat.conv.id}/worktrees/merge`, {branch: n}); toast("Mergeado."); await abrirConv(st.chat.conv.id); break;
+        try { await api("POST", `/api/chat/conversations/${st.chat.conv.id}/worktrees/merge`, {branch: n}); }
+        catch (e) {
+          if (!(e.status === 409 && e.data.needs_confirmation)) throw e;
+          if (!await dialogo({titulo: "La review no aprobó estos cambios", texto: e.data.detail, aceptar: "Mergear igual", peligro: true})) break;
+          await api("POST", `/api/chat/conversations/${st.chat.conv.id}/worktrees/merge`, {branch: n, force: true});
+        }
+        toast("Mergeado."); await abrirConv(st.chat.conv.id); break;
       }
       case "chat-descartar": {
         if (!await dialogo({titulo: "Descartar los cambios", texto: `Se borran el worktree y la rama ${n}.`, aceptar: "Descartar", peligro: true})) break;

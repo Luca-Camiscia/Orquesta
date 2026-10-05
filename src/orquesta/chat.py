@@ -50,6 +50,14 @@ class ChatError(Exception):
     pass
 
 
+class NeedsForce(ChatError):
+    """Mergear sin una review aprobada requiere confirmación explícita."""
+
+
+REVIEW_PREFERENCE = ("codex-abogado-del-diablo", "gemini-bibliotecario", "claude-centinela")
+REVIEW_DIFF_CHARS = 20000
+
+
 @dataclass
 class Reply:
     text: str
@@ -242,7 +250,10 @@ def _claude(args: list[str], prompt: str, cwd: str) -> Reply:
         return Reply(p.stdout.strip(), error=f"ESTADO: FALLO_BACKEND — {p.stderr.strip()[-300:]}")
     if data.get("is_error") or p.returncode != 0:
         return Reply(str(data.get("result", "")), error=f"ESTADO: FALLO_BACKEND — {data.get('subtype', '')}")
-    return Reply(strip_mood_tag(str(data.get("result", ""))).strip())
+    u = data.get("usage") or {}
+    usage = {"input_tokens": u.get("input_tokens"), "output_tokens": u.get("output_tokens"),
+             "cost_usd": data.get("total_cost_usd")}
+    return Reply(strip_mood_tag(str(data.get("result", ""))).strip(), meta={"usage": usage})
 
 
 def default_executor(paths: Paths, project: dict, participant: str, prompt: str) -> Reply:
@@ -264,7 +275,8 @@ def default_executor(paths: Paths, project: dict, participant: str, prompt: str)
                                      cancel_key=getattr(_ctx, "key", None)), paths)
     if r.status == "CANCELADO":
         return Reply(r.output, error=CANCELLED, meta={})
-    meta = {k: r.meta.get(k) for k in ("branch", "worktree", "commit", "diffstat") if r.meta.get(k)}
+    meta = {k: r.meta.get(k) for k in ("branch", "worktree", "commit", "diffstat", "usage", "contrato")
+            if r.meta.get(k)}
     meta["latency_s"] = r.latency_s
     if r.status != "OK":
         return Reply(r.output, error=f"ESTADO: {r.status} — {r.detail}", meta=meta)
@@ -325,7 +337,44 @@ def _speak(store: Store, cid: str, project: dict, who: str, executor: Executor,
                                    "worktree": reply.meta.get("worktree"), "commit": reply.meta.get("commit"),
                                    "diffstat": reply.meta.get("diffstat", ""), "status": "abierto"})
     store.update(cid, done)
+    if reply.meta.get("branch") and not reply.error and not procs.is_cancelled(cid):
+        _auto_review(store, cid, project, who, reply.meta["branch"], executor)
     return reply
+
+
+def _reviewer_for(store: Store, writer: str) -> str:
+    manifest = mf.load(store.paths) or {}
+    agents = manifest.get("agents") or {}
+    family = (agents.get(writer) or {}).get("backend")
+    ok = [n for n, e in agents.items() if e.get("mode") == "read-only" and e.get("backend") != family]
+    for name in REVIEW_PREFERENCE:
+        if name in ok:
+            return name
+    return ok[0] if ok else ORCHESTRATOR
+
+
+def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str, executor: Executor) -> None:
+    """Review cruzado automático: lo escrito por una familia de modelos lo revisa otra."""
+    reviewer = _reviewer_for(store, writer)
+    wt = next((w for w in worktrees.list_worktrees(store.paths) if w.branch == branch), None)
+    diff = ""
+    if wt is not None:
+        diff = subprocess.run(["git", "diff", f"{wt.base_sha}..{branch}"], cwd=wt.repo,
+                              capture_output=True, text=True).stdout[:REVIEW_DIFF_CHARS]
+    prompt = (f"Review cruzado automático en el proyecto «{project['name']}» ({project['dir']}). {writer} "
+              f"dejó estos cambios en la rama {branch}:\n\n```diff\n{diff}\n```\n\nRevisalos: bugs, casos "
+              f"borde, tests que faltan, riesgos. Hallazgos por severidad con archivo:línea. Terminá con una "
+              f"línea exacta `Veredicto: APROBAR`, `Veredicto: APROBAR CON CAMBIOS` o `Veredicto: RECHAZAR`, y "
+              f"después RESULTADO y CONFIANZA.")
+    r = _speak(store, cid, project, reviewer, executor, prompt=prompt, meta={"rol": "review", "branch": branch})
+    m = re.search(r"Veredicto:\s*(APROBAR CON CAMBIOS|APROBAR|RECHAZAR)", r.text or "", re.I)
+    verdict = m.group(1).upper() if m else None
+
+    def save(c):
+        w = next((x for x in c["worktrees"] if x["branch"] == branch), None)
+        if w is not None:
+            w["review"] = {"by": reviewer, "veredicto": verdict}
+    store.update(cid, save)
 
 
 def _set_text(store: Store, cid: str, author: str, text: str) -> None:
@@ -505,17 +554,17 @@ def _wt(conv: dict, branch: str) -> dict:
     return wt
 
 
-def merge_worktree(store: Store, cid: str, branch: str) -> None:
+def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> None:
     conv = store.get_conversation(cid)
-    _wt(conv, branch)
-    repo = worktrees.git_toplevel(Path(store.get_project(conv["project_id"])["dir"]))
-    if repo is None:
-        raise ChatError("el proyecto no es un repo git")
-    p = subprocess.run(["git", "merge", "--no-edit", branch], cwd=repo, capture_output=True, text=True)
-    if p.returncode != 0:
-        subprocess.run(["git", "merge", "--abort"], cwd=repo, capture_output=True)
-        raise ChatError(f"el merge falló y se abortó: {(p.stderr or p.stdout).strip()[:300]}")
-    worktrees.clean(store.paths, branch)
+    wt = _wt(conv, branch)
+    verdict = (wt.get("review") or {}).get("veredicto")
+    if verdict != "APROBAR" and not force:
+        raise NeedsForce(f"la review de {branch} no está aprobada (veredicto: {verdict or 'sin review'}). "
+                         f"Si querés mergear igual, confirmalo explícitamente.")
+    try:
+        worktrees.merge(store.paths, branch)
+    except worktrees.WorktreeError as exc:
+        raise ChatError(str(exc)) from None
     store.update(cid, lambda c: _wt(c, branch).update(status="mergeado"))
 
 

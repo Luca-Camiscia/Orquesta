@@ -595,13 +595,14 @@ def _wanted(only: str | None, prefixes: tuple[str, ...]) -> bool:
 
 
 def run_doctor(paths: Paths, *, deps: Env | None = None, use_cache: bool = True, live: bool = True,
-               only: str | None = None) -> Report:
+               only: str | None = None, tests: bool = True) -> Report:
     deps = deps or Env()
     cache = _Cache(paths.state_dir / "doctor-cache.json", deps.now(), use_cache)
     ctx = _Ctx(paths, deps, cache)
     checks: list[Check] = []
     for fn, is_live, prefixes in CHECKS:
-        if (is_live and not live) or (fn is not _registro and not _wanted(only, prefixes)):
+        if (is_live and not live) or (fn is _tests and not tests) or \
+                (fn is not _registro and not _wanted(only, prefixes)):
             continue
         checks.extend(fn(ctx))
     cache.save()

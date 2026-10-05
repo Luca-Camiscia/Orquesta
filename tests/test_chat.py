@@ -136,7 +136,7 @@ def test_ejecutor_real_write_crea_worktree_y_se_mergea(store, proyecto, env):
     wt = c["worktrees"][0]
     assert wt["status"] == "abierto" and wt["branch"].startswith("orquesta/codex-forja/")
     assert not (proyecto / "nuevo.txt").exists()
-    chat.merge_worktree(store, conv["id"], wt["branch"])
+    chat.merge_worktree(store, conv["id"], wt["branch"], force=True)  # el fake no da veredicto
     assert (proyecto / "nuevo.txt").exists()
     assert store.get_conversation(conv["id"])["worktrees"][0]["status"] == "mergeado"
 
@@ -302,3 +302,71 @@ def test_la_confianza_del_contrato_queda_en_el_mensaje(store, proyecto):
     conv = store.create_conversation(pr["id"], "c", "individual", ["codex-critico"])
     chat.run_turn(store, conv["id"], "hola", executor=FakeJuez())
     assert store.get_conversation(conv["id"])["messages"][-1]["meta"]["contrato"]["confianza"] == 60
+
+
+# --- tanda 4: auto-review, conflictos, tokens, tablero ------------------------------------
+
+class FakeReview(FakeExec):
+    def __init__(self, veredicto="APROBAR"):
+        super().__init__()
+        self.veredicto = veredicto
+
+    def __call__(self, paths, project, participant, prompt):
+        self.calls.append((participant, prompt))
+        if participant == "codex-forja":
+            (Path(project["dir"])).joinpath("x.txt")
+            r = chat.default_executor(paths, project, participant, "WRITE:revisado.txt")
+            return r
+        return chat.Reply(f"Revisé.\nVeredicto: {self.veredicto}\nRESULTADO: OK\nCONFIANZA: 80")
+
+
+from pathlib import Path  # noqa: E402
+
+
+def test_auto_review_de_otra_familia_y_bloqueo_del_merge(store, proyecto, env):
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "w", "individual", ["codex-forja"])
+    fake = FakeReview("RECHAZAR")
+    chat.run_turn(store, conv["id"], "hacelo", executor=fake)
+    c = store.get_conversation(conv["id"])
+    revisor, prompt = fake.calls[-1]
+    assert revisor == "gemini-lector"                      # codex escribió → revisa agy
+    assert "revisado.txt" in prompt                        # le llega el diff
+    wt = c["worktrees"][0]
+    assert wt["review"]["veredicto"] == "RECHAZAR"
+    with pytest.raises(chat.NeedsForce):
+        chat.merge_worktree(store, conv["id"], wt["branch"])
+    chat.merge_worktree(store, conv["id"], wt["branch"], force=True)
+    assert (proyecto / "revisado.txt").exists()
+
+
+def test_auto_review_aprobado_permite_mergear(store, proyecto, env):
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "w", "individual", ["codex-forja"])
+    chat.run_turn(store, conv["id"], "hacelo", executor=FakeReview("APROBAR"))
+    br = store.get_conversation(conv["id"])["worktrees"][0]["branch"]
+    chat.merge_worktree(store, conv["id"], br)
+    assert (proyecto / "revisado.txt").exists()
+
+
+def test_conflictos_entre_ramas_y_con_main(env, proyecto):
+    from orquesta import worktrees
+    a = worktrees.create(env, repo=proyecto, agent="codex-forja", task="uno")
+    b = worktrees.create(env, repo=proyecto, agent="codex-forja", task="dos")
+    (a.path / "a.txt").write_text("versión A\n")
+    worktrees.commit_all(a, "A")
+    (b.path / "a.txt").write_text("versión B\n")
+    worktrees.commit_all(b, "B")
+    info = worktrees.conflicts(env, a.branch)
+    assert info["merge_conflict"] is False and b.branch in info["overlaps"]
+    (proyecto / "a.txt").write_text("cambio en main\n")
+    import subprocess
+    subprocess.run(["git", "commit", "-qam", "main"], cwd=proyecto, check=True)
+    assert worktrees.conflicts(env, a.branch)["merge_conflict"] is True
+
+
+def test_tokens_de_agy_quedan_en_meta(env, tmp_path):
+    from orquesta import runner
+    apply_plan(build_plan(env), "deploy", run_tests=None)
+    r = runner.run(runner.RunRequest(agent="gemini-lector", cwd=tmp_path, prompt="hola"), env)
+    assert "usage" in r.meta

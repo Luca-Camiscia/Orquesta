@@ -20,6 +20,7 @@ from ruamel.yaml import YAML
 from orquesta import catalog, doctor, editing
 from orquesta import manifest as mf
 from orquesta import chat, moods, runner
+from orquesta import worktrees as worktrees_mod
 from orquesta import plugins as plugins_mod
 from orquesta.config import load_backends, read_manual
 from orquesta.generate import GenerateError, apply_plan, build_plan, run_test_suite
@@ -326,7 +327,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
 
     @app.get("/api/health")
     def health():
-        return doctor.run_doctor(paths, deps=doctor_deps, live=False).to_json()
+        return doctor.run_doctor(paths, deps=doctor_deps, live=False, tests=False).to_json()
 
     @app.post("/api/health/refresh")
     def health_refresh():
@@ -458,7 +459,49 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
 
     @app.get("/api/chat/conversations/{cid}")
     def chat_conversation(cid: str):
-        return store.get_conversation(cid)
+        conv = store.get_conversation(cid)
+        for w in conv.get("worktrees", []):
+            if w.get("status") == "abierto":
+                try:
+                    w["conflictos"] = worktrees_mod.conflicts(paths, w["branch"])
+                except worktrees_mod.WorktreeError:
+                    w["conflictos"] = None
+        return conv
+
+    @app.post("/api/worktrees/merge")
+    def board_merge(body: dict = Body(...)):
+        if body.get("confirm") is not True:
+            return JSONResponse({"needs_confirmation": True, "detail": "Confirmá el merge."}, status_code=409)
+        try:
+            worktrees_mod.merge(paths, body.get("branch", ""))
+        except worktrees_mod.WorktreeError as exc:
+            return JSONResponse({"errors": [str(exc)]}, status_code=422)
+        return {"ok": True}
+
+    @app.post("/api/worktrees/discard")
+    def board_discard(body: dict = Body(...)):
+        if body.get("confirm") is not True:
+            return JSONResponse({"needs_confirmation": True, "detail": "Confirmá el descarte."}, status_code=409)
+        try:
+            worktrees_mod.clean(paths, body.get("branch", ""), force=True)
+        except worktrees_mod.WorktreeError as exc:
+            return JSONResponse({"errors": [str(exc)]}, status_code=422)
+        return {"ok": True}
+
+    @app.get("/api/worktrees")
+    def all_worktrees():
+        orphan = {o.branch: o.reason for o in worktrees_mod.orphans(paths)}
+        out = []
+        for w in worktrees_mod.list_worktrees(paths):
+            item = {"branch": w.branch, "agent": w.agent, "task": w.task, "repo": str(w.repo),
+                    "created_at": w.created_at, "huerfano": orphan.get(w.branch)}
+            try:
+                item["diffstat"] = worktrees_mod.diffstat(w)
+                item["conflictos"] = worktrees_mod.conflicts(paths, w.branch)
+            except worktrees_mod.WorktreeError:
+                item["diffstat"], item["conflictos"] = "", None
+            out.append(item)
+        return {"worktrees": out}
 
     @app.delete("/api/chat/conversations/{cid}")
     def chat_delete(cid: str):
@@ -501,7 +544,10 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
 
     @app.post("/api/chat/conversations/{cid}/worktrees/merge")
     def chat_merge(cid: str, body: dict = Body(...)):
-        chat.merge_worktree(store, cid, body.get("branch", ""))
+        try:
+            chat.merge_worktree(store, cid, body.get("branch", ""), force=body.get("force") is True)
+        except chat.NeedsForce as exc:
+            return JSONResponse({"needs_confirmation": True, "detail": str(exc)}, status_code=409)
         return {"ok": True}
 
     @app.post("/api/chat/conversations/{cid}/worktrees/discard")

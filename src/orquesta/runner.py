@@ -185,7 +185,15 @@ def _execute(cmd: Command, backend: Backend, cwd: Path, timeout: float,
     if not text:
         return RunResult("FALLO_BACKEND", stderr_tail=_tail(stderr),
                          detail="salida vacía (¿volvió el bug de stdout sin TTY?)")
-    return RunResult("OK", output=text, stderr_tail=_tail(stderr))
+    usage = {}
+    if backend.output.format == "json":
+        for line in reversed(stdout.strip().splitlines()):
+            try:
+                usage = json.loads(line).get("usage") or {}
+                break
+            except (ValueError, AttributeError):
+                continue
+    return RunResult("OK", output=text, stderr_tail=_tail(stderr), meta={"usage": usage})
 
 
 # --- reglas ----------------------------------------------------------------------------------
