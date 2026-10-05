@@ -2,6 +2,10 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-04 21:21 — Reglas de orquestación basadas en evidencia (papers 2024-2026)
+
+- CLAUDE.md: bloque actualizado
+
 ## 2026-10-04 20:54 — Tanda 2: personas mejoradas (guías Codex/Gemini), anti-disparadores, contrato de salida y 9 roles nuevos
 
 - CLAUDE.md: bloque actualizado
