@@ -337,6 +337,13 @@ code.cmd { display: block; padding: 12px 14px; border-radius: 8px; background: v
 .cuerpo.md hr { border: 0; border-top: 1px solid var(--pauta); margin: 12px 0; }
 .cuerpo.md .ruta { font-family: var(--mono); font-size: .85em; }
 
+#paleta { max-width: 640px; padding: 14px; } #paleta input { margin-bottom: 8px; }
+#paleta-lista button[aria-selected="true"] { background: var(--pauta-suave); }
+.menciones { list-style: none; margin: 0; padding: 4px; border: 1px solid var(--pauta); border-radius: 8px; background: var(--hoja); display: flex; flex-wrap: wrap; gap: 4px; }
+.menciones button { border: 1px solid currentColor; background: none; border-radius: 999px; padding: 2px 10px; cursor: pointer; font-size: .85rem; }
+.msg-acciones { display: flex; gap: 2px; opacity: .55; } .msg:hover .msg-acciones, .msg:focus-within .msg-acciones { opacity: 1; }
+.msg-acciones button { border: 0; background: none; cursor: pointer; font-size: .8rem; color: var(--tinta-suave); padding: 2px 6px; text-decoration: underline; text-underline-offset: 2px; }
+
 /* diálogo y toast */
 dialog { border: 1px solid var(--pauta); border-radius: 12px; padding: 22px 24px; max-width: 520px; width: calc(100% - 32px); background: var(--hoja); color: var(--tinta); }
 dialog::backdrop { background: rgb(24 33 58 / .35); }
@@ -377,6 +384,7 @@ dialog .acciones { justify-content: flex-end; margin-top: 16px; }
 <nav class="pestanas" role="tablist" id="pestanas"></nav>
 <div id="avisos" aria-live="polite"></div>
 <main id="panel"><p class="cargando">Cargando…</p></main>
+<dialog id="paleta" aria-label="Paleta de comandos"><input type="text" id="paleta-q" placeholder="Buscá un comando, una conversación o un texto…" autocomplete="off"><ul id="paleta-lista" class="lista-conv"></ul><p class="ayuda">Ctrl+K abre esto. Enter elige, Esc cierra. En el chat: @ para mencionar, Ctrl+Enter envía, Esc detiene.</p></dialog>
 <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -921,7 +929,7 @@ function sala(v) {
   const reunion = v.kind === "reunion";
   const libres = st.chat.participantes.filter((p) => !v.participants.includes(p));
   const msgs = v.messages.map((m) => {
-    if (m.author === "usuario") return `<div class="msg usuario"><span class="autor">Vos</span><div class="cuerpo">${esc(m.text)}</div></div>`;
+    if (m.author === "usuario") return `<div class="msg usuario"><span class="autor">Vos</span><div class="cuerpo">${esc(m.text)}</div><div class="msg-acciones" style="justify-content:flex-end"><button data-action="msg-copiar" data-name="${esc(m.id)}">Copiar</button>${v.busy ? "" : `<button data-action="msg-reintentar" data-name="${esc(m.id)}">Reenviar</button>`}</div></div>`;
     const cuerpo = m.status === "interrupted" ? '<em class="ayuda">Interrumpido.</em>' + (m.text ? md(m.text) : "") : m.status === "pending" ? '<span class="pensando">Pensando</span>' : md(m.author === "orquestador" ? m.text.replace(/^\s*\[mood:[^\]\n]*\]\s*/, "") : m.text);
     const mt = m.meta || {}, con = mt.contrato || {};
     const etiquetas = [mt.rol === "veredicto" ? "veredicto" : "", mt.ronda !== undefined ? `ronda ${mt.ronda}` : "", mt.postura ? `postura: ${mt.postura}` : "", mt.aspecto ? `aspecto: ${mt.aspecto}` : "",
@@ -929,7 +937,7 @@ function sala(v) {
       mt.usage && (mt.usage.input_tokens || mt.usage.output_tokens) ? `${mt.usage.input_tokens ?? "?"}→${mt.usage.output_tokens ?? "?"} tokens` : "",
       mt.usage && mt.usage.cost_usd ? `US$ ${Number(mt.usage.cost_usd).toFixed(3)}` : "", mt.rol === "review" ? "review automática" : ""].filter(Boolean).map((e) => `<span class="badge">${esc(e)}</span>`).join("");
     return `<div class="msg ${m.status === "error" ? "error" : ""} ${mt.rol === "veredicto" ? "veredicto" : ""}" data-autor="${esc(m.author)}"><span class="autor ${colorDe(m.author)}">${esc(m.author)}${etiquetas}</span>
-      ${m.meta && m.meta.pregunta ? `<span class="pregunta">El moderador le preguntó: ${esc(m.meta.pregunta)}</span>` : ""}<div class="cuerpo md">${cuerpo}</div></div>`;
+      ${m.meta && m.meta.pregunta ? `<span class="pregunta">El moderador le preguntó: ${esc(m.meta.pregunta)}</span>` : ""}<div class="cuerpo md">${cuerpo}</div>${m.status === "pending" ? "" : `<div class="msg-acciones"><button data-action="msg-copiar" data-name="${esc(m.id)}">Copiar</button></div>`}</div>`;
   }).join("") || '<p class="ayuda">Escribí el primer mensaje.</p>';
   const wts = v.worktrees.map((w) => `<div class="wt"><strong>${esc(w.agent)} dejó cambios en ${esc(w.branch)}</strong>${w.diffstat ? `<pre>${esc(w.diffstat)}</pre>` : ""}
       ${infoWorktree(w)}
@@ -940,7 +948,7 @@ function sala(v) {
         ${reunion ? `<button class="btn chico" data-action="chat-columnas">${st.chat.columnas ? "Ver como hilo" : "Ver en columnas"}</button>` : ""}
         <span class="ayuda">${reunion ? `Reunión ${esc(v.mode)}. ${{rondas: "Responden en orden; con @agente le hablás a uno solo.", moderada: "El orquestador pregunta y cierra con una síntesis.", critica: "Primero a ciegas, después crítica anónima; el juez decide.", posturas: "Posturas asignadas, réplica y veredicto del juez.", seccionado: "Cada uno cubre un aspecto; el juez consolida."}[v.mode] || ""}` : "Individual"}</span></div></header>
     <div class="mensajes ${reunion && st.chat.columnas ? "columnas" : ""}" style="--cols:${Math.max(1, v.participants.length)}" aria-live="polite">${reunion && st.chat.columnas ? ordenarEnColumnas(v, msgs) : msgs}${wts}</div>
-    <form class="redactar" id="chat-enviar"><textarea id="chat-texto" aria-label="Mensaje" placeholder="${v.busy ? "Esperá a que terminen de responder" : "Escribí tu mensaje (Ctrl+Enter para enviar)"}"></textarea>
+    <form class="redactar" id="chat-enviar"><div id="menciones"></div><textarea id="chat-texto" aria-label="Mensaje" placeholder="${v.busy ? "Esperá a que terminen de responder" : "Escribí tu mensaje (Ctrl+Enter para enviar)"}"></textarea>
       <div class="acciones">${v.busy ? '<button type="button" class="btn peligro" data-action="chat-detener">Detener (Esc)</button>' : '<button class="btn primario">Enviar</button>'}
         <a class="enlace" href="/api/chat/conversations/${esc(v.id)}/export.md" download>Exportar a Markdown</a></div></form></section>`;
 }
@@ -1015,6 +1023,15 @@ document.addEventListener("click", async (ev) => {
         st.aviso = `Desinstalado ${n}. ${r.note}`; st.plugins = null; await cargar(); break;
       }
       case "chat-abrir": await abrirConv(n); break;
+      case "msg-copiar": { const m = st.chat.conv.messages.find((x) => x.id === n); await navigator.clipboard.writeText(m.text); toast("Copiado."); break; }
+      case "msg-reintentar": {
+        const m = st.chat.conv.messages.find((x) => x.id === n);
+        await api("POST", `/api/chat/conversations/${st.chat.conv.id}/messages`, {text: m.text}); await abrirConv(st.chat.conv.id); break;
+      }
+      case "mencion": {
+        const ta = $("#chat-texto"); const pos = ta.selectionStart; const antes = ta.value.slice(0, pos).replace(/@[a-z0-9-]*$/, "");
+        ta.value = `${antes}@${n} ${ta.value.slice(pos)}`; $("#menciones").innerHTML = ""; ta.focus(); break;
+      }
       case "t-recargar": st.tareas = null; renderPanel(); break;
       case "t-merge": {
         if (!await dialogo({titulo: "Mergear la tarea", texto: `Se mergea ${n} en su repo y se borra el worktree. Si no pasó por la review del chat, revisá el diff antes.`, aceptar: "Mergear"})) break;
@@ -1152,7 +1169,46 @@ $("#tema").addEventListener("click", () => {
   const actual = document.documentElement.getAttribute("data-theme") || "auto";
   aplicarTema(TEMAS[(TEMAS.indexOf(actual) + 1) % TEMAS.length]);
 });
+function comandosPaleta() {
+  const cmds = PESTANAS.map(([id, nombre]) => ({etiqueta: `Ir a ${nombre}`, accion: () => { st.tab = id; render(); }}));
+  cmds.push({etiqueta: "Nueva conversación", accion: () => { st.tab = "chat"; st.chat.nueva = true; render(); }},
+            {etiqueta: "Re-chequear salud (doctor)", accion: () => { st.tab = "salud"; render(); cargarSalud(true); }},
+            {etiqueta: "Revisar cambios sin aplicar", accion: () => { st.tab = "aplicar"; render(); correrDryRun(); }},
+            {etiqueta: "Cambiar tema", accion: () => $("#tema").click()});
+  st.chat.convs.forEach((v) => cmds.push({etiqueta: `Abrir: ${v.title}`, accion: () => { st.tab = "chat"; render(); abrirConv(v.id); }}));
+  return cmds;
+}
+let paletaSel = 0, paletaItems = [];
+async function filtrarPaleta() {
+  const q = $("#paleta-q").value.trim().toLowerCase();
+  paletaItems = comandosPaleta().filter((c) => !q || c.etiqueta.toLowerCase().includes(q));
+  if (q.length >= 3) {
+    try {
+      const r = await api("GET", `/api/chat/search?q=${encodeURIComponent(q)}`);
+      r.results.forEach((x) => paletaItems.push({etiqueta: `«${x.title}», ${x.author}: …${x.snippet}…`, accion: async () => {
+        st.tab = "chat"; if (st.chat.pid !== x.project_id) { st.chat.pid = x.project_id; await cargarChat(); } render(); abrirConv(x.conversation_id); }}));
+    } catch { /* sin búsqueda */ }
+  }
+  paletaSel = Math.min(paletaSel, Math.max(0, paletaItems.length - 1));
+  $("#paleta-lista").innerHTML = paletaItems.slice(0, 40).map((c, i) => `<li><button type="button" data-paleta="${i}" aria-selected="${i === paletaSel}">${esc(c.etiqueta)}</button></li>`).join("") || '<li class="ayuda">Sin resultados.</li>';
+}
+function abrirPaleta() { $("#paleta-q").value = ""; paletaSel = 0; $("#paleta").showModal(); filtrarPaleta(); $("#paleta-q").focus(); }
+function elegirPaleta(i) { const c = paletaItems[i]; $("#paleta").close(); if (c) c.accion(); }
+$("#paleta-q").addEventListener("input", () => { paletaSel = 0; filtrarPaleta(); });
+$("#paleta-q").addEventListener("keydown", (ev) => {
+  if (ev.key === "ArrowDown") { paletaSel = Math.min(paletaSel + 1, paletaItems.length - 1); ev.preventDefault(); filtrarPaleta(); }
+  else if (ev.key === "ArrowUp") { paletaSel = Math.max(paletaSel - 1, 0); ev.preventDefault(); filtrarPaleta(); }
+  else if (ev.key === "Enter") { ev.preventDefault(); elegirPaleta(paletaSel); }
+});
+$("#paleta-lista").addEventListener("click", (ev) => { const b = ev.target.closest("[data-paleta]"); if (b) elegirPaleta(+b.dataset.paleta); });
+document.addEventListener("keydown", (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); abrirPaleta(); } });
 $("#salud-chip").addEventListener("click", () => { st.tab = "salud"; render(); });
+document.addEventListener("input", (ev) => {
+  if (ev.target.id !== "chat-texto" || !st.chat.conv) return;
+  const m = ev.target.value.slice(0, ev.target.selectionStart).match(/@([a-z0-9-]*)$/);
+  const opciones = m ? st.chat.conv.participants.filter((p) => p.startsWith(m[1])) : [];
+  $("#menciones").innerHTML = opciones.length ? `<ul class="menciones">${opciones.map((p) => `<li><button type="button" class="${colorDe(p)}" data-action="mencion" data-name="${esc(p)}">@${esc(p)}</button></li>`).join("")}</ul>` : "";
+});
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && st.tab === "chat" && st.chat.conv && st.chat.conv.busy && !$("#dlg").open) {
     api("POST", `/api/chat/conversations/${st.chat.conv.id}/cancel`).then(() => toast("Cortando el turno…"));

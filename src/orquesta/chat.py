@@ -545,6 +545,30 @@ def _mode_seccionado(store: Store, cid: str, project: dict, executor: Executor, 
     _judge(store, cid, project, executor, "Consolidá los aspectos en un informe único, priorizado por impacto.")
 
 
+# --- búsqueda -------------------------------------------------------------------------------
+
+def search(store: Store, query: str, limit: int = 30) -> list[dict]:
+    q = query.strip().lower()
+    if not q:
+        return []
+    out = []
+    for f in sorted((store.root / "conv").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            c = json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        for m in c["messages"]:
+            i = m["text"].lower().find(q)
+            if i >= 0:
+                start = max(0, i - 60)
+                out.append({"conversation_id": c["id"], "project_id": c["project_id"], "title": c["title"],
+                            "author": m["author"], "snippet": m["text"][start:i + len(q) + 80]})
+                break
+        if len(out) >= limit:
+            break
+    return out
+
+
 # --- worktrees del chat ----------------------------------------------------------------------
 
 def _wt(conv: dict, branch: str) -> dict:

@@ -370,3 +370,17 @@ def test_tokens_de_agy_quedan_en_meta(env, tmp_path):
     apply_plan(build_plan(env), "deploy", run_tests=None)
     r = runner.run(runner.RunRequest(agent="gemini-lector", cwd=tmp_path, prompt="hola"), env)
     assert "usage" in r.meta
+
+
+# --- tanda 5: búsqueda --------------------------------------------------------------------
+
+def test_busqueda_en_todas_las_conversaciones(store, proyecto):
+    pr = store.create_project("P", str(proyecto))
+    a = store.create_conversation(pr["id"], "Ventas", "individual", ["codex-critico"])
+    b = store.create_conversation(pr["id"], "Otra", "individual", ["codex-critico"])
+    chat.run_turn(store, a["id"], "hablemos de la humita", executor=FakeExec())
+    chat.run_turn(store, b["id"], "nada que ver", executor=FakeExec())
+    res = chat.search(store, "HUMITA")
+    assert [r["conversation_id"] for r in res] == [a["id"]]
+    assert "humita" in res[0]["snippet"].lower() and res[0]["title"] == "Ventas"
+    assert chat.search(store, "  ") == []
