@@ -21,6 +21,29 @@ def test_registro_valido_no_tiene_errores():
     assert errores() == []
 
 
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max", "ultra", None])
+def test_backend_effort_valido(effort):
+    data, backends = registry_dict(), backends_dict()
+    data["agents"][1]["backend_effort"] = effort
+    backends["backends"]["codex"]["effort_flag"] = ["-c", "model_reasoning_effort={effort}"]
+    assert errores(data, backends) == []
+
+
+@pytest.mark.parametrize("effort", ["invalid", "", "HIGH"])
+def test_backend_effort_invalido_se_rechaza(effort):
+    data = registry_dict()
+    data["agents"][1]["backend_effort"] = effort
+    with pytest.raises(ConfigError, match="backend_effort"):
+        parse_registry(data)
+
+
+@pytest.mark.parametrize("index", [0, 1, 3])
+def test_backend_effort_requiere_effort_flag(index):
+    data = registry_dict()
+    data["agents"][index]["backend_effort"] = "high"
+    assert any("backend_effort" in e and "effort_flag" in e for e in errores(data))
+
+
 @pytest.mark.parametrize("nombre", ["Codex", "codex_forja", "-codex", "codex-", "con espacio",
                                     "a" * 65, "codex--forja", ""])
 def test_nombre_invalido_se_rechaza(nombre):

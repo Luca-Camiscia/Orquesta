@@ -91,13 +91,16 @@ def _sandbox_prefix(backend: Backend, spec: ModeSpec | None, mode: str | None, c
 
 def build_command(backend: Backend, *, mode: str | None, model: str | None, cwd: Path,
                   prompt: str, state_dir: Path, platform: str = sys.platform,
-                  home: Path | None = None, extra_flags: list[str] | tuple = ()) -> Command:
+                  home: Path | None = None, extra_flags: list[str] | tuple = (),
+                  effort: str | None = None) -> Command:
     spec = backend.modes.get(mode) if mode else None
     argv = [*backend.command, *backend.common_flags, *extra_flags]
     if spec:
         argv += spec.flags
     if model and backend.model_flag:
         argv += [f.replace("{model}", model) for f in backend.model_flag]
+    if effort and backend.effort_flag:
+        argv += [f.replace("{effort}", effort) for f in backend.effort_flag]
     if backend.cwd_flag:
         argv += [f.replace("{cwd}", str(cwd)) for f in backend.cwd_flag]
     temp: list[Path] = []
@@ -376,7 +379,7 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
         else:
             spec = backend.modes.get(entry.mode)
             cmd = build_command(backend, mode=entry.mode, model=entry.backend_model, cwd=work_cwd,
-                                prompt=prompt, state_dir=paths.state_dir)
+                                effort=entry.backend_effort, prompt=prompt, state_dir=paths.state_dir)
             meta["warnings"] = cmd.warnings
             before = tree_state(work_cwd) if entry.mode == "read-only" else None
             result = _execute(cmd, backend, work_cwd, req.timeout_s or (spec.timeout_s if spec else 540),

@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 from fastapi.testclient import TestClient
 
-from helpers import git, load_yaml
+from helpers import dump_yaml, git, load_yaml
 from orquesta import doctor
 from orquesta.generate import apply_plan, build_plan
 from orquesta.ui.app import create_app
@@ -69,6 +70,38 @@ def test_origin_ajeno_se_rechaza(client):
 
 
 # --- estado y edición ------------------------------------------------------------------------
+
+def test_modelos_endpoint_con_token_y_protecciones(client, tmp_path, monkeypatch):
+    from orquesta import modelos
+    cache = tmp_path / "models_cache.json"
+    cache.write_text(json.dumps({"models": [{"slug": "gpt-6.1-sol",
+        "display_name": "GPT Sol", "supported_reasoning_levels": [{"effort": "high"}],
+        "default_reasoning_level": "high"}]}))
+    discovery = modelos.ModelDiscovery(codex_cache=cache,
+        run=lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, "gemini-high\tGemini High\n"))
+    monkeypatch.setattr(modelos.ModelDiscovery, "get_models", discovery.get_models)
+    r = client.get("/api/modelos")
+    assert r.status_code == 200, r.text
+    assert r.json()["codex"][0] == {"id": "gpt-6.1-sol", "display_name": "GPT Sol",
+        "reasoning_levels": ["high"], "default_reasoning_level": "high"}
+    assert r.json()["agy"][0]["id"] == "gemini-high"
+    assert {m["id"] for m in r.json()["claude"]} >= {"haiku", "sonnet", "opus", "inherit"}
+    assert r.headers["x-frame-options"] == "DENY"
+    assert client.get("/api/modelos", headers={"Host": "evil.example"}).status_code == 400
+    assert client.get("/api/modelos", headers={"Origin": "http://evil.example"}).status_code == 403
+
+
+def test_ui_guarda_backend_effort_en_yaml(client, app_env):
+    backends = load_yaml(app_env.backends)
+    backends["backends"]["codex"]["effort_flag"] = ["-c", "model_reasoning_effort={effort}"]
+    dump_yaml(backends, app_env.backends)
+    a = agente(client, "codex-critico")
+    a.update(backend_model="gpt-6.1-sol", backend_effort="high")
+    r = guardar(client, a)
+    assert r.status_code == 200, r.text
+    assert agente(client, a["name"])["backend_effort"] == "high"
+    assert load_yaml(app_env.registry)["agents"][2]["backend_effort"] == "high"
+
 
 def test_state_trae_registro_hash_y_catalogos(client):
     s = estado(client)

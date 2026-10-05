@@ -19,7 +19,7 @@ from ruamel.yaml import YAML
 
 from orquesta import catalog, doctor, editing
 from orquesta import manifest as mf
-from orquesta import chat, moods, runner
+from orquesta import chat, modelos, moods, runner
 from orquesta import worktrees as worktrees_mod
 from orquesta import plugins as plugins_mod
 from orquesta.config import load_backends, read_manual
@@ -69,6 +69,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     origins = {f"http://{h}" for h in hosts}
     app = FastAPI(title="orquesta", docs_url=None, redoc_url=None, openapi_url=None)
+    model_discovery = modelos.ModelDiscovery()
 
     @app.middleware("http")
     async def security(request: Request, call_next):
@@ -124,6 +125,10 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         return HTMLResponse(html, headers={"Content-Security-Policy": CSP})
 
     # --- estado ------------------------------------------------------------------------------
+
+    @app.get("/api/modelos")
+    def get_models():
+        return model_discovery.get_models()
 
     @app.get("/api/state")
     def state():

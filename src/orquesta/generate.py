@@ -154,6 +154,7 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
             "mode": a.mode,
             "isolation": a.effective_isolation,
             "backend_model": a.backend_model,
+            "backend_effort": a.backend_effort,
             "wrapper_model": a.effective_wrapper_model,
             "backend_prompt": ctx.substitute(a.prompt).strip() if a.is_external else "",
             "manual": a.manual,
