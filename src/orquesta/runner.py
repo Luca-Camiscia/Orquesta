@@ -44,6 +44,7 @@ class RunRequest:
     task: str | None = None
     wait_s: float = 60.0
     cancel_key: str | None = None
+    timeout_s: float | None = None  # pisa el timeout del modo (corridas en background, sin el tope del Bash tool)
 
 
 @dataclass
@@ -378,7 +379,7 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                                 prompt=prompt, state_dir=paths.state_dir)
             meta["warnings"] = cmd.warnings
             before = tree_state(work_cwd) if entry.mode == "read-only" else None
-            result = _execute(cmd, backend, work_cwd, spec.timeout_s if spec else 540,
+            result = _execute(cmd, backend, work_cwd, req.timeout_s or (spec.timeout_s if spec else 540),
                               req.cancel_key)
             if before is not None:
                 after = tree_state(work_cwd)

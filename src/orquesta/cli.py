@@ -71,7 +71,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             print("ESTADO: ERROR — pasá el pedido por stdin (heredoc) o con --prompt-file")
             return runner.EXIT_CODES["ERROR"]
         result = runner.run(runner.RunRequest(agent=args.agent, cwd=Path(args.cwd or os.getcwd()),
-                                              prompt=prompt, task=args.task), paths)
+                                              prompt=prompt, task=args.task,
+                                              timeout_s=args.timeout), paths)
     print(runner.format_result(result))
     return result.exit_code
 
@@ -206,6 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--task", help="slug de la tarea (obligatorio para agentes con worktree)")
     r.add_argument("--prompt-file", help="leer el pedido de este archivo en vez de stdin")
     r.add_argument("--ping", action="store_true", help="ping mínimo por el backend del agente")
+    r.add_argument("--timeout", type=float, help="segundos; pisa el timeout del modo (para correr en background)")
     r.set_defaults(func=cmd_run)
 
     d = sub.add_parser("doctor", help="chequeos de salud del ecosistema (sin LLM)")
