@@ -47,7 +47,8 @@ def test_proyectos_y_conversaciones_persisten(store, proyecto, env):
     pr = store.create_project("Empanadas", str(proyecto))
     conv = store.create_conversation(pr["id"], "Charla", "individual", ["codex-critico"])
     again = chat.Store(env)
-    assert again.list_projects()[0]["name"] == "Empanadas"
+    assert again.list_projects()[0]["name"] == "Ecosistema orquesta"
+    assert again.list_projects()[1]["name"] == "Empanadas"
     assert again.get_conversation(conv["id"])["participants"] == ["codex-critico"]
 
 
