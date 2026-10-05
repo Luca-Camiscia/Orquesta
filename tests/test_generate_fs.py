@@ -201,6 +201,19 @@ def test_el_manifiesto_describe_lo_desplegado(env):
     assert m["agents"]["mantenedor"]["protected"] is True
 
 
+def test_manifiesto_anterior_sin_effort_no_cambia_md_ni_protegidos(env):
+    from orquesta.manifest import deployed_agent
+    aplicar(env)
+    manifest = json.loads(env.manifest.read_text())
+    for entry in manifest["agents"].values():
+        entry.pop("backend_effort", None)
+    env.manifest.write_text(json.dumps(manifest))
+    assert deployed_agent(manifest, "codex-forja").backend_effort is None
+    plan = build_plan(env)
+    assert plan.errors == [] and plan.violations == []
+    assert all(c.path.suffix != ".md" for c in plan.changes)
+
+
 def test_el_diff_muestra_rutas_legibles(env):
     diff = build_plan(env).diff()
     assert "agents/orquesta/codex-forja.md" in diff and "CLAUDE.md" in diff

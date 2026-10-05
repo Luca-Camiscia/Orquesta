@@ -47,6 +47,39 @@ REAL = parse_backends(load_yaml(REPO / "backends.yaml")).backends
 
 # --- armado del comando ----------------------------------------------------------------------
 
+@pytest.mark.parametrize("effort", [None, "high"])
+def test_codex_flags_de_modelo_y_esfuerzo(env, effort):
+    cmd = runner.build_command(REAL["codex"], mode="read-only", model="gpt-6.1-sol",
+                               effort=effort, cwd=Path("/proyecto"), prompt="hola",
+                               state_dir=env.state_dir)
+    expected = ["codex", "exec", "--skip-git-repo-check", "--color", "never",
+                "--sandbox", "read-only", "-m", "gpt-6.1-sol"]
+    if effort:
+        expected += ["-c", "model_reasoning_effort=high"]
+    assert cmd.argv == expected + ["-C", "/proyecto", "-"]
+    assert cmd.stdin == "hola"
+
+
+def test_backend_sin_effort_flag_no_agrega_esfuerzo(env):
+    cmd = runner.build_command(BACKENDS["agy"], mode="read-only", model=None,
+                               effort="high", cwd=Path("/proyecto"), prompt="hola",
+                               state_dir=env.state_dir)
+    assert cmd.argv == BACKENDS["agy"].command + ["--output-format", "json", "-p", "hola"]
+
+
+def test_run_usa_modelo_y_esfuerzo_desplegados(env, proyecto):
+    editar(env.backends, lambda d: d["backends"]["codex"].update(
+        effort_flag=["-c", "model_reasoning_effort={effort}"]))
+    deploy(env, lambda d: d["agents"][2].update(
+        backend_model="gpt-6.1-sol", backend_effort="high"))
+    # Editar el YAML sin desplegar no debe cambiar la configuración aplicada.
+    editar(env.registry, lambda d: d["agents"][2].update(backend_effort="low"))
+    r = correr(env, "codex-critico", "ECHOARGS", proyecto)
+    assert r.status == "OK", r.detail
+    args = json.loads(r.output)["args"]
+    assert args[args.index("-m"):args.index("-m") + 4] == [
+        "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=high"]
+
 def test_codex_recibe_el_prompt_por_stdin_con_los_flags_del_modo(env):
     cmd = runner.build_command(BACKENDS["codex"], mode="read-only", model="gpt-x",
                                cwd=Path("/proyecto"), prompt="hola", state_dir=env.state_dir)

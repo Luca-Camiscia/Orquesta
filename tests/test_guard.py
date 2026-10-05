@@ -107,6 +107,7 @@ def test_campos_nuevos_en_default_no_cambian_el_hash():
     import json
     from orquesta.guard import entry_hash
     a = reg().agent("mantenedor")
-    viejo = {k: v for k, v in a.model_dump(mode="json").items() if k not in ("plugins", "avoid_when")}
+    viejo = {k: v for k, v in a.model_dump(mode="json").items()
+             if k not in ("plugins", "avoid_when", "backend_effort")}
     esperado = hashlib.sha256(json.dumps(viejo, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     assert entry_hash(a) == esperado

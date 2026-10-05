@@ -27,6 +27,7 @@ class DeployedAgent:
     protected: bool
     permission_mode: str | None
     entry_sha256: str
+    backend_effort: str | None = None
 
 
 def sha256(text: str) -> str:

@@ -122,6 +122,7 @@
   color-scheme: light;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -562,7 +563,7 @@ const PESTANAS = [["chat", "Conversaciones"], ["tareas", "Tareas"], ["agentes", 
 const CANDADO = '<svg class="candado" viewBox="0 0 16 16" aria-label="protegido" role="img"><path fill="currentColor" d="M5 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5Zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2Z"/></svg>';
 
 const st = {chat: {projects: [], pid: null, convs: [], conv: null, nueva: false, participantes: []}, data: null, tab: "chat", ed: null, salud: null, saludCargando: false, dry: null, confirmados: new Set(),
-            historia: null, changelog: "", plugins: null, aviso: null, pruebas: {}, mensaje: "Aplicar cambios desde la UI"};
+            historia: null, changelog: "", plugins: null, modelos: {}, aviso: null, pruebas: {}, mensaje: "Aplicar cambios desde la UI"};
 
 class ApiError extends Error {
   constructor(status, data) {
@@ -685,6 +686,7 @@ function tarjeta(a) {
       <label class="switch" title="${a.enabled ? "Deshabilitar" : "Habilitar"}"><input type="checkbox" data-action="toggle" data-name="${n}" ${a.enabled ? "checked" : ""} aria-label="Habilitar ${n}"><span class="riel"></span></label></header>
     <p class="rol">${esc(a.role)}</p>
     <ul class="insignias"><li class="ins backend c-${esc(a.backend)}">${esc(NOMBRE_BACKEND[a.backend] || a.backend)}</li>
+      <li class="ins">${esc(a.backend === "claude" ? (a.effective_wrapper_model || a.wrapper_model || "inherit") : (a.backend_model || "default del CLI"))}${a.backend_effort ? ` · ${esc(a.backend_effort)}` : ""}</li>
       <li class="ins">${a.mode === "write" ? "escritura" : "solo lectura"}</li>
       ${a.effective_isolation === "worktree" ? '<li class="ins">worktree</li>' : ""}
       <li class="ins">${a.manual ? "manual" : "generado"}</li></ul>
@@ -698,7 +700,7 @@ function tarjeta(a) {
   </article>`;
 }
 function agenteVacio() {
-  return {name: "", display_name: null, enabled: true, backend: "codex", wrapper_model: null, backend_model: null, role: "", route_when: [], avoid_when: [],
+  return {name: "", display_name: null, enabled: true, backend: "codex", wrapper_model: null, backend_model: null, backend_effort: null, role: "", route_when: [], avoid_when: [],
           description: "", tools: ["Bash"], mode: "read-only", isolation: null, protected: false, manual: false, extra_frontmatter: {}, plugins: [], prompt: ""};
 }
 function sinCalculados(a) {
@@ -706,6 +708,21 @@ function sinCalculados(a) {
 }
 
 /* ---------- editor ---------- */
+function opcionesSelect(items, value, defaultLabel) {
+  const opciones = [{id: "", display_name: defaultLabel}, ...items];
+  if (value && !opciones.some((m) => m.id === value)) opciones.push({id: value, display_name: value});
+  return opciones.map((m) => `<option value="${esc(m.id)}" ${(value || "") === m.id ? "selected" : ""}>${esc(m.display_name || m.id)}</option>`).join("");
+}
+function opcionesModelo(backend, value) {
+  return opcionesSelect(st.modelos[backend] || [], value, "default del CLI");
+}
+function opcionesEsfuerzo(backend, model, value) {
+  const seleccionado = (st.modelos[backend] || []).find((m) => m.id === model);
+  const niveles = backend === "codex" ? (seleccionado?.reasoning_levels || []) : [];
+  const predeterminado = seleccionado?.default_reasoning_level;
+  return opcionesSelect(niveles.map((id) => ({id})), value,
+    predeterminado ? `default del CLI (${predeterminado})` : "default del CLI");
+}
 function panelEditor() {
   const e = st.ed, a = e.agent;
   const titulo = e.nuevo ? "Nuevo agente" : `Editando ${a.display_name || a.name}`;
@@ -719,15 +736,16 @@ function editorFormulario(a) {
   const be = Object.keys(st.data.backends);
   const conocidas = new Set(st.data.tools);
   const otras = (a.tools || []).filter((t) => !conocidas.has(t));
-  const modelos = ["", ...st.data.models];
+  const modelos = st.data.models.map((id) => ({id}));
   return `<div class="editor"><form class="campos" id="form-agente" autocomplete="off">
     <div class="fila"><div class="campo"><label for="f-name">Nombre</label>
         <input type="text" id="f-name" name="name" value="${esc(a.name)}" ${st.ed.nuevo ? "" : "readonly"} pattern="[a-z0-9]+(-[a-z0-9]+)*" required>
         <small>${st.ed.nuevo ? "Minúsculas, números y guiones. Es el nombre que usa Claude Code." : "Para cambiarlo usá «Renombrar» en la tarjeta."}</small></div>
       <div class="campo"><label for="f-display">Nombre visible</label><input type="text" id="f-display" name="display_name" value="${esc(a.display_name || "")}"><small>Solo para esta UI.</small></div></div>
     <div class="fila"><div class="campo"><label for="f-backend">Backend</label><select id="f-backend" name="backend">${be.map((b) => `<option value="${esc(b)}" ${a.backend === b ? "selected" : ""}>${esc(st.data.backends[b].label)}</option>`).join("")}</select></div>
-      <div class="campo"><label for="f-wrapper">Modelo de Claude que lo corre</label><select id="f-wrapper" name="wrapper_model">${modelos.map((m) => `<option value="${esc(m)}" ${(a.wrapper_model || "") === m ? "selected" : ""}>${m ? esc(m) : "por defecto (haiku si es externo)"}</option>`).join("")}</select></div></div>
-    <div class="fila"><div class="campo"><label for="f-bmodel">Modelo del backend</label><input type="text" id="f-bmodel" name="backend_model" value="${esc(a.backend_model || "")}" placeholder="el default del CLI"><small>Por ejemplo gemini-3.1-pro-high. Vacío = el default de codex o agy.</small></div>
+      <div class="campo"><label for="f-wrapper">${a.backend === "claude" ? "Modelo" : "Modelo de Claude que lo corre"}</label><select id="f-wrapper" name="wrapper_model">${opcionesSelect(modelos, a.wrapper_model, a.backend === "claude" ? "por defecto (inherit)" : "por defecto (haiku si es externo)")}</select></div></div>
+    <div class="fila"><div class="campo" id="f-backend-model" ${a.backend === "claude" ? "hidden" : ""}><label for="f-bmodel">Modelo del backend</label><select id="f-bmodel" name="backend_model">${opcionesModelo(a.backend, a.backend_model)}</select></div>
+      <div class="campo" id="f-backend-effort" ${a.backend !== "codex" ? "hidden" : ""}><label for="f-effort">Esfuerzo</label><select id="f-effort" name="backend_effort">${opcionesEsfuerzo(a.backend, a.backend_model, a.backend_effort)}</select></div>
       <div class="campo"><span class="etiqueta">Habilitado</span><label class="switch"><input type="checkbox" name="enabled" ${a.enabled ? "checked" : ""} aria-label="Habilitado"><span class="riel"></span></label></div></div>
     <div class="campo"><label for="f-role">Rol</label><textarea id="f-role" name="role" rows="2">${esc(a.role)}</textarea></div>
     <div class="campo"><span class="etiqueta">Cuándo usarlo</span><div class="casos" id="casos">${(a.route_when || []).map(caso).join("")}</div>
@@ -773,11 +791,25 @@ function montarEditor() {
   const sync = () => {
     $("#f-iso").disabled = f.querySelector('input[name="mode"]:checked').value !== "write";
     $("#f-plugins").querySelectorAll("input").forEach((i) => { i.disabled = f.backend.value !== "claude"; });
+    const backend = f.backend.value;
+    $("#f-backend-model").hidden = backend === "claude";
+    $("#f-backend-effort").hidden = backend !== "codex";
+    $('label[for="f-wrapper"]', f).textContent = backend === "claude" ? "Modelo" : "Modelo de Claude que lo corre";
+    const wrapper = f.wrapper_model.value;
+    f.wrapper_model.innerHTML = opcionesSelect(st.data.models.map((id) => ({id})), wrapper,
+      backend === "claude" ? "por defecto (inherit)" : "por defecto (haiku si es externo)");
+    const model = f.backend_model.value, effort = f.backend_effort.value;
+    f.backend_model.innerHTML = opcionesModelo(backend, model);
+    f.backend_effort.innerHTML = opcionesEsfuerzo(backend, model, effort);
   };
   sync();
   f.addEventListener("input", () => { sync(); programarPreview(); });
   f.addEventListener("change", () => { sync(); programarPreview(); });
   f.addEventListener("submit", (ev) => { ev.preventDefault(); guardarAgente(); });
+  api("GET", "/api/modelos").then((r) => {
+    st.modelos = r;
+    if ($("#form-agente") === f) { sync(); programarPreview(0); }
+  }).catch((e) => toast(`No pude cargar los modelos: ${e.message}`));
   programarPreview(0);
 }
 async function cargarCrudo() {
@@ -793,6 +825,7 @@ function leerFormulario() {
   a.backend = f.backend.value;
   a.wrapper_model = f.wrapper_model.value || null;
   a.backend_model = f.backend_model.value.trim() || null;
+  a.backend_effort = a.backend === "codex" ? (f.backend_effort.value || null) : null;
   a.role = f.role.value.trim();
   a.route_when = $$("[data-caso]", f).map((i) => i.value.trim()).filter(Boolean);
   a.avoid_when = $$("[data-evitar]", f).map((i) => i.value.trim()).filter(Boolean);

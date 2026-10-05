@@ -4,8 +4,8 @@
 # Es la ÚNICA fuente de comandos de backend: el runner (`orquesta run`), doctor y la UI lo leen.
 # Nada más en orquesta tiene comandos de backend hardcodeados.
 #
-# Armado del comando:  command + common_flags + modes.<modo>.flags + model_flag + cwd_flag + prompt
-# Placeholders: {model} {cwd}. `~` se expande al home del usuario.
+# Armado: command + common_flags + modes.<modo>.flags + model_flag + effort_flag + cwd_flag + prompt
+# Placeholders: {model} {effort} {cwd}. `~` se expande al home del usuario.
 version: 1
 
 backends:
@@ -15,6 +15,7 @@ backends:
     common_flags: [--skip-git-repo-check, --color, never]
     cwd_flag: [-C, "{cwd}"]
     model_flag: [-m, "{model}"]
+    effort_flag: [-c, "model_reasoning_effort={effort}"]
     prompt:
       via: stdin              # `codex exec -` lee el prompt de stdin: sin límite de largo ni quoting
       flag: ["-"]

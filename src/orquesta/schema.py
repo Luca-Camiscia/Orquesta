@@ -74,6 +74,7 @@ class Agent(_Strict):
     backend: str
     wrapper_model: str | None = None
     backend_model: str | None = None
+    backend_effort: str | None = None
     role: str
     route_when: list[str] = Field(default_factory=list)
     avoid_when: list[str] = Field(default_factory=list)
@@ -86,6 +87,13 @@ class Agent(_Strict):
     manual: bool = False
     extra_frontmatter: dict[str, Any] = Field(default_factory=dict)
     plugins: list[str] = Field(default_factory=list)
+
+    @field_validator("backend_effort")
+    @classmethod
+    def _esfuerzo_valido(cls, effort: str | None) -> str | None:
+        if effort is not None and effort not in {"low", "medium", "high", "xhigh", "max", "ultra"}:
+            raise ValueError("backend_effort inválido: usá low, medium, high, xhigh, max o ultra")
+        return effort
 
     @field_validator("name")
     @classmethod
@@ -189,6 +197,7 @@ class Backend(_Strict):
     common_flags: list[str] = Field(default_factory=list)
     cwd_flag: list[str] = Field(default_factory=list)
     model_flag: list[str] = Field(default_factory=list)
+    effort_flag: list[str] = Field(default_factory=list)
     prompt: PromptSpec
     output: OutputSpec = Field(default_factory=OutputSpec)
     modes: dict[Mode, ModeSpec] = Field(default_factory=dict)
@@ -265,6 +274,8 @@ def check_registry(reg: Registry, backends: BackendsConfig) -> list[str]:
                         f"(disponibles: {available})")
         elif not backend.native and a.mode not in backend.modes:
             errs.append(f"{who}: backends.yaml no define el modo {a.mode!r} para {a.backend}")
+        if a.backend_effort is not None and backend is not None and not backend.effort_flag:
+            errs.append(f"{who}: backend_effort requiere un backend con effort_flag")
         if not a.role.strip():
             errs.append(f"{who}: role está vacío")
         if not a.tools:
