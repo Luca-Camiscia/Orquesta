@@ -2,6 +2,11 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-05 00:00 — Agregar reclutador Gemini y opinión opcional en RR. HH.
+
+- CLAUDE.md: bloque actualizado
+- + agente `gemini-reclutador` (agy, read-only)
+
 ## 2026-10-04 22:15 — Aplicar cambios desde la UI
 
 - manifiesto de deploy actualizado
