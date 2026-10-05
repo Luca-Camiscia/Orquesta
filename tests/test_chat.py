@@ -246,3 +246,59 @@ def test_api_cancelar_y_exportar(env, proyecto):
     r = c.get(f"/api/chat/conversations/{conv['id']}/export.md")
     assert r.status_code == 200 and r.text.startswith("# Exp")
     assert "attachment" in r.headers["content-disposition"]
+
+
+# --- tanda 3: modos de reunión con evidencia -----------------------------------------------
+
+class FakeJuez(FakeExec):
+    def __call__(self, paths, project, participant, prompt):
+        self.calls.append((participant, prompt))
+        if participant in ("claude-juez", "orquestador"):
+            return chat.Reply("Decisión: X.\nRESULTADO: OK\nCONFIANZA: 80")
+        return chat.Reply(f"respuesta de {participant}\nRESULTADO: OK\nCONFIANZA: 60")
+
+
+def _conv(store, proyecto, mode, participants=("gemini-lector", "codex-critico")):
+    pr = store.create_project("P", str(proyecto))
+    return store.create_conversation(pr["id"], "m", "reunion", list(participants), mode=mode)
+
+
+def test_modo_critica_ciega_luego_critica_anonima_y_juez(store, proyecto):
+    conv = _conv(store, proyecto, "critica")
+    fake = FakeJuez()
+    chat.run_turn(store, conv["id"], "¿conviene X?", executor=fake)
+    ronda0 = fake.calls[:2]
+    assert {c[0] for c in ronda0} == {"gemini-lector", "codex-critico"}
+    assert all("respuesta de" not in c[1] for c in ronda0)          # a ciegas
+    critica = [c for c in fake.calls[2:4]]
+    assert all("Respuesta A" in c[1] and "TU respuesta" in c[1] for c in critica)
+    assert all("gemini-lector" not in c[1].split("Respuestas de los demás")[1] for c in critica)  # anónimo
+    assert fake.calls[-1][0] == "orquestador"                       # sin claude-juez desplegado: modera el orquestador
+    msgs = store.get_conversation(conv["id"])["messages"]
+    assert msgs[-1]["meta"]["rol"] == "veredicto"
+    assert [m["meta"].get("ronda") for m in msgs[1:5]] == [0, 0, 1, 1]
+
+
+def test_modo_posturas_asigna_y_rota(store, proyecto):
+    conv = _conv(store, proyecto, "posturas", ("gemini-lector", "codex-critico", "orquestador"))
+    fake = FakeJuez()
+    chat.run_turn(store, conv["id"], "¿migramos a Y?", executor=fake)
+    posturas = [m["meta"].get("postura") for m in store.get_conversation(conv["id"])["messages"][1:4]]
+    assert posturas == ["a favor", "en contra", "neutral"]
+    assert "Tu postura asignada: a favor" in fake.calls[0][1]
+
+
+def test_modo_seccionado_reparte_aspectos(store, proyecto):
+    conv = _conv(store, proyecto, "seccionado")
+    fake = FakeJuez()
+    chat.run_turn(store, conv["id"], "Revisá el módulo. Aspectos: seguridad; performance", executor=fake)
+    prompts = {c[0]: c[1] for c in fake.calls[:2]}
+    assert "Tu aspecto: seguridad" in prompts["gemini-lector"]
+    assert "Tu aspecto: performance" in prompts["codex-critico"]
+
+
+def test_la_confianza_del_contrato_queda_en_el_mensaje(store, proyecto):
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "c", "individual", ["codex-critico"])
+    chat.run_turn(store, conv["id"], "hola", executor=FakeJuez())
+    assert store.get_conversation(conv["id"])["messages"][-1]["meta"]["contrato"]["confianza"] == 60

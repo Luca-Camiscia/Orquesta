@@ -31,6 +31,10 @@ from orquesta.paths import Paths
 ORCHESTRATOR = "orquestador"
 USER = "usuario"
 MAX_MODERATED_STEPS = 4
+MODES = ("rondas", "moderada", "critica", "posturas", "seccionado")
+STANCES = ("a favor", "en contra", "neutral")
+DEFAULT_ASPECTS = ("corrección", "seguridad", "performance", "mantenibilidad", "tests")
+JUDGE = "claude-juez"
 HISTORY_CHARS = 24000
 CLAUDE_TIMEOUT = 540
 CANCELLED = "ESTADO: CANCELADO — lo cortaste vos"
@@ -123,8 +127,8 @@ class Store:
             raise ChatError("una conversación individual tiene exactamente un participante")
         if kind == "reunion" and not participants:
             raise ChatError("una reunión necesita al menos un participante")
-        if mode not in ("rondas", "moderada"):
-            raise ChatError("mode tiene que ser rondas o moderada")
+        if mode not in MODES:
+            raise ChatError(f"mode tiene que ser uno de: {', '.join(MODES)}")
         conv = {"id": _id(), "project_id": project_id, "title": title.strip() or "Sin título",
                 "kind": kind, "mode": mode if kind == "reunion" else "rondas",
                 "participants": list(dict.fromkeys(participants)), "messages": [], "worktrees": [],
@@ -297,12 +301,14 @@ def _moderator_prompt(conv: dict, project: dict, step: int, final: bool) -> str:
 
 
 def _speak(store: Store, cid: str, project: dict, who: str, executor: Executor,
-           question: str | None = None, prompt: str | None = None) -> Reply:
+           question: str | None = None, prompt: str | None = None, meta: dict | None = None) -> Reply:
     mid = _id()
+    _ctx.key = cid
 
     def add(c):
+        base = {"pregunta": question} if question else {}
         c["messages"].append({"id": mid, "author": who, "text": "", "status": "pending", "ts": _now(),
-                              "meta": {"pregunta": question} if question else {}})
+                              "meta": {**base, **(meta or {})}})
     conv = store.update(cid, add)
     reply = executor(store.paths, project, who, prompt or _agent_prompt(conv, project, who, question))
 
@@ -312,6 +318,8 @@ def _speak(store: Store, cid: str, project: dict, who: str, executor: Executor,
                        else "error" if reply.error else "done")
         m["text"] = (f"{reply.error}\n\n{reply.text}".strip() if reply.error else reply.text)
         m["meta"].update(reply.meta)
+        if not m["meta"].get("contrato"):
+            m["meta"]["contrato"] = runner.parse_contract(reply.text)
         if reply.meta.get("branch"):
             c["worktrees"].append({"agent": who, "branch": reply.meta["branch"],
                                    "worktree": reply.meta.get("worktree"), "commit": reply.meta.get("commit"),
@@ -342,8 +350,14 @@ def run_turn(store: Store, cid: str, text: str, executor: Executor = default_exe
                 if procs.is_cancelled(cid):
                     break
                 _speak(store, cid, project, who, executor)
-        else:
+        elif conv["mode"] == "moderada":
             _moderate(store, cid, project, executor)
+        elif conv["mode"] == "critica":
+            _mode_critica(store, cid, project, executor)
+        elif conv["mode"] == "posturas":
+            _mode_posturas(store, cid, project, executor)
+        else:
+            _mode_seccionado(store, cid, project, executor, text)
     finally:
         _ctx.key = None
         store.update(cid, lambda c: c.update(busy=False))
@@ -369,6 +383,117 @@ def _moderate(store: Store, cid: str, project: dict, executor: Executor) -> None
         synth = re.search(r"SINTESIS\s*:\s*(.+)", r.text, re.S)
         _set_text(store, cid, ORCHESTRATOR, synth.group(1).strip() if synth else r.text.strip())
         return
+
+
+# --- modos con evidencia (crítica, posturas, seccionado) --------------------------------------
+
+def _history_until_user(conv: dict) -> str:
+    """Historial hasta el último mensaje del usuario (sin las respuestas de la ronda en curso)."""
+    msgs = conv["messages"]
+    last_user = max((i for i, m in enumerate(msgs) if m["author"] == USER), default=-1)
+    lines = [f"[{m['author']}]: {m['text']}" for m in msgs[:last_user + 1] if m["status"] != "pending"]
+    return "\n\n".join(lines)[-HISTORY_CHARS:]
+
+
+def _frame(project: dict, who: str, history: str, instruction: str) -> str:
+    return (f"Estás en una reunión de orquesta, proyecto «{project['name']}» (directorio {project['dir']}). "
+            f"Sos {who}.\n\nHistorial:\n{history}\n\n---\n{instruction}\n"
+            f"Respondé en castellano y cerrá con RESULTADO, CONFIANZA (0-100), EVIDENCIA y SIGUIENTE PASO.")
+
+
+def _parallel(store: Store, cid: str, project: dict, executor: Executor,
+              jobs: list[tuple[str, str, dict]]) -> dict[str, Reply]:
+    import threading
+    out: dict[str, Reply] = {}
+
+    def work(who: str, prompt: str, meta: dict) -> None:
+        out[who] = _speak(store, cid, project, who, executor, prompt=prompt, meta=meta)
+    threads = [threading.Thread(target=work, args=job) for job in jobs]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    return out
+
+
+def _judge(store: Store, cid: str, project: dict, executor: Executor, rubric: str) -> None:
+    if procs.is_cancelled(cid):
+        return
+    judge = JUDGE if JUDGE in store.participants() else ORCHESTRATOR
+    conv = store.get_conversation(cid)
+    prompt = (f"Sos el juez de una reunión de orquesta, proyecto «{project['name']}». No aportes ideas nuevas "
+              f"salvo para desempatar.\n\nHistorial completo:\n{_history(conv)}\n\n---\n{rubric}\n"
+              f"Evaluá por evidencia verificable, no por elocuencia ni cantidad de votos; señalá consensos "
+              f"sospechosos. Entregá: decisión final, desacuerdos que quedan, qué verificar después, y cerrá "
+              f"con RESULTADO y CONFIANZA (0-100).")
+    _speak(store, cid, project, judge, executor, prompt=prompt, meta={"rol": "veredicto"})
+
+
+def _redact(text: str, names: list[str]) -> str:
+    """Anonimato real: un agente puede nombrarse a sí mismo en su respuesta."""
+    for n in sorted(names, key=len, reverse=True):
+        text = re.sub(re.escape(n), "[participante]", text, flags=re.I)
+    return text
+
+
+def _agents_of(conv: dict) -> list[str]:
+    return list(conv["participants"])
+
+
+def _mode_critica(store: Store, cid: str, project: dict, executor: Executor) -> None:
+    conv = store.get_conversation(cid)
+    who_all = _agents_of(conv)
+    hist = _history_until_user(conv)
+    blind = ("Respondé de forma INDEPENDIENTE: todavía no ves a los demás. Dá tu respuesta, el "
+             "razonamiento y tu confianza.")
+    r0 = _parallel(store, cid, project, executor, [(w, _frame(project, w, hist, blind), {"ronda": 0})
+                                                  for w in who_all])
+    if procs.is_cancelled(cid) or len(who_all) < 2:
+        return _judge(store, cid, project, executor, "Sintetizá las respuestas.")
+    jobs = []
+    for w in who_all:
+        others = [_redact(r0[o].text, who_all) for o in who_all if o != w and o in r0]
+        labeled = "\n\n".join(f"Respuesta {chr(65 + i)}:\n{txt}" for i, txt in enumerate(others))
+        instr = (f"TU respuesta de la ronda 0:\n{r0[w].text if w in r0 else '(sin respuesta)'}\n\n"
+                 f"Respuestas de los demás (anónimas):\n{labeled}\n\n"
+                 f"Criticá al menos un punto ajeno con evidencia y revisá la tuya. Decí explícitamente si "
+                 f"CAMBIASTE de postura y por qué; no cambies sin evidencia nueva.")
+        jobs.append((w, _frame(project, w, hist, instr), {"ronda": 1}))
+    _parallel(store, cid, project, executor, jobs)
+    _judge(store, cid, project, executor,
+           "Compará la ronda 0 (independiente) con la 1 (crítica): qué se sostuvo, qué cambió y con qué evidencia.")
+
+
+def _mode_posturas(store: Store, cid: str, project: dict, executor: Executor) -> None:
+    conv = store.get_conversation(cid)
+    who_all = _agents_of(conv)
+    stances = {w: STANCES[i % len(STANCES)] for i, w in enumerate(who_all)}
+    for rnd, task in ((1, "Argumentá tu postura asignada con evidencia concreta."),
+                      (2, "Replicá los argumentos contrarios. Mantené tu postura salvo evidencia nueva "
+                          "verificable, y si cedés en algo decí exactamente en qué.")):
+        for w in who_all:
+            if procs.is_cancelled(cid):
+                return
+            conv = store.get_conversation(cid)
+            instr = (f"Tu postura asignada: {stances[w]}. Es un rol para explorar el desacuerdo: sostenela "
+                     f"aunque no sea tu opinión. {task}")
+            _speak(store, cid, project, w, executor, prompt=_frame(project, w, _history(conv), instr),
+                   meta={"ronda": rnd, "postura": stances[w]})
+    _judge(store, cid, project, executor,
+           "Cada participante defendió una postura asignada. Decidí por la evidencia, no por la postura.")
+
+
+def _mode_seccionado(store: Store, cid: str, project: dict, executor: Executor, text: str) -> None:
+    conv = store.get_conversation(cid)
+    who_all = _agents_of(conv)
+    m = re.search(r"aspectos?\s*:\s*(.+)$", text, re.I | re.S)
+    aspects = [a.strip() for a in re.split(r"[;,\n]", m.group(1)) if a.strip()] if m else list(DEFAULT_ASPECTS)
+    hist = _history_until_user(conv)
+    jobs = [(w, _frame(project, w, hist, f"Tu aspecto: {aspects[i % len(aspects)]}. Cubrí SOLO ese aspecto, "
+                                         f"en profundidad; los otros los cubre otro participante."),
+             {"aspecto": aspects[i % len(aspects)]}) for i, w in enumerate(who_all)]
+    _parallel(store, cid, project, executor, jobs)
+    _judge(store, cid, project, executor, "Consolidá los aspectos en un informe único, priorizado por impacto.")
 
 
 # --- worktrees del chat ----------------------------------------------------------------------
