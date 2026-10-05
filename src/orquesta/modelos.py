@@ -69,7 +69,13 @@ class ModelDiscovery:
                 except (OSError, subprocess.SubprocessError):
                     self._agy = []
                 self._expires = self.clock() + 600
+        return self.local_models()
+
+    def local_models(self) -> dict[str, list[dict]]:
+        """Catálogos locales/ya cacheados, sin ejecutar CLIs ni consultar la red."""
+        with self._lock:
+            agy = list(self._agy)
         aliases = getattr(catalog, "MODEL_ALIASES", {"haiku", "sonnet", "opus", "inherit"})
-        return {"codex": read_codex_models(self.codex_cache), "agy": self._agy,
+        return {"codex": read_codex_models(self.codex_cache), "agy": agy,
                 "claude": [{"id": name, "display_name": name, "reasoning_levels": [],
                             "default_reasoning_level": None} for name in sorted(aliases)]}

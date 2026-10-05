@@ -319,6 +319,18 @@ fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
 /* salud */
 .tabla-uso { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .tabla-uso th, .tabla-uso td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--pauta); }
+/* RR. HH. comparte los tokens de los cuatro estilos. */
+.rrhh-bloque { margin-bottom: 22px; }
+.rrhh-tabla { overflow-x: auto; }
+.rrhh-escala { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
+.rrhh-escala span { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--pauta); border-radius: 6px; }
+.rrhh-escala .activo { background: var(--ok); color: var(--hoja); }
+.rrhh-escala.media .activo { background: var(--warn); }
+.rrhh-escala.alta .activo { background: var(--fail); }
+.rrhh-senal { display: inline-block; margin: 2px; border: 1px solid var(--warn); border-radius: 5px; padding: 1px 6px; font-size: .8rem; }
+.rrhh-senal.falla { border-color: var(--fail); }
+.rrhh-sugerencia { padding: 8px 0; font-size: .88rem; color: var(--tinta-suave); }
+.rrhh-sugerencia p { margin: 4px 0; }
 .chequeos { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--pauta); }
 .chequeo { display: grid; grid-template-columns: 18px 1fr auto; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--pauta); align-items: start; }
 .chequeo .luz { width: 12px; height: 12px; border-radius: 50%; margin-top: 6px; }
@@ -559,11 +571,12 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<
 const TOKEN = $('meta[name="orquesta-token"]').content;
 const NOMBRE_BACKEND = {claude: "Claude", codex: "Codex", agy: "Antigravity"};
 const ORDEN_BACKEND = ["claude", "codex", "agy"];
-const PESTANAS = [["chat", "Conversaciones"], ["tareas", "Tareas"], ["agentes", "Agentes"], ["moods", "Moods"], ["aplicar", "Aplicar"], ["salud", "Salud"], ["historial", "Historial"], ["plugins", "Plugins"]];
+const PESTANAS = [["chat", "Conversaciones"], ["tareas", "Tareas"], ["agentes", "Agentes"], ["rrhh", "RR. HH."], ["moods", "Moods"], ["aplicar", "Aplicar"], ["salud", "Salud"], ["historial", "Historial"], ["plugins", "Plugins"]];
 const CANDADO = '<svg class="candado" viewBox="0 0 16 16" aria-label="protegido" role="img"><path fill="currentColor" d="M5 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5Zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2Z"/></svg>';
 
 const st = {chat: {projects: [], pid: null, convs: [], conv: null, nueva: false, participantes: []}, data: null, tab: "chat", ed: null, salud: null, saludCargando: false, dry: null, confirmados: new Set(),
-            historia: null, changelog: "", plugins: null, modelos: {}, aviso: null, pruebas: {}, mensaje: "Aplicar cambios desde la UI"};
+            historia: null, changelog: "", plugins: null, modelos: {}, aviso: null, pruebas: {}, mensaje: "Aplicar cambios desde la UI",
+            rrhh: {evaluacion: null, catalogo: null, cargando: false, error: null, texto: "", triage: null, evaluando: false, asc: false}};
 
 class ApiError extends Error {
   constructor(status, data) {
@@ -654,11 +667,72 @@ function renderAvisos() {
 }
 function renderPanel() {
   const p = $("#panel");
-  const fn = {chat: panelChat, tareas: panelTareas, agentes: st.ed ? panelEditor : panelAgentes, moods: panelMoods, aplicar: panelAplicar, salud: panelSalud, historial: panelHistorial, plugins: panelPlugins}[st.tab];
+  const fn = {chat: panelChat, tareas: panelTareas, agentes: st.ed ? panelEditor : panelAgentes, rrhh: panelRRHH, moods: panelMoods, aplicar: panelAplicar, salud: panelSalud, historial: panelHistorial, plugins: panelPlugins}[st.tab];
   p.innerHTML = fn();
   if (st.tab === "agentes" && st.ed) montarEditor();
   if (st.tab === "moods") previewBloque();
   if (st.tab === "chat") { const m = $(".mensajes"); if (m) m.scrollTop = m.scrollHeight; }
+}
+
+/* ---------- recursos humanos ---------- */
+async function cargarRRHH() {
+  const r = st.rrhh;
+  if (r.cargando) return;
+  r.cargando = true; r.error = null;
+  try {
+    const [ev, cat] = await Promise.all([api("GET", "/api/rrhh/evaluacion"), api("GET", "/api/rrhh/catalogo")]);
+    r.evaluacion = ev.agentes; r.catalogo = cat;
+  } catch (e) { r.error = e.message; }
+  finally { r.cargando = false; if (st.tab === "rrhh") renderPanel(); }
+}
+function recomendadoRRHH(a, revisor = false) {
+  const desplegado = st.data.agents.some((x) => x.name === a.name && x.deployed && x.enabled);
+  return `<article class="tarjeta"><header><h4 class="c-${esc(a.backend)}">${revisor ? "Revisor: " : ""}${esc(a.display_name)}</h4></header>
+    <p>${esc(a.modelo || "default del CLI")}${a.esfuerzo ? ` · esfuerzo ${esc(a.esfuerzo)}` : ""} · puntaje ${esc(a.puntaje)}</p>
+    <ul>${a.motivos.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>
+    <footer><button class="btn chico" data-action="rrhh-conversar" data-name="${esc(a.name)}" ${desplegado ? "" : 'disabled title="Aplicá el agente antes de abrir una conversación"'}>Abrir conversación con este agente</button></footer></article>`;
+}
+function panelRRHH() {
+  const r = st.rrhh, t = r.triage;
+  if (!r.evaluacion && !r.cargando && !r.error) cargarRRHH();
+  const porcentaje = (n) => n === null ? "—" : `${esc(n)}%`;
+  const metrica = (n, unidad = "") => n === null ? "—" : `${esc(n)}${unidad}`;
+  const filas = [...(r.evaluacion || [])].sort((a, b) => {
+    if (a.nota === null || b.nota === null) return a.nota === b.nota ? a.name.localeCompare(b.name) : a.nota === null ? 1 : -1;
+    return (r.asc ? a.nota - b.nota : b.nota - a.nota) || a.name.localeCompare(b.name);
+  });
+  const cat = r.catalogo;
+  return `<div class="barra"><div><h2>Recursos Humanos</h2><p class="ayuda">Evaluación y recomendaciones por reglas locales. No ejecuta agentes.</p></div><button class="btn" data-action="rrhh-actualizar" ${r.cargando ? "disabled" : ""}>Actualizar</button></div>
+    <section class="panel rrhh-bloque"><h3>Triage</h3><form id="rrhh-triage" class="campos">
+      <div class="campo"><label for="rrhh-texto">Tarea a evaluar</label><textarea id="rrhh-texto" required placeholder="Describí el cambio, alcance y validación esperada…">${esc(r.texto)}</textarea></div>
+      <button class="btn primario" ${r.evaluando ? "disabled" : ""}>${r.evaluando ? "Evaluando…" : "Evaluar tarea"}</button></form>
+      ${t ? `<div class="rrhh-escala ${t.dificultad >= 4 ? "alta" : t.dificultad === 3 ? "media" : ""}" role="img" aria-label="Dificultad ${t.dificultad} de 5">${[1, 2, 3, 4, 5].map((n) => `<span class="${n <= t.dificultad ? "activo" : ""}" aria-hidden="true">${n}</span>`).join("")}<strong>${t.dificultad}/5</strong></div>
+        <ul>${t.razones.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><div class="grilla">${t.recomendados.map((a) => recomendadoRRHH(a)).join("") || '<p class="ayuda">No hay agentes habilitados.</p>'}${t.revisor ? recomendadoRRHH(t.revisor, true) : ""}</div>
+        ${t.avisos.map((x) => `<p class="ayuda">${esc(x)}</p>`).join("")}` : ""}</section>
+    ${r.error ? `<div class="aviso error"><p>${esc(r.error)}</p><button class="btn chico" data-action="rrhh-actualizar">Reintentar</button></div>` : ""}
+    <section class="panel rrhh-bloque"><h3>Plantel</h3><p class="ayuda">Nota de 0 a 100; requiere al menos 3 llamadas. Reviews recibidas; latencia mediana. Sin datos se muestra —.</p>
+      <div class="rrhh-tabla"><table class="tabla-uso"><thead><tr><th>Agente</th><th aria-sort="${r.asc ? "ascending" : "descending"}"><button class="enlace" data-action="rrhh-ordenar">Nota ${r.asc ? "↑" : "↓"}</button></th><th>Llamadas</th><th>Éxito</th><th>Timeouts / límites</th><th>Latencia</th><th>Tokens promedio</th><th>Reviews ✓ / ✕</th><th>Confianza / acierto</th><th>Señales</th></tr></thead><tbody>
+        ${filas.map((a) => `<tr><td class="c-${esc(a.backend || "")}">${esc(a.display_name)}${a.enabled ? "" : '<small class="ayuda"> (inactivo)</small>'}</td><td title="${esc(a.estado)}">${metrica(a.nota)}</td><td>${a.llamadas}</td><td>${porcentaje(a.tasa_exito)}</td><td>${a.timeouts} / ${a.rate_limits}</td><td>${metrica(a.latencia_mediana_s, " s")}</td><td>${metrica(a.tokens_promedio)}</td><td>${a.reviews_aprobadas} / ${a.reviews_rechazadas}</td><td>${porcentaje(a.calibracion.confianza_media)} / ${porcentaje(a.calibracion.acierto_real)}<small class="ayuda"> (n=${a.calibracion.muestras})</small></td><td>${a.senales.map((s) => `<span class="rrhh-senal ${s === "falla mucho" ? "falla" : ""}">${esc(s)}</span>`).join("")}${a.nota === null ? '<span class="ayuda">sin datos suficientes</span>' : ""}</td></tr>`).join("") || `<tr><td colspan="10">${r.cargando ? "Cargando…" : "No hay agentes ni datos de uso."}</td></tr>`}
+      </tbody></table></div></section>
+    <section class="panel rrhh-bloque"><h3>Organigrama</h3>${cat ? Object.entries(cat.categorias).map(([c, agentes]) => `<section class="seccion"><h4>${esc(c)}</h4><div class="chips">${agentes.map((a) => `<span class="chip c-${esc(a.backend)}">${esc(a.display_name)}${a.enabled ? "" : " (deshabilitado)"}</span>`).join("") || '<span class="ayuda">Sin agentes</span>'}</div></section>`).join("") : '<p class="ayuda">Cargando…</p>'}
+      ${cat && cat.huecos.length ? `<div class="aviso"><div><strong>Huecos</strong><ul>${cat.huecos.map((h) => `<li>${esc(h)}</li>`).join("")}</ul></div></div>` : ""}
+      ${cat && cat.solapamientos.length ? `<div class="aviso"><div><strong>Solapamientos</strong><ul>${cat.solapamientos.map((s) => `<li>${esc(s.agentes.join(" / "))}: rutas similares (${Math.round(s.similitud * 100)}%)</li>`).join("")}</ul></div></div>` : ""}</section>`;
+}
+async function cargarSugerenciasRRHH(v) {
+  try {
+    const data = await api("GET", `/api/rrhh/sugerencias/${v.id}`);
+    if (st.chat.conv?.id !== v.id || st.chat.conv.messages.length !== v.messages.length) return;
+    st.chat.sugerencias = {cid: v.id, data};
+    const destino = $("#rrhh-conv"); if (destino) destino.innerHTML = sugerenciasRRHH(st.chat.conv);
+  } catch { /* La recomendación opcional no interrumpe el chat. */ }
+}
+function sugerenciasRRHH(v) {
+  const s = st.chat.sugerencias;
+  if (!s || s.cid !== v.id) return "";
+  return s.data.avisos.map((x) => `<p>${esc(x)}</p>`).join("") + s.data.sugerencias.filter((a) => !v.participants.includes(a.name)).map((a) => {
+    const disponible = st.chat.participantes.includes(a.name);
+    return `<p>RR. HH. sugiere: <span class="c-${esc(a.backend)}">${esc(a.display_name)}</span> (${esc(a.motivo)}) <button class="btn chico" data-action="rrhh-agregar" data-name="${esc(a.name)}" ${disponible && !v.busy ? "" : 'disabled title="Debe estar desplegado y la conversación libre"'}>Agregar</button></p>`;
+  }).join("");
 }
 
 /* ---------- agentes ---------- */
@@ -1048,6 +1122,7 @@ async function abrirConv(id) {
   st.chat.conv = await api("GET", `/api/chat/conversations/${id}`); st.chat.nueva = false;
   if (st.tab === "chat") renderPanel();
   programarSondeo();
+  cargarSugerenciasRRHH(st.chat.conv);
 }
 let pendientesDeVer = 0;
 function avisarFin(v) {
@@ -1066,6 +1141,7 @@ function programarSondeo() {
     const cambio = JSON.stringify(nuevo.messages) !== JSON.stringify(c.messages) || nuevo.busy !== c.busy || nuevo.worktrees.length !== c.worktrees.length;
     if (c.busy && !nuevo.busy) avisarFin(nuevo);
     st.chat.conv = nuevo;
+    if (cambio) cargarSugerenciasRRHH(nuevo);
     if (cambio && st.tab === "chat") { const borrador = $("#chat-texto") ? $("#chat-texto").value : ""; renderPanel(); if ($("#chat-texto")) $("#chat-texto").value = borrador; }
     if (!nuevo.busy) cargarChat();
     programarSondeo();
@@ -1103,7 +1179,7 @@ function ordenarEnColumnas(v, html) {
 function formNuevaConv() {
   const ps = st.chat.participantes;
   return `<form class="panel campos" id="chat-form"><h2>Nueva conversación</h2>
-    <div class="campo"><label for="nc-titulo">Título</label><input type="text" id="nc-titulo" required placeholder="Por ejemplo: diseño del endpoint de ventas"></div>
+    <div class="campo"><label for="nc-titulo">Título</label><input type="text" id="nc-titulo" required value="${esc(st.chat.tituloInicial || "")}" placeholder="Por ejemplo: diseño del endpoint de ventas"></div>
     <fieldset><legend>Tipo</legend><div class="opciones">
       <label><input type="radio" name="nc-kind" value="individual" checked> Individual (un agente)</label>
       <label><input type="radio" name="nc-kind" value="reunion"> Reunión</label></div></fieldset>
@@ -1113,7 +1189,7 @@ function formNuevaConv() {
       <label><input type="radio" name="nc-mode" value="critica"> Crítica: primero responden a ciegas, después critican las respuestas anónimas de los demás y un juez decide</label>
       <label><input type="radio" name="nc-mode" value="posturas"> Posturas: a favor, en contra y neutral asignadas, réplica y veredicto del juez</label>
       <label><input type="radio" name="nc-mode" value="seccionado"> Seccionado: cada uno cubre un aspecto (escribí «Aspectos: a; b; c») y el juez consolida</label></div></fieldset>
-    <fieldset><legend>Participantes</legend><div class="tools">${ps.map((p, i) => `<label class="${colorDe(p)}"><input type="checkbox" name="nc-p" value="${esc(p)}" ${i === 0 ? "checked" : ""}> ${esc(p)}</label>`).join("")}</div>
+    <fieldset><legend>Participantes</legend><div class="tools">${ps.map((p, i) => `<label class="${colorDe(p)}"><input type="checkbox" name="nc-p" value="${esc(p)}" ${(st.chat.agenteInicial ? p === st.chat.agenteInicial : i === 0) ? "checked" : ""}> ${esc(p)}</label>`).join("")}</div>
       <small class="ayuda">Los agentes de escritura trabajan en su worktree: vos decidís si mergear. El orquestador y los agentes claude responden en solo lectura. Cada mensaje gasta cuota real.</small></fieldset>
     <div id="nc-err"></div>
     <div class="acciones"><button class="btn primario">Crear conversación</button>${st.chat.conv ? '<button type="button" class="btn" data-action="chat-cancelar">Cancelar</button>' : ""}</div></form>`;
@@ -1150,7 +1226,8 @@ function sala(v) {
       <div class="chips">${v.participants.map((p) => `<span class="chip ${colorDe(p)}">${esc(p)}${reunion && v.participants.length > 1 ? `<button data-action="chat-quitar" data-name="${esc(p)}" aria-label="Sacar a ${esc(p)}">×</button>` : ""}</span>`).join("")}
         ${reunion && libres.length ? `<select id="chat-sumar" aria-label="Sumar participante"><option value="">Sumar participante…</option>${libres.map((p) => `<option>${esc(p)}</option>`).join("")}</select>` : ""}
         ${reunion ? `<button class="btn chico" data-action="chat-columnas">${st.chat.columnas ? "Ver como hilo" : "Ver en columnas"}</button>` : ""}
-        <span class="ayuda">${reunion ? `Reunión ${esc(v.mode)}. ${{rondas: "Responden en orden; con @agente le hablás a uno solo.", moderada: "El orquestador pregunta y cierra con una síntesis.", critica: "Primero a ciegas, después crítica anónima; el juez decide.", posturas: "Posturas asignadas, réplica y veredicto del juez.", seccionado: "Cada uno cubre un aspecto; el juez consolida."}[v.mode] || ""}` : "Individual"}</span></div></header>
+        <span class="ayuda">${reunion ? `Reunión ${esc(v.mode)}. ${{rondas: "Responden en orden; con @agente le hablás a uno solo.", moderada: "El orquestador pregunta y cierra con una síntesis.", critica: "Primero a ciegas, después crítica anónima; el juez decide.", posturas: "Posturas asignadas, réplica y veredicto del juez.", seccionado: "Cada uno cubre un aspecto; el juez consolida."}[v.mode] || ""}` : "Individual"}</span></div>
+      <div id="rrhh-conv" class="rrhh-sugerencia" aria-live="polite">${sugerenciasRRHH(v)}</div></header>
     <div class="mensajes ${reunion && st.chat.columnas ? "columnas" : ""}" style="--cols:${Math.max(1, v.participants.length)}" aria-live="polite">${reunion && st.chat.columnas ? ordenarEnColumnas(v, msgs) : msgs}${wts}</div>
     <form class="redactar" id="chat-enviar"><div id="menciones"></div><textarea id="chat-texto" aria-label="Mensaje" placeholder="${v.busy ? "Esperá a que terminen de responder" : "Escribí tu mensaje (Ctrl+Enter para enviar)"}"></textarea>
       <div class="acciones">${v.busy ? '<button type="button" class="btn peligro" data-action="chat-detener">Detener (Esc)</button>' : '<button class="btn primario">Enviar</button>'}
@@ -1179,6 +1256,19 @@ document.addEventListener("click", async (ev) => {
   const n = t.dataset.name, act = t.dataset.action;
   try {
     switch (act) {
+      case "rrhh-actualizar": await cargarRRHH(); break;
+      case "rrhh-ordenar": st.rrhh.asc = !st.rrhh.asc; renderPanel(); break;
+      case "rrhh-conversar": {
+        await cargarChat();
+        if (!st.chat.participantes.includes(n)) { toast("Aplicá el agente antes de abrir una conversación."); break; }
+        st.chat.agenteInicial = n; st.chat.tituloInicial = st.rrhh.texto.slice(0, 100);
+        st.chat.nueva = true; st.tab = "chat"; render(); break;
+      }
+      case "rrhh-agregar": {
+        const v = st.chat.conv;
+        st.chat.conv = await api("POST", `/api/chat/conversations/${v.id}/participants`, {participants: [...v.participants, n]});
+        renderPanel(); cargarSugerenciasRRHH(st.chat.conv); await cargarChat(); break;
+      }
       case "recargar": st.ed = null; await cargar(); break;
       case "cerrar-aviso": st.aviso = null; renderAvisos(); break;
       case "nuevo": st.ed = {agent: agenteVacio(), nuevo: true, vista: "form"}; renderPanel(); window.scrollTo(0, 0); break;
@@ -1247,7 +1337,7 @@ document.addEventListener("click", async (ev) => {
       }
       case "chat-columnas": st.chat.columnas = !st.chat.columnas; renderPanel(); break;
       case "chat-detener": await api("POST", `/api/chat/conversations/${st.chat.conv.id}/cancel`); toast("Cortando el turno…"); break;
-      case "chat-nueva": st.chat.nueva = true; renderPanel(); break;
+      case "chat-nueva": st.chat.agenteInicial = null; st.chat.tituloInicial = ""; st.chat.nueva = true; renderPanel(); break;
       case "chat-cancelar": st.chat.nueva = false; renderPanel(); break;
       case "chat-proyecto": {
         const nombre = await dialogo({titulo: "Nuevo proyecto", texto: "Nombre del proyecto:", input: "", aceptar: "Seguir"});
@@ -1327,6 +1417,16 @@ document.addEventListener("change", async (ev) => {
   } catch (e) { mostrarError(e, null); await cargar(); }
 });
 document.addEventListener("submit", async (ev) => {
+  if (ev.target.id === "rrhh-triage") {
+    ev.preventDefault();
+    st.rrhh.texto = $("#rrhh-texto").value.trim();
+    if (!st.rrhh.texto || st.rrhh.evaluando) return;
+    st.rrhh.evaluando = true; renderPanel();
+    try { st.rrhh.triage = await api("POST", "/api/rrhh/triage", {texto: st.rrhh.texto}); }
+    catch (e) { mostrarError(e, null); }
+    finally { st.rrhh.evaluando = false; if (st.tab === "rrhh") renderPanel(); }
+    return;
+  }
   if (ev.target.id === "chat-form") {
     ev.preventDefault();
     const kind = $('input[name="nc-kind"]:checked').value;
@@ -1418,6 +1518,7 @@ $("#paleta-lista").addEventListener("click", (ev) => { const b = ev.target.close
 document.addEventListener("keydown", (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); abrirPaleta(); } });
 $("#salud-chip").addEventListener("click", () => { st.tab = "salud"; render(); });
 document.addEventListener("input", (ev) => {
+  if (ev.target.id === "rrhh-texto") { st.rrhh.texto = ev.target.value; return; }
   if (ev.target.id !== "chat-texto" || !st.chat.conv) return;
   const m = ev.target.value.slice(0, ev.target.selectionStart).match(/@([a-z0-9-]*)$/);
   const opciones = m ? st.chat.conv.participants.filter((p) => p.startsWith(m[1])) : [];
