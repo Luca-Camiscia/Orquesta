@@ -685,7 +685,20 @@ async function cargarRRHH() {
     const [ev, cat] = await Promise.all([api("GET", "/api/rrhh/evaluacion"), api("GET", "/api/rrhh/catalogo")]);
     r.evaluacion = ev.agentes; r.catalogo = cat;
   } catch (e) { r.error = e.message; }
-  finally { r.cargando = false; if (st.tab === "rrhh") renderPanel(); }
+  finally { r.cargando = false; renderRRHH(); }
+}
+function renderRRHH() {
+  if (st.tab !== "rrhh") return;
+  const activo = document.activeElement;
+  const selector = ["rrhh-texto", "rrhh-resultados", "rrhh-evaluar"].includes(activo?.id) ? `#${activo.id}` :
+    activo?.dataset?.action === "rrhh-reclutador" ? '[data-action="rrhh-reclutador"]' : null;
+  const seleccion = activo?.id === "rrhh-texto" ? [activo.selectionStart, activo.selectionEnd, activo.selectionDirection] : null;
+  renderPanel();
+  if (!selector) return;
+  let destino = $(selector);
+  if (destino?.disabled) destino = $("#rrhh-resultados");
+  destino?.focus();
+  if (seleccion) destino?.setSelectionRange(...seleccion);
 }
 function recomendadoRRHH(a, revisor = false) {
   const desplegado = st.data.agents.some((x) => x.name === a.name && x.deployed && x.enabled);
@@ -704,19 +717,19 @@ function actualizarTextoRRHH(texto) {
 async function evaluarTareaRRHH() {
   const r = st.rrhh, texto = r.texto.trim(), revision = r.revision;
   if (!texto || r.evaluando) return;
-  r.evaluando = true; r.triageError = null; renderPanel();
+  r.evaluando = true; r.triageError = null; renderRRHH();
   try {
     const base = await api("POST", "/api/rrhh/triage", {texto});
     if (revision === r.revision) r.triage = base;
   } catch (e) { if (revision === r.revision) r.triageError = e.message; }
-  finally { r.evaluando = false; if (st.tab === "rrhh") renderPanel(); }
+  finally { r.evaluando = false; renderRRHH(); }
 }
 async function pedirOpinionRRHH() {
   const r = st.rrhh, texto = r.texto.trim(), revision = r.revision;
   if (!texto || r.consultando) return;
   // Guardar el texto de cada consulta, incluso cuando su respuesta llega obsoleta.
   const consulta = {texto, estado: "CARGANDO", latencia_s: null, opinion: null, error: null};
-  r.consultas.push(consulta); r.consultando = true; r.opinion = null; renderPanel();
+  r.consultas.push(consulta); r.consultando = true; r.opinion = null; renderRRHH();
   try {
     const data = await api("POST", "/api/rrhh/reclutador", {texto});
     Object.assign(consulta, data);
@@ -724,7 +737,7 @@ async function pedirOpinionRRHH() {
   } catch (e) {
     Object.assign(consulta, {estado: "ERROR", error: e.message});
     if (revision === r.revision) r.opinion = consulta;
-  } finally { r.consultando = false; if (st.tab === "rrhh") renderPanel(); }
+  } finally { r.consultando = false; renderRRHH(); }
 }
 function panelRRHH() {
   const r = st.rrhh, t = r.triage;
@@ -739,15 +752,16 @@ function panelRRHH() {
   return `<div class="barra"><div><h2>Recursos Humanos</h2><p class="ayuda">Evaluación y recomendaciones por reglas locales, con opinión consultiva opcional.</p></div><button class="btn" data-action="rrhh-actualizar" ${r.cargando ? "disabled" : ""}>Actualizar</button></div>
     <section class="panel rrhh-bloque"><h3>Triage</h3><form id="rrhh-triage" class="campos">
       <div class="campo"><label for="rrhh-texto">Tarea a evaluar</label><textarea id="rrhh-texto" required placeholder="Describí el cambio, alcance y validación esperada…">${esc(r.texto)}</textarea></div>
-      <button class="btn primario" ${r.evaluando ? "disabled" : ""}>${r.evaluando ? "Evaluando…" : "Evaluar tarea"}</button>
-      <button type="button" class="btn" data-action="rrhh-reclutador" ${r.consultando || !r.texto.trim() ? "disabled" : ""}>${r.consultando ? "Consultando…" : "Pedir opinión al reclutador"}</button>
-      <p class="ayuda">Consume cuota de Gemini. El triage determinista sigue siendo la base.</p></form>
-      <div id="rrhh-resultados" aria-live="polite">${r.triageError ? `<p class="estado error">${esc(r.triageError)}</p>` : ""}
+      <div class="acciones"><button id="rrhh-evaluar" class="btn primario" ${r.evaluando ? "disabled" : ""}>${r.evaluando ? "Evaluando…" : "Evaluar tarea"}</button>
+      <button type="button" class="btn" data-action="rrhh-reclutador" aria-describedby="rrhh-aviso-cuota" ${r.consultando || !r.texto.trim() ? "disabled" : ""}>${r.consultando ? "Consultando…" : "Pedir opinión al reclutador"}</button></div>
+      <p id="rrhh-aviso-cuota" class="ayuda">Consume cuota de Gemini. El triage determinista sigue siendo la base.</p></form>
+      <div id="rrhh-resultados" tabindex="-1" aria-live="polite" aria-busy="${r.consultando || r.evaluando}">${r.triageError ? `<div class="aviso error" role="alert"><p>${esc(r.triageError)}</p></div>` : ""}
+      ${r.consultando ? '<p class="cargando">Consultando al reclutador (Gemini)…</p>' : ""}
       ${t ? `<div class="rrhh-escala ${t.dificultad >= 4 ? "alta" : t.dificultad === 3 ? "media" : ""}" role="img" aria-label="Dificultad ${t.dificultad} de 5">${[1, 2, 3, 4, 5].map((n) => `<span class="${n <= t.dificultad ? "activo" : ""}" aria-hidden="true">${n}</span>`).join("")}<strong>${t.dificultad}/5</strong></div>
         <ul>${t.razones.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><div class="grilla">${t.recomendados.map((a) => recomendadoRRHH(a)).join("") || '<p class="ayuda">No hay agentes habilitados.</p>'}${t.revisor ? recomendadoRRHH(t.revisor, true) : ""}</div>
         ${t.avisos.map((x) => `<p class="ayuda">${esc(x)}</p>`).join("")}` : ""}
       ${r.opinion ? `<h4>Opinión consultiva del reclutador</h4><p class="ayuda">Consulta: ${esc(r.opinion.texto)} · ${esc(r.opinion.estado)}${r.opinion.latencia_s === null ? "" : ` · ${esc(r.opinion.latencia_s)} s`}</p>
-        ${r.opinion.error ? `<p class="estado error">${esc(r.opinion.error)}</p>` : `<div class="rrhh-opinion">${esc(r.opinion.opinion || "")}</div>`}` : ""}</div></section>
+        ${r.opinion.error ? `<div class="aviso error" role="alert"><p>${esc(r.opinion.error)}</p></div>` : `<div class="rrhh-opinion">${esc(r.opinion.opinion || "")}</div>`}` : ""}</div></section>
     ${r.error ? `<div class="aviso error"><p>${esc(r.error)}</p><button class="btn chico" data-action="rrhh-actualizar">Reintentar</button></div>` : ""}
     <section class="panel rrhh-bloque"><h3>Plantel</h3><p class="ayuda">Nota de 0 a 100; requiere al menos 3 llamadas. Reviews recibidas; latencia mediana. Sin datos se muestra —.</p>
       <div class="rrhh-tabla"><table class="tabla-uso"><thead><tr><th>Agente</th><th aria-sort="${r.asc ? "ascending" : "descending"}"><button class="enlace" data-action="rrhh-ordenar">Nota ${r.asc ? "↑" : "↓"}</button></th><th>Llamadas</th><th>Éxito</th><th>Timeouts / límites</th><th>Latencia</th><th>Tokens promedio</th><th>Reviews ✓ / ✕</th><th>Confianza / acierto</th><th>Señales</th></tr></thead><tbody>

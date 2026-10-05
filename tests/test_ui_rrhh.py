@@ -117,7 +117,14 @@ const document = {
 (async () => {
 st.tab = "rrhh"; st.data = {agents: []};
 st.rrhh.evaluacion = []; st.rrhh.catalogo = {categorias: {}, huecos: [], solapamientos: []};
-renderPanel = () => {};
+renderPanel = () => { document.activeElement = null; };
+const textarea = document.querySelector("#rrhh-texto");
+textarea.id = "rrhh-texto"; textarea.selectionStart = 2; textarea.selectionEnd = 5;
+textarea.selectionDirection = "backward";
+textarea.focus = () => { document.activeElement = textarea; };
+textarea.setSelectionRange = (start, end, direction) => {
+  textarea.selectionStart = start; textarea.selectionEnd = end; textarea.selectionDirection = direction;
+};
 const calls = [], pending = [];
 api = (method, path, body) => {
   calls.push({method, path, body});
@@ -134,17 +141,25 @@ const base = {dificultad: 1, razones: ["Base vigente"], recomendados: [], avisos
 let html = panelRRHH();
 assert.match(html, /type="button"[^>]*data-action="rrhh-reclutador"/);
 assert.match(html, /Consume cuota de Gemini\. El triage determinista sigue siendo la base\./);
+assert.match(html, /aria-describedby="rrhh-aviso-cuota"/);
+assert.match(html, /id="rrhh-aviso-cuota"/);
 await cargarRRHH();
 assert.equal(calls.filter(c => c.path.endsWith("reclutador")).length, 0);
 await input("Tarea A");
+textarea.focus();
 const triageA = submit();
+assert.equal(document.activeElement, textarea);
+assert.equal(textarea.selectionDirection, "backward");
 assert.equal(calls.at(-1).path, "/api/rrhh/triage");
 const opinionA = click(); await click();
+assert.equal(document.activeElement, textarea);
 assert.equal(calls.filter(c => c.path.endsWith("reclutador")).length, 1);
 assert.match(panelRRHH(), /data-action="rrhh-reclutador"[^>]*disabled/);
 await input("Tarea B");
 pending[1].resolve({texto: "Tarea A", base, opinion: "OPINION VIEJA", estado: "OK", latencia_s: 1, error: null});
 await opinionA;
+assert.equal(document.activeElement, textarea);
+assert.deepEqual([textarea.selectionStart, textarea.selectionEnd], [2, 5]);
 assert.equal(st.rrhh.triage, null);
 assert.ok(!panelRRHH().includes("OPINION VIEJA"));
 assert.equal(st.rrhh.consultas[0].texto, "Tarea A");
@@ -166,10 +181,20 @@ pending[4].resolve({texto: "Tarea C", base, opinion: null, estado: "RATE_LIMIT",
 await quota; html = panelRRHH();
 assert.match(html, /Base vigente/); assert.match(html, /RATE_LIMIT/);
 assert.match(html, /Cuota agotada &lt;quota&gt;/);
+assert.match(html, /class="aviso error" role="alert"/);
 assert.ok(!html.includes("&lt;img"));
 const failure = click(); pending[5].reject(new Error("Red <offline>")); await failure;
 html = panelRRHH(); assert.match(html, /Red &lt;offline&gt;/); assert.match(html, /Base vigente/);
 assert.equal(st.rrhh.consultando, false);
+const boton = document.querySelector('[data-action="rrhh-reclutador"]');
+boton.dataset = {action: "rrhh-reclutador"}; boton.disabled = true;
+const resultados = document.querySelector("#rrhh-resultados"); resultados.id = "rrhh-resultados";
+resultados.focus = () => { document.activeElement = resultados; };
+document.activeElement = boton; renderRRHH();
+assert.equal(document.activeElement, resultados);
+renderRRHH(); assert.equal(document.activeElement, resultados);
+st.tab = "chat"; textarea.focus(); renderRRHH();
+assert.equal(document.activeElement, textarea);
 process.stdout.write(JSON.stringify({consultas: st.rrhh.consultas.map(c => c.texto)}));
 })().catch(e => {console.error(e); process.exitCode = 1;});
 '''
