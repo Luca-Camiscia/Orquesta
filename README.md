@@ -66,6 +66,27 @@ cada uno conversaciones individuales o reuniones. Cada mensaje corre agentes rea
 - **Pestaña Tareas.** Muestra todos los worktrees abiertos de todos los proyectos.
 - Las conversaciones se guardan en `conversaciones/` (fuera de git).
 
+## Setup de worktrees por proyecto
+
+Un worktree nuevo no tiene `.venv`, `node_modules` ni `.env`. Si el proyecto tiene
+`.orquesta/proyecto.toml`, el runner lo prepara antes de que trabaje el agente:
+
+```toml
+[worktree]
+copiar = [".env"]                 # archivos sin versionar que se copian del repo original
+setup = "uv sync"                 # corre dentro del worktree; tiene ORQUESTA_PORT único y ORQUESTA_WORKTREE
+archive = "docker compose down"   # opcional: corre antes de borrar el worktree
+timeout_s = 600
+```
+
+Si el setup falla, la corrida termina con `ESTADO: ERROR` y no gasta cuota del backend.
+
+## Cuota
+
+Cada invocación queda en `state/usage.jsonl`. El doctor (chequeo `cuota`) y la pestaña Salud muestran
+el uso de las últimas 5 horas por backend y un límite estimado a partir de los rate limits que hubo
+antes. Avisan cuando el uso llega al 80% de ese límite.
+
 ## Plugins por agente
 
 Cada agente `claude` puede tener `plugins: [id, ...]` en orquesta.yaml. Claude Code instala los plugins

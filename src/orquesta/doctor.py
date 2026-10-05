@@ -571,6 +571,21 @@ def _worktrees(ctx: _Ctx) -> list[Check]:
                   f"{len(items)} worktree(s) abiertos, ninguno huérfano")]
 
 
+def _cuota(ctx: _Ctx) -> list[Check]:
+    from orquesta import usage
+    w = usage.window(ctx.paths)
+    if not w:
+        return [Check("cuota", "Cuota (ventana de 5 h)", "ok", "todavía no hay invocaciones registradas")]
+    alto = [b for b, s in w.items() if s["riesgo"] == "alto"]
+    resumen = "; ".join(f"{b}: {s['llamadas']} llamadas, {s['tokens']} tokens"
+                        + (f" de ~{s['limite_estimado']} estimados" if s["limite_estimado"] else "")
+                        for b, s in w.items())
+    if alto:
+        return [Check("cuota", "Cuota (ventana de 5 h)", "warn", f"riesgo alto en {', '.join(alto)} ({resumen})",
+                      "Repartí la carga hacia otro backend o esperá a que corra la ventana.")]
+    return [Check("cuota", "Cuota (ventana de 5 h)", "ok", resumen)]
+
+
 # (función, es live, prefijos de los ids que produce). _registro corre siempre: carga el registro y
 # los backends que usan los demás chequeos.
 CHECKS: list[tuple[Callable[[_Ctx], list[Check]], bool, tuple[str, ...]]] = [
@@ -587,6 +602,7 @@ CHECKS: list[tuple[Callable[[_Ctx], list[Check]], bool, tuple[str, ...]]] = [
     (_git, False, ("git",)),
     (_tests, False, ("tests",)),
     (_worktrees, False, ("worktrees",)),
+    (_cuota, False, ("cuota",)),
 ]
 
 

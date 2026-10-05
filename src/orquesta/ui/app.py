@@ -333,6 +333,11 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
     def health_refresh():
         return doctor.run_doctor(paths, deps=doctor_deps, use_cache=False, live=True).to_json()
 
+    @app.get("/api/usage")
+    def usage_window():
+        from orquesta import usage
+        return {"backends": usage.window(paths)}
+
     @app.post("/api/that-it-guy")
     def that_it_guy(body: dict = Body(...)):
         prompt = (f"Usá el subagent that-it-guy para resolver: {body.get('name', '')} — "

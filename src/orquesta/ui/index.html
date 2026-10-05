@@ -258,6 +258,8 @@ fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
 .violacion { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 2px solid var(--fail); border-radius: 8px; margin: 8px 0; }
 
 /* salud */
+.tabla-uso { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.tabla-uso th, .tabla-uso td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--pauta); }
 .chequeos { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--pauta); }
 .chequeo { display: grid; grid-template-columns: 18px 1fr auto; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--pauta); align-items: start; }
 .chequeo .luz { width: 12px; height: 12px; border-radius: 50%; margin-top: 6px; }
@@ -756,8 +758,12 @@ function panelSalud() {
     <button class="btn" data-action="rechequear" ${st.saludCargando ? "disabled" : ""}>${st.saludCargando ? "Chequeando…" : "Re-chequear"}</button></div>`;
   if (!s) return cab + `<p class="cargando">${st.saludCargando ? "Corriendo doctor…" : "Sin datos todavía."}</p>`;
   const txt = {ok: "Todo en orden", warn: "Funciona, con avisos", fail: "Hay fallas que resolver"}[s.overall];
+  if (!st.uso) api("GET", "/api/usage").then((r) => { st.uso = r.backends; if (st.tab === "salud") renderPanel(); }).catch(() => {});
+  const uso = st.uso && Object.keys(st.uso).length ? `<h3 style="margin:18px 0 8px">Uso en las últimas 5 horas</h3><table class="tabla-uso"><thead><tr><th>Backend</th><th>Llamadas</th><th>Tokens</th><th>Costo</th><th>Errores</th><th>Límite estimado</th><th>Riesgo</th></tr></thead><tbody>${Object.entries(st.uso).map(([b, x]) =>
+    `<tr><td class="c-${esc(b)}">${esc(b)}</td><td>${x.llamadas}</td><td>${x.tokens || "n/d"}</td><td>${x.costo_usd ? "US$ " + x.costo_usd : "n/d"}</td><td>${x.errores}</td><td>${x.limite_estimado || "sin datos"}</td><td><span class="badge ${x.riesgo === "alto" ? "error" : x.riesgo === "medio" ? "esperando-revision" : ""}">${esc(x.riesgo)}</span></td></tr>`).join("")}</tbody></table>
+    <p class="ayuda">El límite se estima con lo que consumiste antes de cada rate limit. Codex en modo texto no informa tokens.</p>` : "";
   return cab + `<p class="semaforo"><span class="luz ${s.overall}"></span>${txt}<span class="ayuda">(${esc(s.generated_at)})</span></p>
-    <ul class="chequeos">${s.checks.map((c) => `<li class="chequeo"><span class="luz ${c.status}" aria-label="${c.status}"></span>
+    ${uso}<ul class="chequeos" style="margin-top:16px">${s.checks.map((c) => `<li class="chequeo"><span class="luz ${c.status}" aria-label="${c.status}"></span>
       <div><p><span class="nombre">${esc(c.name)}</span>: ${esc(c.message)}${c.cached ? ' <span class="ayuda">(cache)</span>' : ""}</p>
       ${c.suggestion && c.status !== "ok" ? `<p class="sug">${esc(c.suggestion)}</p>` : ""}</div>
       ${c.status !== "ok" ? `<button class="btn chico" data-action="llamar" data-name="${esc(c.name)}" data-msg="${esc(c.message)}">Llamar a that_it_guy</button>` : "<span></span>"}</li>`).join("")}</ul>`;
@@ -1081,7 +1087,7 @@ document.addEventListener("click", async (ev) => {
         const ok = await dialogo({titulo: "Descartar los cambios sin aplicar", texto: "orquesta.yaml vuelve a la última versión commiteada. Lo que editaste y no aplicaste se pierde.", aceptar: "Descartar", peligro: true});
         if (ok) { await api("POST", "/api/discard", {confirm: true}); st.dry = null; toast("Cambios descartados."); await cargar(); } break;
       }
-      case "rechequear": await cargarSalud(true); break;
+      case "rechequear": st.uso = null; await cargarSalud(true); break;
       case "llamar": await llamarThatItGuy(n, t.dataset.msg); break;
       case "restaurar": {
         const ok = await dialogo({titulo: "Restaurar esta versión", texto: `orquesta.yaml vuelve a como estaba en «${t.dataset.msg}». Queda como cambio sin aplicar: después revisás el diff y aplicás.`, aceptar: "Restaurar"});

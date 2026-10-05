@@ -290,3 +290,14 @@ def test_sin_tests_no_corre_la_suite(denv):
     r = correr(denv, fake, tests=False)
     assert not any("pytest" in " ".join(c) for c in fake.calls)
     assert "tests" not in {c.id for c in r.checks}
+
+
+def test_cuota_en_riesgo_alto_es_warn(denv):
+    from datetime import datetime, timedelta, timezone
+    from orquesta import usage
+    now = datetime.now(timezone.utc)
+    usage.record(denv, backend="agy", agent="g", status="OK", tokens_in=100, ts=now - timedelta(hours=20))
+    usage.record(denv, backend="agy", agent="g", status="RATE_LIMIT", ts=now - timedelta(hours=19, minutes=50))
+    usage.record(denv, backend="agy", agent="g", status="OK", tokens_in=95, ts=now - timedelta(minutes=5))
+    c = check(correr(denv), "cuota")
+    assert c.status == "warn" and "agy" in c.message

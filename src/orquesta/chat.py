@@ -256,15 +256,28 @@ def _claude(args: list[str], prompt: str, cwd: str) -> Reply:
     return Reply(strip_mood_tag(str(data.get("result", ""))).strip(), meta={"usage": usage})
 
 
+def _record_claude(paths: Paths, who: str, r: Reply) -> Reply:
+    from orquesta import usage
+    u = r.meta.get("usage") or {}
+    status = "OK" if not r.error else ("RATE_LIMIT" if "RATE_LIMIT" in r.error or "limit" in r.error.lower()
+                                       else "ERROR")
+    try:
+        usage.record(paths, backend="claude", agent=who, status=status, tokens_in=u.get("input_tokens"),
+                     tokens_out=u.get("output_tokens"), cost_usd=u.get("cost_usd"))
+    except Exception:
+        pass
+    return r
+
+
 def default_executor(paths: Paths, project: dict, participant: str, prompt: str) -> Reply:
     cwd = project["dir"]
     if participant == ORCHESTRATOR:
-        return _claude(["--model", "opus"], prompt, cwd)
+        return _record_claude(paths, participant, _claude(["--model", "opus"], prompt, cwd))
     entry = mf.deployed_agent(mf.load(paths), participant)
     if entry is None:
         return Reply("", error=f"ESTADO: ERROR — {participant} no está desplegado")
     if entry.backend == "claude":
-        return _claude(["--agent", participant], prompt, cwd)
+        return _record_claude(paths, participant, _claude(["--agent", participant], prompt, cwd))
     task = None
     if entry.mode == "write":
         if entry.isolation != "worktree":

@@ -357,6 +357,11 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
             wt = worktrees.create(paths, repo=root, agent=req.agent, task=req.task)
         except worktrees.WorktreeError as exc:
             return RunResult("ERROR", meta=meta, detail=str(exc))
+        try:
+            worktrees.prepare(paths, wt)
+        except worktrees.WorktreeError as exc:
+            return RunResult("ERROR", meta={**meta, "worktree": str(wt.path), "branch": wt.branch},
+                             detail=str(exc))
         work_cwd = wt.path / cwd.relative_to(root)
         meta.update(worktree=str(wt.path), branch=wt.branch)
 
@@ -393,6 +398,14 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
             meta.setdefault("warnings", []).append(f"no se pudo commitear en el worktree: {exc}")
     result.meta = {**meta, **result.meta, "contrato": parse_contract(result.output)}
     result.latency_s = round(time.monotonic() - t0, 1)
+    u = result.meta.get("usage") or {}
+    try:
+        from orquesta import usage
+        usage.record(paths, backend=entry.backend, agent=req.agent, status=result.status,
+                     tokens_in=u.get("input_tokens"), tokens_out=u.get("output_tokens"),
+                     latency_s=result.latency_s)
+    except Exception:  # el medidor nunca rompe una corrida
+        pass
     return result
 
 

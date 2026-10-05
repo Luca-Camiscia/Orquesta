@@ -131,6 +131,59 @@ def create(paths: Paths, *, repo: Path, agent: str, task: str, base: str = "HEAD
     return wt
 
 
+def project_config(repo: Path) -> dict | None:
+    """`.orquesta/proyecto.toml` del repo: setup y archivos a copiar en cada worktree."""
+    import tomllib
+    f = repo / ".orquesta" / "proyecto.toml"
+    if not f.is_file():
+        return None
+    try:
+        return tomllib.loads(f.read_text(encoding="utf-8")).get("worktree") or {}
+    except tomllib.TOMLDecodeError as exc:
+        raise WorktreeError(f"{f} no es TOML válido: {exc}") from None
+
+
+def _env_for(wt: Worktree) -> dict:
+    import os
+    port = 20000 + int(hashlib.sha1(wt.branch.encode()).hexdigest(), 16) % 10000
+    return {**os.environ, "ORQUESTA_WORKTREE": str(wt.path), "ORQUESTA_PORT": str(port),
+            "ORQUESTA_BRANCH": wt.branch}
+
+
+def prepare(paths: Paths, wt: Worktree) -> dict | None:
+    """Copia archivos sin versionar (p. ej. .env) y corre el `setup` del proyecto en el worktree."""
+    cfg = project_config(wt.repo)
+    if cfg is None:
+        return None
+    for rel in cfg.get("copiar") or []:
+        src = wt.repo / rel
+        if src.is_file():
+            dst = wt.path / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+    setup = cfg.get("setup")
+    if setup:
+        try:
+            proc = subprocess.run(["bash", "-c", setup], cwd=wt.path, capture_output=True, text=True,
+                                  timeout=int(cfg.get("timeout_s", 600)), env=_env_for(wt))
+        except subprocess.TimeoutExpired:
+            raise WorktreeError(f"el setup del worktree no terminó en {cfg.get('timeout_s', 600)} s") from None
+        if proc.returncode != 0:
+            raise WorktreeError(f"el setup del worktree falló (código {proc.returncode}): "
+                                f"{(proc.stderr or proc.stdout).strip()[-300:]}")
+    return cfg
+
+
+def _archive(wt: Worktree) -> None:
+    try:
+        cfg = project_config(wt.repo) or {}
+    except WorktreeError:
+        return
+    if cfg.get("archive") and wt.path.exists():
+        subprocess.run(["bash", "-c", cfg["archive"]], cwd=wt.path, capture_output=True, timeout=120,
+                       env=_env_for(wt))
+
+
 def commit_all(wt: Worktree, message: str) -> str | None:
     """Commitea todo lo que haya en el worktree. None si no había cambios."""
     _git(wt.path, "add", "-A")
@@ -185,6 +238,7 @@ def clean(paths: Paths, branch: str, force: bool = False) -> None:
             if tip and tip != wt.base_sha and not _is_merged(wt.repo, branch) and not force:
                 raise WorktreeError(f"la rama {branch} tiene commits sin mergear; si querés "
                                     f"descartarla, usá --force")
+            _archive(wt)
             if wt.path.exists():
                 _git(wt.repo, "worktree", "remove", *(["--force"] if force else []), str(wt.path))
             else:
