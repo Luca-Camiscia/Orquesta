@@ -457,13 +457,23 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
     def chat_new_project(body: dict = Body(...)):
         return store.create_project(body.get("name", ""), body.get("dir", ""))
 
+    @app.delete("/api/chat/projects/{pid}")
+    def chat_delete_project(pid: str):
+        store.delete_project(pid)
+        return {"ok": True}
+
     @app.get("/api/chat/conversations")
     def chat_conversations(project: str | None = None):
-        return {"conversations": store.list_conversations(project)}
+        if project in ("sin-proyecto", "none", ""):
+            return {"conversations": store.list_conversations(project_id=None)}
+        return {"conversations": store.list_conversations(project) if project else store.list_conversations()}
 
     @app.post("/api/chat/conversations")
     def chat_new_conversation(body: dict = Body(...)):
-        return store.create_conversation(body.get("project_id", ""), body.get("title", ""),
+        pid = body.get("project_id")
+        if pid in ("", "sin-proyecto", "none"):
+            pid = None
+        return store.create_conversation(pid, body.get("title", ""),
                                          body.get("kind", "individual"), body.get("participants") or [],
                                          body.get("mode", "rondas"))
 

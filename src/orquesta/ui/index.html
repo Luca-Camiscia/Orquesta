@@ -351,7 +351,7 @@ code.cmd { display: block; padding: 12px 14px; border-radius: 8px; background: v
 .lista-conv button { width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 7px; cursor: pointer; }
 .lista-conv button[aria-current="true"] { background: var(--hoja); outline: 1px solid var(--pauta); }
 .badge { display: inline-block; font-size: .72rem; padding: 0 7px; border-radius: 999px; margin-left: 6px; border: 1px solid currentColor; vertical-align: 1px; }
-.badge.respondiendo { color: var(--agy); } .badge.esperando-revision { color: var(--warn); } .badge.error { color: var(--fail); }
+.badge.respondiendo { color: var(--agy); } .badge.esperando-revision { color: var(--warn); } .badge.error { color: var(--fail); } .badge.sistema { color: var(--claude); font-weight: 500; }
 .lista-conv small { display: block; color: var(--tinta-suave); font-size: .8rem; }
 .sala { background: var(--hoja); border: 1px solid var(--pauta); border-radius: 10px; display: grid; grid-template-rows: auto 1fr auto; min-height: 70vh; }
 .sala-cab { padding: 14px 18px; border-bottom: 1px solid var(--pauta); display: grid; gap: 8px; }
@@ -1073,11 +1073,21 @@ function programarSondeo() {
 }
 function panelChat() {
   const c = st.chat;
+  const curProj = c.projects.find((p) => p.id === c.pid);
+  const esSistema = curProj && curProj.sistema;
+  const esSin = c.pid === "sin-proyecto";
+  const proyAyuda = esSistema
+    ? '<small class="ayuda"><span class="badge sistema">sistema</span> Cambios al propio orquesta: pasan por worktree, review y merge</small>'
+    : esSin
+      ? '<small class="ayuda">Conversaciones sin proyecto (sandbox propio, solo lectura)</small>'
+      : curProj
+        ? `<small class="ayuda">${esc(curProj.dir || "")}</small>`
+        : '';
   const lado = `<aside class="lateral">
-    <div class="campo"><label for="chat-proy">Proyecto</label><select id="chat-proy">${c.projects.map((p) => `<option value="${esc(p.id)}" ${p.id === c.pid ? "selected" : ""}>${esc(p.name)}</option>`).join("")}${c.projects.length ? "" : "<option>Sin proyectos</option>"}</select>
-      ${c.pid ? `<small class="ayuda">${esc((c.projects.find((p) => p.id === c.pid) || {}).dir || "")}</small>` : ""}</div>
-    <div class="acciones"><button class="btn chico" data-action="chat-proyecto">Nuevo proyecto</button>${c.pid ? '<button class="btn chico primario" data-action="chat-nueva">Nueva conversación</button>' : ""}</div>
-    <ul class="lista-conv">${c.convs.map((v) => `<li><button data-action="chat-abrir" data-name="${esc(v.id)}" aria-current="${c.conv && c.conv.id === v.id}">${esc(v.title)}${{"respondiendo": '<span class="badge respondiendo">respondiendo</span>', "esperando-revision": '<span class="badge esperando-revision">revisá los cambios</span>', "error": '<span class="badge error">error</span>'}[v.status] || ""}<small>${v.kind === "reunion" ? `Reunión ${esc(v.mode)}` : "Individual"}: ${esc(v.participants.join(", "))}</small></button></li>`).join("") || (c.pid ? '<li class="ayuda">Todavía no hay conversaciones.</li>' : "")}</ul></aside>`;
+    <div class="campo"><label for="chat-proy">Proyecto ${esSistema ? '<span class="badge sistema">sistema</span>' : ''}</label><select id="chat-proy">${c.projects.map((p) => `<option value="${esc(p.id)}" ${p.id === c.pid ? "selected" : ""}>${esc(p.name)}</option>`).join("")}<option value="sin-proyecto" ${esSin ? "selected" : ""}>Sin proyecto</option></select>
+      ${proyAyuda}</div>
+    <div class="acciones"><button class="btn chico" data-action="chat-proyecto">Nuevo proyecto</button><button class="btn chico primario" data-action="chat-nueva">Nueva conversación</button></div>
+    <ul class="lista-conv">${c.convs.map((v) => `<li><button data-action="chat-abrir" data-name="${esc(v.id)}" aria-current="${c.conv && c.conv.id === v.id}">${esc(v.title)}${{"respondiendo": '<span class="badge respondiendo">respondiendo</span>', "esperando-revision": '<span class="badge esperando-revision">revisá los cambios</span>', "error": '<span class="badge error">error</span>'}[v.status] || ""}<small>${v.kind === "reunion" ? `Reunión ${esc(v.mode)}` : "Individual"}: ${esc(v.participants.join(", "))}</small></button></li>`).join("") || '<li class="ayuda">Todavía no hay conversaciones.</li>'}</ul></aside>`;
   let centro;
   if (!c.projects.length) centro = `<div class="panel"><h2>Conversaciones</h2><p class="ayuda">Un proyecto es un directorio de trabajo, por ejemplo un repo. Creá uno para empezar a hablar con los agentes.</p></div>`;
   else if (c.nueva || !c.conv) centro = formNuevaConv();
@@ -1102,7 +1112,8 @@ function ordenarEnColumnas(v, html) {
 }
 function formNuevaConv() {
   const ps = st.chat.participantes;
-  return `<form class="panel campos" id="chat-form"><h2>Nueva conversación</h2>
+  const esSin = st.chat.pid === "sin-proyecto";
+  return `<form class="panel campos" id="chat-form"><h2>Nueva conversación ${esSin ? "(sin proyecto)" : ""}</h2>
     <div class="campo"><label for="nc-titulo">Título</label><input type="text" id="nc-titulo" required placeholder="Por ejemplo: diseño del endpoint de ventas"></div>
     <fieldset><legend>Tipo</legend><div class="opciones">
       <label><input type="radio" name="nc-kind" value="individual" checked> Individual (un agente)</label>
@@ -1114,7 +1125,7 @@ function formNuevaConv() {
       <label><input type="radio" name="nc-mode" value="posturas"> Posturas: a favor, en contra y neutral asignadas, réplica y veredicto del juez</label>
       <label><input type="radio" name="nc-mode" value="seccionado"> Seccionado: cada uno cubre un aspecto (escribí «Aspectos: a; b; c») y el juez consolida</label></div></fieldset>
     <fieldset><legend>Participantes</legend><div class="tools">${ps.map((p, i) => `<label class="${colorDe(p)}"><input type="checkbox" name="nc-p" value="${esc(p)}" ${i === 0 ? "checked" : ""}> ${esc(p)}</label>`).join("")}</div>
-      <small class="ayuda">Los agentes de escritura trabajan en su worktree: vos decidís si mergear. El orquestador y los agentes claude responden en solo lectura. Cada mensaje gasta cuota real.</small></fieldset>
+      <small class="ayuda">${esSin ? "En conversaciones sin proyecto no pueden participar agentes de escritura. El orquestador y los agentes de lectura responden en su propio sandbox." : "Los agentes de escritura trabajan en su worktree: vos decidís si mergear. El orquestador y los agentes claude responden en solo lectura. Cada mensaje gasta cuota real."}</small></fieldset>
     <div id="nc-err"></div>
     <div class="acciones"><button class="btn primario">Crear conversación</button>${st.chat.conv ? '<button type="button" class="btn" data-action="chat-cancelar">Cancelar</button>' : ""}</div></form>`;
 }
@@ -1332,7 +1343,8 @@ document.addEventListener("submit", async (ev) => {
     const kind = $('input[name="nc-kind"]:checked').value;
     const participants = $$('input[name="nc-p"]:checked').map((i) => i.value);
     try {
-      const v = await api("POST", "/api/chat/conversations", {project_id: st.chat.pid, title: $("#nc-titulo").value, kind, mode: $('input[name="nc-mode"]:checked').value, participants});
+      const pid = st.chat.pid === "sin-proyecto" ? null : st.chat.pid;
+      const v = await api("POST", "/api/chat/conversations", {project_id: pid, title: $("#nc-titulo").value, kind, mode: $('input[name="nc-mode"]:checked').value, participants});
       await cargarChat(); await abrirConv(v.id);
     } catch (e) { mostrarError(e, $("#nc-err")); }
     return;
@@ -1400,7 +1412,7 @@ async function filtrarPaleta() {
     try {
       const r = await api("GET", `/api/chat/search?q=${encodeURIComponent(q)}`);
       r.results.forEach((x) => paletaItems.push({etiqueta: `«${x.title}», ${x.author}: …${x.snippet}…`, accion: async () => {
-        st.tab = "chat"; if (st.chat.pid !== x.project_id) { st.chat.pid = x.project_id; await cargarChat(); } render(); abrirConv(x.conversation_id); }}));
+        st.tab = "chat"; const tpid = x.project_id || "sin-proyecto"; if (st.chat.pid !== tpid) { st.chat.pid = tpid; await cargarChat(); } render(); abrirConv(x.conversation_id); }}));
     } catch { /* sin búsqueda */ }
   }
   paletaSel = Math.min(paletaSel, Math.max(0, paletaItems.length - 1));

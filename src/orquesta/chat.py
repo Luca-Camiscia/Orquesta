@@ -39,6 +39,7 @@ HISTORY_CHARS = 24000
 CLAUDE_TIMEOUT = 540
 CANCELLED = "ESTADO: CANCELADO — lo cortaste vos"
 _ctx = __import__("threading").local()  # clave de cancelación del turno en curso
+_ALL = object()
 
 
 def request_cancel(cid: str) -> int:
@@ -87,32 +88,139 @@ class Store:
     def _projects_file(self) -> Path:
         return self.root / "proyectos.json"
 
-    def list_projects(self) -> list[dict]:
+    def _ecosystem_project(self) -> dict:
+        d = str(self.paths.home.resolve())
+        return {
+            "id": "orquesta",
+            "name": "Ecosistema orquesta",
+            "dir": d,
+            "directory": d,
+            "sistema": True,
+            "created": _now(),
+        }
+
+    def _user_projects(self) -> list[dict]:
         try:
             return json.loads(self._projects_file().read_text(encoding="utf-8"))
         except (FileNotFoundError, ValueError):
             return []
 
+    def list_projects(self) -> list[dict]:
+        user_projects = [p for p in self._user_projects() if p.get("id") != "orquesta"]
+        res = []
+        for p in user_projects:
+            item = dict(p)
+            if "dir" in item and "directory" not in item:
+                item["directory"] = item["dir"]
+            res.append(item)
+        return [self._ecosystem_project(), *res]
+
     def create_project(self, name: str, directory: str) -> dict:
         d = Path(directory).expanduser()
         if not name.strip():
             raise ChatError("el proyecto necesita un nombre")
+        if name.strip().lower() == "ecosistema orquesta" or name.strip() == "orquesta":
+            raise ChatError("nombre reservado para el proyecto del sistema")
         if not d.is_dir():
             raise ChatError(f"no existe el directorio {d}")
         with self.lock:
-            items = self.list_projects()
-            pr = {"id": _id(), "name": name.strip(), "dir": str(d.resolve()), "created": _now()}
+            items = self._user_projects()
+            resolved = str(d.resolve())
+            pr = {"id": _id(), "name": name.strip(), "dir": resolved, "directory": resolved, "created": _now()}
             items.append(pr)
             self._projects_file().write_text(json.dumps(items, indent=2, ensure_ascii=False))
         return pr
 
-    def get_project(self, pid: str) -> dict:
+    def get_conversation_dir(self, cid: str) -> Path:
+        d = self.paths.home / "sandbox" / "sin-proyecto" / cid
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def get_project_for_conversation(self, conv: dict) -> dict:
+        pid = conv.get("project_id")
+        if pid is None or pid in ("", "sin-proyecto", "none"):
+            cdir = str(self.get_conversation_dir(conv["id"]).resolve())
+            return {
+                "id": None,
+                "name": "Sin proyecto",
+                "dir": cdir,
+                "directory": cdir,
+            }
+        return self.get_project(pid)
+
+    project_of = get_project_for_conversation
+
+    def get_project(self, pid: str | None, cid: str | None = None) -> dict:
+        if pid is None or pid in ("", "sin-proyecto", "none"):
+            cdir = str(self.get_conversation_dir(cid or "default").resolve())
+            return {
+                "id": None,
+                "name": "Sin proyecto",
+                "dir": cdir,
+                "directory": cdir,
+            }
+        if pid == "orquesta":
+            return self._ecosystem_project()
         pr = next((p for p in self.list_projects() if p["id"] == pid), None)
         if pr is None:
             raise ChatError(f"no existe el proyecto {pid}")
         return pr
 
+    def delete_project(self, pid: str) -> None:
+        if pid == "orquesta":
+            raise ChatError("no se puede borrar el proyecto del sistema")
+        with self.lock:
+            items = self._user_projects()
+            new_items = [p for p in items if p["id"] != pid]
+            if len(new_items) == len(items):
+                raise ChatError(f"no existe el proyecto {pid}")
+            self._projects_file().write_text(json.dumps(new_items, indent=2, ensure_ascii=False))
+
+    def update_project(self, pid: str, name: str | None = None, directory: str | None = None) -> dict:
+        if pid == "orquesta":
+            raise ChatError("no se puede renombrar ni cambiar el directorio del proyecto del sistema")
+        with self.lock:
+            items = self._user_projects()
+            pr = next((p for p in items if p["id"] == pid), None)
+            if pr is None:
+                raise ChatError(f"no existe el proyecto {pid}")
+            if name is not None:
+                if not name.strip():
+                    raise ChatError("el proyecto necesita un nombre")
+                if name.strip().lower() == "ecosistema orquesta" or name.strip() == "orquesta":
+                    raise ChatError("nombre reservado para el proyecto del sistema")
+                pr["name"] = name.strip()
+            if directory is not None:
+                d = Path(directory).expanduser()
+                if not d.is_dir():
+                    raise ChatError(f"no existe el directorio {d}")
+                resolved = str(d.resolve())
+                pr["dir"] = resolved
+                pr["directory"] = resolved
+            self._projects_file().write_text(json.dumps(items, indent=2, ensure_ascii=False))
+            return pr
+
+    def rename_project(self, pid: str, name: str) -> dict:
+        if pid == "orquesta":
+            raise ChatError("no se puede renombrar el proyecto del sistema")
+        return self.update_project(pid, name=name)
+
+    def change_project_directory(self, pid: str, directory: str) -> dict:
+        if pid == "orquesta":
+            raise ChatError("no se puede cambiar el directorio del proyecto del sistema")
+        return self.update_project(pid, directory=directory)
+
     # --- conversaciones ---
+    def is_write_agent(self, participant: str) -> bool:
+        if participant == ORCHESTRATOR:
+            return False
+        manifest = mf.load(self.paths)
+        entry = mf.deployed_agent(manifest, participant)
+        if entry is not None:
+            return entry.mode == "write"
+        agents = (manifest or {}).get("agents") or {}
+        return agents.get(participant, {}).get("mode") == "write"
+
     def participants(self) -> list[str]:
         deployed = sorted(((mf.load(self.paths) or {}).get("agents") or {}).keys())
         return [ORCHESTRATOR, *deployed]
@@ -122,9 +230,12 @@ class Store:
             raise ChatError("id de conversación inválido")
         return self.root / "conv" / f"{cid}.json"
 
-    def create_conversation(self, project_id: str, title: str, kind: str, participants: list[str],
+    def create_conversation(self, project_id: str | None, title: str, kind: str, participants: list[str],
                             mode: str = "rondas") -> dict:
-        self.get_project(project_id)
+        if project_id in ("", "sin-proyecto", "none"):
+            project_id = None
+        if project_id is not None:
+            self.get_project(project_id)
         valid = set(self.participants())
         unknown = [p for p in participants if p not in valid]
         if unknown:
@@ -137,7 +248,14 @@ class Store:
             raise ChatError("una reunión necesita al menos un participante")
         if mode not in MODES:
             raise ChatError(f"mode tiene que ser uno de: {', '.join(MODES)}")
-        conv = {"id": _id(), "project_id": project_id, "title": title.strip() or "Sin título",
+        if project_id is None:
+            for p in participants:
+                if self.is_write_agent(p):
+                    raise ChatError(f"los agentes de escritura no pueden participar en conversaciones sin proyecto ({p})")
+        cid = _id()
+        if project_id is None:
+            self.get_conversation_dir(cid)
+        conv = {"id": cid, "project_id": project_id, "title": title.strip() or "Sin título",
                 "kind": kind, "mode": mode if kind == "reunion" else "rondas",
                 "participants": list(dict.fromkeys(participants)), "messages": [], "worktrees": [],
                 "busy": False, "created": _now(), "updated": _now()}
@@ -150,18 +268,25 @@ class Store:
         except FileNotFoundError:
             raise ChatError(f"no existe la conversación {cid}") from None
 
-    def list_conversations(self, project_id: str | None = None) -> list[dict]:
+    def list_conversations(self, project_id: str | None = _ALL) -> list[dict]:
         out = []
         for f in (self.root / "conv").glob("*.json"):
             try:
                 c = json.loads(f.read_text(encoding="utf-8"))
             except ValueError:
                 continue
-            if project_id is None or c["project_id"] == project_id:
-                item = {k: c[k] for k in ("id", "project_id", "title", "kind", "mode",
-                                          "participants", "busy", "updated")}
-                item["status"] = status_of(c)
-                out.append(item)
+            if project_id is _ALL:
+                pass
+            elif project_id in (None, "sin-proyecto", "none", ""):
+                if c.get("project_id") is not None:
+                    continue
+            else:
+                if c.get("project_id") != project_id:
+                    continue
+            item = {k: c[k] for k in ("id", "project_id", "title", "kind", "mode",
+                                      "participants", "busy", "updated")}
+            item["status"] = status_of(c)
+            out.append(item)
         return sorted(out, key=lambda c: c["updated"], reverse=True)
 
     def save(self, conv: dict) -> None:
@@ -192,6 +317,10 @@ class Store:
         def fn(c):
             if c["kind"] == "individual" and len(participants) != 1:
                 raise ChatError("una conversación individual tiene exactamente un participante")
+            if c.get("project_id") is None:
+                for p in participants:
+                    if self.is_write_agent(p):
+                        raise ChatError(f"los agentes de escritura no pueden participar en conversaciones sin proyecto ({p})")
             c["participants"] = list(dict.fromkeys(participants))
         return self.update(cid, fn)
 
@@ -210,7 +339,7 @@ def status_of(conv: dict) -> str:
 
 def export_markdown(store: "Store", cid: str) -> str:
     conv = store.get_conversation(cid)
-    pr = store.get_project(conv["project_id"])
+    pr = store.get_project_for_conversation(conv)
     kind = f"reunión {conv['mode']}" if conv["kind"] == "reunion" else "individual"
     out = [f"# {conv['title']}", "",
            f"Proyecto «{pr['name']}» ({pr['dir']}), {kind}. Participantes: "
@@ -478,7 +607,7 @@ def _set_text(store: Store, cid: str, author: str, text: str) -> None:
 
 def run_turn(store: Store, cid: str, text: str, executor: Executor = default_executor) -> None:
     conv = store.get_conversation(cid)
-    project = store.get_project(conv["project_id"])
+    project = store.get_project_for_conversation(conv)
     procs.reset(cid)
     _ctx.key = cid
     _set_text(store, cid, USER, text)
