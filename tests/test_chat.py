@@ -79,7 +79,8 @@ def test_ronda_cada_uno_ve_lo_anterior(store, proyecto):
     fake = FakeExec()
     chat.run_turn(store, conv["id"], "debatan", executor=fake)
     assert [c[0] for c in fake.calls] == ["gemini-lector", "codex-critico"]
-    assert "respuesta de gemini-lector" in fake.calls[1][1]
+    # ve lo anterior, pero anonimizado (sesgo de identidad, arXiv 2510.07517)
+    assert "respuesta de Participante" in fake.calls[1][1] and "gemini-lector" not in fake.calls[1][1].split("Historial")[1]
 
 
 def test_mencion_le_habla_a_uno_solo(store, proyecto):
@@ -270,7 +271,8 @@ def test_modo_critica_ciega_luego_critica_anonima_y_juez(store, proyecto):
     ronda0 = fake.calls[:2]
     assert {c[0] for c in ronda0} == {"gemini-lector", "codex-critico"}
     assert all("respuesta de" not in c[1] for c in ronda0)          # a ciegas
-    critica = [c for c in fake.calls[2:4]]
+    assert "DESACUERDO" in fake.calls[2][1]                     # detector de desacuerdo (iMAD)
+    critica = [c for c in fake.calls[3:5]]
     assert all("Respuesta A" in c[1] and "TU respuesta" in c[1] for c in critica)
     assert all("gemini-lector" not in c[1].split("Respuestas de los demás")[1] for c in critica)  # anónimo
     assert fake.calls[-1][0] == "orquestador"                       # sin claude-juez desplegado: modera el orquestador

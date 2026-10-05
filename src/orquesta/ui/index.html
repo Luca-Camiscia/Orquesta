@@ -758,12 +758,15 @@ function panelSalud() {
     <button class="btn" data-action="rechequear" ${st.saludCargando ? "disabled" : ""}>${st.saludCargando ? "Chequeando…" : "Re-chequear"}</button></div>`;
   if (!s) return cab + `<p class="cargando">${st.saludCargando ? "Corriendo doctor…" : "Sin datos todavía."}</p>`;
   const txt = {ok: "Todo en orden", warn: "Funciona, con avisos", fail: "Hay fallas que resolver"}[s.overall];
-  if (!st.uso) api("GET", "/api/usage").then((r) => { st.uso = r.backends; if (st.tab === "salud") renderPanel(); }).catch(() => {});
+  if (!st.uso) api("GET", "/api/usage").then((r) => { st.uso = r.backends; st.calib = r.calibracion; if (st.tab === "salud") renderPanel(); }).catch(() => {});
+  const calib = st.calib && Object.keys(st.calib).length ? `<h3 style="margin:18px 0 8px">Calibración de la confianza declarada</h3><table class="tabla-uso"><thead><tr><th>Backend</th>${["0-49", "50-79", "80-100"].map((r) => `<th>Confianza ${r}</th>`).join("")}</tr></thead><tbody>${Object.entries(st.calib).map(([b, bins]) =>
+    `<tr><td class="c-${esc(b)}">${esc(b)}</td>${bins.map((x) => `<td>${x.n ? `${Math.round(x.acierto * 100)}% de acierto (n=${x.n})` : "sin datos"}</td>`).join("")}</tr>`).join("")}</tbody></table>
+    <p class="ayuda">Acierto = pasó los tests del proyecto o la review lo aprobó. Si un backend dice 90 y acierta el 60%, su confianza está inflada: por eso orquesta la usa solo como umbral de escalado (menos de 75 pide confirmación), nunca como peso de voto.</p>` : "";
   const uso = st.uso && Object.keys(st.uso).length ? `<h3 style="margin:18px 0 8px">Uso en las últimas 5 horas</h3><table class="tabla-uso"><thead><tr><th>Backend</th><th>Llamadas</th><th>Tokens</th><th>Costo</th><th>Errores</th><th>Límite estimado</th><th>Riesgo</th></tr></thead><tbody>${Object.entries(st.uso).map(([b, x]) =>
     `<tr><td class="c-${esc(b)}">${esc(b)}</td><td>${x.llamadas}</td><td>${x.tokens || "n/d"}</td><td>${x.costo_usd ? "US$ " + x.costo_usd : "n/d"}</td><td>${x.errores}</td><td>${x.limite_estimado || "sin datos"}</td><td><span class="badge ${x.riesgo === "alto" ? "error" : x.riesgo === "medio" ? "esperando-revision" : ""}">${esc(x.riesgo)}</span></td></tr>`).join("")}</tbody></table>
     <p class="ayuda">El límite se estima con lo que consumiste antes de cada rate limit. Codex en modo texto no informa tokens.</p>` : "";
   return cab + `<p class="semaforo"><span class="luz ${s.overall}"></span>${txt}<span class="ayuda">(${esc(s.generated_at)})</span></p>
-    ${uso}<ul class="chequeos" style="margin-top:16px">${s.checks.map((c) => `<li class="chequeo"><span class="luz ${c.status}" aria-label="${c.status}"></span>
+    ${uso}${calib}<ul class="chequeos" style="margin-top:16px">${s.checks.map((c) => `<li class="chequeo"><span class="luz ${c.status}" aria-label="${c.status}"></span>
       <div><p><span class="nombre">${esc(c.name)}</span>: ${esc(c.message)}${c.cached ? ' <span class="ayuda">(cache)</span>' : ""}</p>
       ${c.suggestion && c.status !== "ok" ? `<p class="sug">${esc(c.suggestion)}</p>` : ""}</div>
       ${c.status !== "ok" ? `<button class="btn chico" data-action="llamar" data-name="${esc(c.name)}" data-msg="${esc(c.message)}">Llamar a that_it_guy</button>` : "<span></span>"}</li>`).join("")}</ul>`;
@@ -926,6 +929,8 @@ function infoWorktree(w) {
   const r = w.review, c = w.conflictos, partes = [];
   if (w.status === "abierto") {
     partes.push(r ? `<span class="badge ${r.veredicto === "APROBAR" ? "" : "esperando-revision"}">review de ${esc(r.by)}: ${esc(r.veredicto || "sin veredicto claro")}</span>` : '<span class="badge esperando-revision">sin review</span>');
+    if (w.tests) partes.push(`<span class="badge ${w.tests.ok ? "" : "error"}">tests del proyecto: ${w.tests.ok ? "pasaron" : "fallaron"}</span>`);
+    if (w.confianza_autor !== undefined && w.confianza_autor !== null && w.confianza_autor < 75) partes.push(`<span class="badge esperando-revision">confianza del autor ${w.confianza_autor}</span>`);
     if (c && c.merge_conflict) partes.push('<span class="badge error">conflicto con la rama actual</span>');
     if (c && c.overlaps && c.overlaps.length) partes.push(`<span class="badge esperando-revision">toca los mismos archivos que ${esc(c.overlaps.join(", "))}</span>`);
   }
@@ -939,7 +944,7 @@ function sala(v) {
     const cuerpo = m.status === "interrupted" ? '<em class="ayuda">Interrumpido.</em>' + (m.text ? md(m.text) : "") : m.status === "pending" ? '<span class="pensando">Pensando</span>' : md(m.author === "orquestador" ? m.text.replace(/^\s*\[mood:[^\]\n]*\]\s*/, "") : m.text);
     const mt = m.meta || {}, con = mt.contrato || {};
     const etiquetas = [mt.rol === "veredicto" ? "veredicto" : "", mt.ronda !== undefined ? `ronda ${mt.ronda}` : "", mt.postura ? `postura: ${mt.postura}` : "", mt.aspecto ? `aspecto: ${mt.aspecto}` : "",
-      con.confianza !== undefined ? `confianza ${con.confianza}` : "", mt.latency_s ? `${mt.latency_s} s` : "",
+      con.confianza !== undefined ? `confianza declarada ${con.confianza}` : "", mt.latency_s ? `${mt.latency_s} s` : "",
       mt.usage && (mt.usage.input_tokens || mt.usage.output_tokens) ? `${mt.usage.input_tokens ?? "?"}→${mt.usage.output_tokens ?? "?"} tokens` : "",
       mt.usage && mt.usage.cost_usd ? `US$ ${Number(mt.usage.cost_usd).toFixed(3)}` : "", mt.rol === "review" ? "review automática" : ""].filter(Boolean).map((e) => `<span class="badge">${esc(e)}</span>`).join("");
     return `<div class="msg ${m.status === "error" ? "error" : ""} ${mt.rol === "veredicto" ? "veredicto" : ""}" data-autor="${esc(m.author)}"><span class="autor ${colorDe(m.author)}">${esc(m.author)}${etiquetas}</span>
@@ -1072,7 +1077,7 @@ document.addEventListener("click", async (ev) => {
         try { await api("POST", `/api/chat/conversations/${st.chat.conv.id}/worktrees/merge`, {branch: n}); }
         catch (e) {
           if (!(e.status === 409 && e.data.needs_confirmation)) throw e;
-          if (!await dialogo({titulo: "La review no aprobó estos cambios", texto: e.data.detail, aceptar: "Mergear igual", peligro: true})) break;
+          if (!await dialogo({titulo: "Todavía no está listo para mergear", texto: e.data.detail, aceptar: "Mergear igual", peligro: true})) break;
           await api("POST", `/api/chat/conversations/${st.chat.conv.id}/worktrees/merge`, {branch: n, force: true});
         }
         toast("Mergeado."); await abrirConv(st.chat.conv.id); break;

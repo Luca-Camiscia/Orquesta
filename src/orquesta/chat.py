@@ -298,19 +298,60 @@ def default_executor(paths: Paths, project: dict, participant: str, prompt: str)
 
 # --- turnos ----------------------------------------------------------------------------------
 
-def _history(conv: dict) -> str:
-    lines = [f"[{m['author']}]: {m['text']}" for m in conv["messages"] if m["status"] != "pending"]
-    text = "\n\n".join(lines)
-    return text[-HISTORY_CHARS:]
+BRIEF_KEEP = 8  # mensajes recientes que se pasan completos (Laban et al. 2025, arXiv 2505.06120)
+
+
+def _labels(conv: dict) -> dict[str, str]:
+    """Etiquetas anónimas por turno, en orden aleatorio (sesgo de identidad y de posición:
+    arXiv 2510.07517 y 2406.07791)."""
+    import random
+    names = list(conv["participants"]) + [ORCHESTRATOR, JUDGE]
+    rnd = random.Random(f"{conv['id']}:{len(conv['messages'])}")
+    rnd.shuffle(names)
+    return {n: f"Participante {chr(65 + i)}" for i, n in enumerate(dict.fromkeys(names))}
+
+
+def _history(conv: dict, viewer: str | None = None, anon: bool = False, until_user: bool = False) -> str:
+    msgs = [m for m in conv["messages"] if m["status"] != "pending"]
+    if until_user:
+        last_user = max((i for i, m in enumerate(msgs) if m["author"] == USER), default=-1)
+        msgs = msgs[:last_user + 1]
+    omitted = 0
+    if len(msgs) > BRIEF_KEEP:
+        keep_idx = set(range(len(msgs) - BRIEF_KEEP, len(msgs)))
+        keep_idx |= {i for i, m in enumerate(msgs) if (m.get("meta") or {}).get("rol") == "veredicto"}
+        omitted = len(msgs) - len(keep_idx)
+        msgs = [m for i, m in enumerate(msgs) if i in keep_idx]
+    labels = _labels(conv) if anon else {}
+    names = list(labels)
+
+    def who(a: str) -> str:
+        if a == USER:
+            return "usuario"
+        if anon and a == viewer:
+            return "VOS"
+        return labels.get(a, a) if anon else a
+    lines = [f"[{who(m['author'])}]: {_redact_map(m['text'], labels) if anon else m['text']}" for m in msgs]
+    head = [f"[... {omitted} mensajes anteriores omitidos; los veredictos se conservan ...]"] if omitted else []
+    return "\n\n".join(head + lines)[-HISTORY_CHARS:]
+
+
+def _redact_map(text: str, labels: dict[str, str]) -> str:
+    for n in sorted(labels, key=len, reverse=True):
+        text = re.sub(re.escape(n), labels[n], text, flags=re.I)
+    return text
 
 
 def _agent_prompt(conv: dict, project: dict, who: str, question: str | None) -> str:
-    others = ", ".join(p for p in conv["participants"] if p != who) or "nadie más"
-    kind = "una reunión" if conv["kind"] == "reunion" else "una conversación individual"
+    anon = conv["kind"] == "reunion"
+    n_others = len([p for p in conv["participants"] if p != who])
+    others = (f"{n_others} más, anónimos" if anon else
+              ", ".join(p for p in conv["participants"] if p != who) or "nadie más")
+    kind = "una reunión" if anon else "una conversación individual"
     ask = (f"El moderador te pregunta: {question}" if question
            else "Respondé al último mensaje del usuario, teniendo en cuenta lo que dijeron los demás.")
     return (f"Estás en {kind} de orquesta, proyecto «{project['name']}» (directorio {project['dir']}). "
-            f"Sos {who}. Otros participantes: {others}.\n\nHistorial:\n{_history(conv)}\n\n---\n{ask} "
+            f"Sos {who}. Otros participantes: {others}.\n\nHistorial:\n{_history(conv, who, anon)}\n\n---\n{ask} "
             f"Respondé en castellano, directo y conciso.")
 
 
@@ -351,8 +392,36 @@ def _speak(store: Store, cid: str, project: dict, who: str, executor: Executor,
                                    "diffstat": reply.meta.get("diffstat", ""), "status": "abierto"})
     store.update(cid, done)
     if reply.meta.get("branch") and not reply.error and not procs.is_cancelled(cid):
-        _auto_review(store, cid, project, who, reply.meta["branch"], executor)
+        _verify_and_review(store, cid, project, who, reply, executor)
     return reply
+
+
+def _calibrate(store: Store, who: str, confianza, acierto: bool, fuente: str) -> None:
+    if confianza is None:
+        return
+    from orquesta import calibration
+    entry = ((mf.load(store.paths) or {}).get("agents") or {}).get(who) or {}
+    try:
+        calibration.record(store.paths, backend=entry.get("backend", "claude"), agent=who,
+                           confianza=confianza, acierto=acierto, fuente=fuente)
+    except Exception:
+        pass
+
+
+def _verify_and_review(store: Store, cid: str, project: dict, writer: str, reply: Reply,
+                       executor: Executor) -> None:
+    branch = reply.meta["branch"]
+    confianza = (reply.meta.get("contrato") or runner.parse_contract(reply.text) or {}).get("confianza")
+    wt = next((w for w in worktrees.list_worktrees(store.paths) if w.branch == branch), None)
+    tests = worktrees.run_tests(wt) if wt is not None else None
+    store.update(cid, lambda c: next(x for x in c["worktrees"] if x["branch"] == branch).update(
+        confianza_autor=confianza))
+    if tests is not None:
+        store.update(cid, lambda c: next(x for x in c["worktrees"] if x["branch"] == branch).update(tests=tests))
+        _calibrate(store, writer, confianza, tests["ok"], "tests")
+    verdict = _auto_review(store, cid, project, writer, branch, executor, tests)
+    if verdict is not None:
+        _calibrate(store, writer, confianza, verdict == "APROBAR", "review")
 
 
 def _reviewer_for(store: Store, writer: str) -> str:
@@ -366,19 +435,28 @@ def _reviewer_for(store: Store, writer: str) -> str:
     return ok[0] if ok else ORCHESTRATOR
 
 
-def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str, executor: Executor) -> None:
-    """Review cruzado automático: lo escrito por una familia de modelos lo revisa otra."""
+def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str, executor: Executor,
+                 tests: dict | None = None) -> str | None:
+    """Review cruzado automático, ciega al autor: lo escrito por una familia de modelos lo revisa otra
+    (autopreferencia: arXiv 2404.13076). Solo puede RECHAZAR con evidencia concreta (arXiv 2509.01494)."""
     reviewer = _reviewer_for(store, writer)
     wt = next((w for w in worktrees.list_worktrees(store.paths) if w.branch == branch), None)
     diff = ""
     if wt is not None:
         diff = subprocess.run(["git", "diff", f"{wt.base_sha}..{branch}"], cwd=wt.repo,
                               capture_output=True, text=True).stdout[:REVIEW_DIFF_CHARS]
-    prompt = (f"Review cruzado automático en el proyecto «{project['name']}» ({project['dir']}). {writer} "
-              f"dejó estos cambios en la rama {branch}:\n\n```diff\n{diff}\n```\n\nRevisalos: bugs, casos "
-              f"borde, tests que faltan, riesgos. Hallazgos por severidad con archivo:línea. Terminá con una "
-              f"línea exacta `Veredicto: APROBAR`, `Veredicto: APROBAR CON CAMBIOS` o `Veredicto: RECHAZAR`, y "
-              f"después RESULTADO y CONFIANZA.")
+    if tests is None:
+        evidencia = "No hay comando de tests configurado para el proyecto (.orquesta/proyecto.toml)."
+    else:
+        evidencia = (f"Resultado de los tests del proyecto: {'PASARON' if tests['ok'] else 'FALLARON'} "
+                     f"(`{tests['cmd']}`).\n```\n{tests['salida'][-800:]}\n```")
+    prompt = (f"Review automático en el proyecto «{project['name']}» ({project['dir']}). Un agente dejó estos "
+              f"cambios (no importa quién: juzgá solo el código):\n\n```diff\n{diff}\n```\n\n{evidencia}\n\n"
+              f"Revisalos: bugs, casos borde, tests que faltan, riesgos. Hallazgos por severidad con "
+              f"archivo:línea. Pasar los tests no prueba que esté bien. Solo podés RECHAZAR con un hallazgo "
+              f"concreto (archivo:línea y caso que falla); lo demás va como APROBAR CON CAMBIOS. Terminá con "
+              f"una línea exacta `Veredicto: APROBAR`, `Veredicto: APROBAR CON CAMBIOS` o `Veredicto: "
+              f"RECHAZAR`, y después RESULTADO y CONFIANZA.")
     r = _speak(store, cid, project, reviewer, executor, prompt=prompt, meta={"rol": "review", "branch": branch})
     m = re.search(r"Veredicto:\s*(APROBAR CON CAMBIOS|APROBAR|RECHAZAR)", r.text or "", re.I)
     verdict = m.group(1).upper() if m else None
@@ -388,6 +466,7 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
         if w is not None:
             w["review"] = {"by": reviewer, "veredicto": verdict}
     store.update(cid, save)
+    return verdict
 
 
 def _set_text(store: Store, cid: str, author: str, text: str) -> None:
@@ -451,6 +530,10 @@ def _moderate(store: Store, cid: str, project: dict, executor: Executor) -> None
 
 def _history_until_user(conv: dict) -> str:
     """Historial hasta el último mensaje del usuario (sin las respuestas de la ronda en curso)."""
+    return _history(conv, None, conv["kind"] == "reunion", until_user=True)
+
+
+def _history_until_user_old(conv: dict) -> str:
     msgs = conv["messages"]
     last_user = max((i for i, m in enumerate(msgs) if m["author"] == USER), default=-1)
     lines = [f"[{m['author']}]: {m['text']}" for m in msgs[:last_user + 1] if m["status"] != "pending"]
@@ -478,15 +561,45 @@ def _parallel(store: Store, cid: str, project: dict, executor: Executor,
     return out
 
 
+JUDGE_CANDIDATES = (JUDGE, "codex-abogado-del-diablo", "gemini-bibliotecario")
+CONFIDENCE_ESCALATION = 75  # umbral de escalado, no peso de voto (arXiv 2505.19184, 2306.13063)
+
+
+def _family(store: Store, name: str) -> str:
+    if name == ORCHESTRATOR:
+        return "claude"
+    return (((mf.load(store.paths) or {}).get("agents") or {}).get(name) or {}).get("backend", "?")
+
+
+def _judge_for(store: Store, participants: list[str]) -> str:
+    """Juez de una familia que no participa (sesgo de autopreferencia y de familia: arXiv 2404.13076).
+    Si participan las tres familias, juzga Claude, con los participantes anónimos."""
+    deployed = (mf.load(store.paths) or {}).get("agents") or {}
+    present = {_family(store, p) for p in participants}
+    pool = [n for n in JUDGE_CANDIDATES if n in deployed] + \
+           [n for n, e in deployed.items() if e.get("mode") == "read-only" and n not in JUDGE_CANDIDATES]
+    for fam in ("claude", "codex", "agy"):
+        if fam in present:
+            continue
+        if fam == "claude":
+            return JUDGE if JUDGE in deployed else ORCHESTRATOR
+        cand = next((n for n in pool if deployed[n].get("backend") == fam and n not in participants), None)
+        if cand:
+            return cand
+    return JUDGE if JUDGE in deployed else ORCHESTRATOR
+
+
 def _judge(store: Store, cid: str, project: dict, executor: Executor, rubric: str) -> None:
     if procs.is_cancelled(cid):
         return
-    judge = JUDGE if JUDGE in store.participants() else ORCHESTRATOR
+    judge = _judge_for(store, store.get_conversation(cid)["participants"])
     conv = store.get_conversation(cid)
     prompt = (f"Sos el juez de una reunión de orquesta, proyecto «{project['name']}». No aportes ideas nuevas "
-              f"salvo para desempatar.\n\nHistorial completo:\n{_history(conv)}\n\n---\n{rubric}\n"
+              f"salvo para desempatar.\n\nHistorial (participantes anónimos, en orden aleatorio):\n"
+              f"{_history(conv, judge, True)}\n\n---\n{rubric}\n"
               f"Evaluá por evidencia verificable, no por elocuencia ni cantidad de votos; señalá consensos "
-              f"sospechosos. Entregá: decisión final, desacuerdos que quedan, qué verificar después, y cerrá "
+              f"sospechosos y no premies el largo ni el relleno. Entregá: decisión final, desacuerdos que "
+              f"quedan, qué verificar después, y cerrá "
               f"con RESULTADO y CONFIANZA (0-100).")
     _speak(store, cid, project, judge, executor, prompt=prompt, meta={"rol": "veredicto"})
 
@@ -512,6 +625,18 @@ def _mode_critica(store: Store, cid: str, project: dict, executor: Executor) -> 
                                                   for w in who_all])
     if procs.is_cancelled(cid) or len(who_all) < 2:
         return _judge(store, cid, project, executor, "Sintetizá las respuestas.")
+    # Debate selectivo (iMAD, arXiv 2511.11306; "Debate or Vote", 2508.17536): si la ronda a ciegas ya
+    # coincide, no se debate: se cierra con el juez y se ahorran todas las llamadas de crítica.
+    judge = _judge_for(store, who_all)
+    answers = "\n\n".join(f"Respuesta {chr(65 + i)}:\n{_redact(r0[w].text, who_all)}"
+                           for i, w in enumerate(x for x in who_all if x in r0))
+    det = executor(store.paths, project, judge,
+                   f"Estas son respuestas independientes a la misma pregunta:\n\n{answers}\n\n¿Hay un "
+                   f"desacuerdo sustantivo entre ellas (conclusiones distintas, no solo de forma)? Respondé "
+                   f"SOLO con `DESACUERDO: SI` o `DESACUERDO: NO`.")
+    if re.search(r"DESACUERDO:\s*NO", det.text or "", re.I):
+        return _judge(store, cid, project, executor,
+                      "Las respuestas independientes coinciden: confirmá la conclusión común y su evidencia.")
     jobs = []
     for w in who_all:
         others = [_redact(r0[o].text, who_all) for o in who_all if o != w and o in r0]
@@ -539,7 +664,7 @@ def _mode_posturas(store: Store, cid: str, project: dict, executor: Executor) ->
             conv = store.get_conversation(cid)
             instr = (f"Tu postura asignada: {stances[w]}. Es un rol para explorar el desacuerdo: sostenela "
                      f"aunque no sea tu opinión. {task}")
-            _speak(store, cid, project, w, executor, prompt=_frame(project, w, _history(conv), instr),
+            _speak(store, cid, project, w, executor, prompt=_frame(project, w, _history(conv, w, True), instr),
                    meta={"ronda": rnd, "postura": stances[w]})
     _judge(store, cid, project, executor,
            "Cada participante defendió una postura asignada. Decidí por la evidencia, no por la postura.")
@@ -594,6 +719,13 @@ def _wt(conv: dict, branch: str) -> dict:
 def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> None:
     conv = store.get_conversation(cid)
     wt = _wt(conv, branch)
+    if wt.get("tests") and not wt["tests"]["ok"] and not force:
+        raise NeedsForce(f"los tests del proyecto FALLARON en {branch} (`{wt['tests']['cmd']}`). "
+                         f"Si querés mergear igual, confirmalo explícitamente.")
+    conf = wt.get("confianza_autor")
+    if conf is not None and conf < CONFIDENCE_ESCALATION and not force:
+        raise NeedsForce(f"el autor declaró confianza {conf} (< {CONFIDENCE_ESCALATION}): revisá el diff o pedí "
+                         f"otra opinión antes de mergear. Si querés mergear igual, confirmalo explícitamente.")
     verdict = (wt.get("review") or {}).get("veredicto")
     if verdict != "APROBAR" and not force:
         raise NeedsForce(f"la review de {branch} no está aprobada (veredicto: {verdict or 'sin review'}). "

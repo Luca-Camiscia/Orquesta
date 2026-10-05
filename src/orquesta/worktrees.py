@@ -174,6 +174,24 @@ def prepare(paths: Paths, wt: Worktree) -> dict | None:
     return cfg
 
 
+def run_tests(wt: Worktree) -> dict | None:
+    """Corre el comando `tests` del proyecto en el worktree: evidencia ejecutable antes de mergear."""
+    try:
+        cfg = project_config(wt.repo) or {}
+    except WorktreeError:
+        return None
+    cmd = cfg.get("tests")
+    if not cmd or not wt.path.exists():
+        return None
+    try:
+        p = subprocess.run(["bash", "-c", cmd], cwd=wt.path, capture_output=True, text=True,
+                           timeout=int(cfg.get("timeout_s", 600)), env=_env_for(wt))
+        ok, salida = p.returncode == 0, (p.stdout + p.stderr).strip()[-1500:]
+    except subprocess.TimeoutExpired:
+        ok, salida = False, "los tests no terminaron a tiempo"
+    return {"ok": ok, "cmd": cmd, "salida": salida}
+
+
 def _archive(wt: Worktree) -> None:
     try:
         cfg = project_config(wt.repo) or {}

@@ -335,8 +335,8 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
 
     @app.get("/api/usage")
     def usage_window():
-        from orquesta import usage
-        return {"backends": usage.window(paths)}
+        from orquesta import calibration, usage
+        return {"backends": usage.window(paths), "calibracion": calibration.table(paths)}
 
     @app.post("/api/that-it-guy")
     def that_it_guy(body: dict = Body(...)):

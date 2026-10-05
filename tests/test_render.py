@@ -137,3 +137,10 @@ def test_orquestacion_desactivada_es_una_sola_linea(ctx):
     inner = bloque(ctx, lambda d: d["orchestrator"].update(enabled=False))
     assert "\n" not in inner
     assert "desactivada" in inner.lower()
+
+
+def test_bloque_incluye_reglas_basadas_en_evidencia(ctx):
+    inner = bloque(ctx)
+    for frase in ["evidencia ejecutable", "solo si hay desacuerdo", "brief", "umbral de escalado",
+                  "juez de otra familia"]:
+        assert frase in inner, frase

@@ -261,5 +261,15 @@ def render_block_inner(reg: Registry, ctx: RenderContext) -> str:
         "- Aplicá el mood activo a la presentación de cada respuesta.",
         "- Si un subagente devuelve `NECESITO CONFIRMACIÓN`, preguntale al usuario y re-invocalo con "
         "su respuesta. Nunca confirmes por tu cuenta.",
+        "- Verificá con evidencia ejecutable (tests del proyecto, reproducir el bug), no con el texto del "
+        "delegado: que algo pase los tests tampoco prueba que esté bien (arXiv 2503.15223).",
+        "- Para decisiones con varias opiniones: primero respuestas independientes; debatí solo si hay "
+        "desacuerdo, en una ronda, con respuestas anónimas (arXiv 2508.17536, 2511.11306, 2510.07517).",
+        "- Al delegar mandá un brief (objetivo, archivos, restricciones, criterio de aceptación), no el "
+        "historial de la conversación (arXiv 2505.06120).",
+        "- La CONFIANZA que declaran los agentes está inflada: usala como umbral de escalado (menos de 75 "
+        "→ verificá más), nunca como peso de voto.",
+        "- Si tenés que elegir entre propuestas de distintos modelos, que decida un juez de otra familia que "
+        "la de los autores, o los tests (sesgo de autopreferencia, arXiv 2404.13076).",
     ]
     return "\n".join(lines)
