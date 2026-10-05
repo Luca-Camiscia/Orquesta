@@ -41,6 +41,31 @@ backends.yaml ──────────▶  orquesta run <agente>          
 
 `python generate.py` y `python doctor.py` son atajos equivalentes (con `uv run`).
 
+## Conversaciones (UI)
+
+En la pestaña Conversaciones, primera de la UI, hay proyectos (un nombre y un directorio) y dentro de
+cada uno conversaciones individuales o reuniones. Cada mensaje corre agentes reales y gasta cuota.
+
+| Modo de reunión | Qué hace |
+|---|---|
+| rondas | Responden en orden y cada uno ve lo anterior. Con `@agente` le hablás a uno solo |
+| moderada | El orquestador decide a quién preguntar (hasta 4 veces) y cierra con una síntesis |
+| crítica | Ronda a ciegas en paralelo, después crítica de las respuestas de los demás anonimizadas (A, B, C); veredicto del juez |
+| posturas | A favor, en contra y neutral asignadas, réplica y veredicto del juez |
+| seccionado | Cada uno cubre un aspecto («Aspectos: a; b; c») y el juez consolida |
+
+- **Escritura solo en worktree.** Cuando un agente write deja cambios, un revisor de **otra familia
+  de modelos** hace review automática. «Mergear» queda bloqueado si la review no aprueba, salvo que
+  confirmes «mergear igual». También se detectan conflictos con la rama actual y solapamientos entre
+  ramas abiertas.
+- **Contrato de salida.** Los delegados cierran con `RESULTADO / CONFIANZA / EVIDENCIA / SIGUIENTE
+  PASO`, y la UI muestra la confianza, los tokens y el costo de cada mensaje.
+- **Controles.** Detener (Esc) mata el grupo de procesos del CLI. Hay notificaciones al terminar,
+  exportación a Markdown, vista en columnas, búsqueda y paleta de comandos (Ctrl+K), autocompletado
+  de @ y tema claro u oscuro.
+- **Pestaña Tareas.** Muestra todos los worktrees abiertos de todos los proyectos.
+- Las conversaciones se guardan en `conversaciones/` (fuera de git).
+
 ## Plugins por agente
 
 Cada agente `claude` puede tener `plugins: [id, ...]` en orquesta.yaml. Claude Code instala los plugins
