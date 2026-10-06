@@ -13,7 +13,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
