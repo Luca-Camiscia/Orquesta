@@ -2,6 +2,10 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-06 00:27 — Línea base de escaladas (tools, isolation, frontmatter, role)
+
+- manifiesto de deploy actualizado
+
 ## 2026-10-06 00:07 — Migrar la línea base de prompts del guard
 
 - manifiesto de deploy actualizado
