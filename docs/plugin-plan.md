@@ -119,5 +119,5 @@ lo que pida; generate no atómico frente a `/reload-plugins`.
 
 ## Progreso
 
-- Hecho: E0.1, E0.2, E1.2, E1.3, E2.0, E2.1, E3.0 (2026-10-05/06). E1.1 (aplicado, commit c769b9f).
+- Hecho: E0.1, E0.2, E1.1 (aplicado, c769b9f), E1.2, E1.3, E1.4, E2.0, E2.1, E2.2, E2.4, E3.0 (2026-10-05/06).
 - [x] E0 · [ ] E1 · [ ] E2 · [ ] E3 · [ ] E4 · [ ] E5
