@@ -144,9 +144,9 @@ def test_merge_sha_barreras(env, repo, problema, mensaje):
     if problema == "rama":
         git(repo, "checkout", "-qb", "otra")
     elif problema == "sucio":
-        (repo / "sucio.txt").write_text("sin commit")
+        (repo / "a.txt").write_text("cambio sin commit\n")
     elif problema == "worktree_sucio":
-        (wt.path / "sucio.txt").write_text("sin commit")
+        (wt.path / "a.txt").write_text("cambio sin commit\n")
     elif problema == "sha":
         (wt.path / "b.txt").write_text("nuevo")
         worktrees.commit_all(wt, "fix")

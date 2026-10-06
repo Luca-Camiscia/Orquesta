@@ -315,7 +315,8 @@ def merge_sha(paths: Paths, branch: str, sha: str, destino: str,
     actual = _git(wt.repo, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     if actual != destino:
         raise WorktreeError(f"el repo debe estar en la rama destino '{destino}' (actual: {actual or 'HEAD separado'})")
-    if _git(wt.repo, "status", "--porcelain") or _git(wt.path, "status", "--porcelain"):
+    if (_git(wt.repo, "status", "--porcelain", "--untracked-files=no")
+            or _git(wt.path, "status", "--porcelain", "--untracked-files=no")):
         raise WorktreeError("el repo y el worktree deben tener el árbol limpio antes de mergear")
     if _branch_tip(wt.repo, branch) != sha:
         raise WorktreeError(f"review vieja: corré `orquesta review {branch}`")

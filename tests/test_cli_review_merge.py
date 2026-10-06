@@ -9,6 +9,16 @@ from helpers import git
 from orquesta import chat, cli, confirmar, tareas, worktrees
 
 
+def configurar_tests(repo, cmd):
+    """El comando de tests sale siempre de .orquesta/proyecto.toml (sin versionar: no ensucia el merge)."""
+    config = repo / ".orquesta" / "proyecto.toml"
+    if cmd is None:
+        config.unlink(missing_ok=True)
+        return
+    config.parent.mkdir(exist_ok=True)
+    config.write_text(f"[worktree]\ntests = {cmd!r}\n".replace("'", '"'))
+
+
 @pytest.fixture
 def tarea(env, tmp_path, monkeypatch):
     repo = tmp_path / "proyecto con espacios"
@@ -21,6 +31,7 @@ def tarea(env, tmp_path, monkeypatch):
     (wt.path / "b.txt").write_text("nuevo\n")
     worktrees.commit_all(wt, "fix")
     sha = git(wt.path, "rev-parse", "HEAD")
+    configurar_tests(repo, "true")
     pid = worktrees.project_id(repo)
     tareas.registrar(pid, {"repo": str(repo), "rama": wt.branch, "agente": wt.agent,
                           "destino": "main", "base_sha": wt.base_sha, "tests_cmd": "true",
@@ -85,7 +96,7 @@ def test_merge_con_confirm_bloqueado_veredicto_rechazar(env, tarea, capsys):
 def test_merge_con_confirm_forzar_y_tty_falso(env, tarea, monkeypatch, capsys):
     wt, pid, sha = tarea
     tareas.actualizar(pid, wt.branch, {"veredicto": "RECHAZAR"}, paths=env)
-    tty(monkeypatch, wt.branch)
+    tty(monkeypatch, f"forzar {wt.branch}")
     assert cli.main(["merge", wt.branch, "--forzar", "--confirm"]) == 0
     assert salida(capsys)["datos"]["sha_merged"] == sha
     assert git(wt.repo, "rev-parse", "HEAD") == sha
@@ -143,7 +154,7 @@ def test_repo_otra_rama_o_sucio_bloqueado(tarea, monkeypatch, capsys, problema):
     if problema == "rama":
         git(wt.repo, "checkout", "-qb", "otra")
     else:
-        (wt.repo / "sin-commit.txt").write_text("sucio")
+        (wt.repo / "a.txt").write_text("cambio sin commit\n")  # versionado: los sin versionar no bloquean
     tty(monkeypatch, wt.branch)
     assert cli.main(["merge", wt.branch, "--confirm"]) == 3
     assert salida(capsys)["estado"] == "BLOQUEADO"
@@ -207,32 +218,31 @@ def revisor(tarea, monkeypatch):
     monkeypatch.setattr(chat, "default_executor", lambda *args: chat.Reply("Veredicto: APROBAR"))
 
 
-def test_review_registra_tarea_y_descubre_tests_del_proyecto(env, tarea, revisor, monkeypatch, capsys):
+def test_review_registra_tarea_y_descubre_configurar_tests(env, tarea, revisor, monkeypatch, capsys):
     wt, pid, sha = tarea
     (env.state_dir / pid / "tareas.json").unlink()
-    config = wt.repo / ".orquesta" / "proyecto.toml"
-    config.parent.mkdir()
-    config.write_text('[worktree]\ntests = "test -f b.txt"\n')
+    configurar_tests(wt.repo, "test -f b.txt")
     assert cli.main(["review", wt.branch]) == 0
     datos = salida(capsys)["datos"]
     assert datos["veredicto"] == "APROBAR" and datos["destino"] == "main"
     assert datos["tests_cmd"] == "test -f b.txt" and datos["tests_ok"] is True
     assert datos["tests_sha"] == datos["sha_revisado"] == sha
-    # La configuración local queda fuera del merge; al limpiarla, la review habilita el SHA.
-    config.unlink()
+    # La configuración sin versionar no bloquea el merge.
     tty(monkeypatch, wt.branch)
     assert cli.main(["merge", wt.branch, "--confirm"]) == 0
     assert salida(capsys)["estado"] == "OK"
     assert git(wt.repo, "rev-parse", "HEAD") == sha
 
 
-@pytest.mark.parametrize("campos,motivo", [
-    ({"tests_cmd": "exit 1"}, "tests"),
-    ({"confianza_autor": 0.74}, "confianza"),
+@pytest.mark.parametrize("tests_cmd,campos,motivo", [
+    ("exit 1", {}, "tests"),
+    ("true", {"confianza_autor": 74}, "confianza"),
 ])
-def test_review_bloqueadores_tests_y_confianza(env, tarea, revisor, capsys, campos, motivo):
+def test_review_bloqueadores_tests_y_confianza(env, tarea, revisor, capsys, tests_cmd, campos, motivo):
     wt, pid, _ = tarea
-    tareas.actualizar(pid, wt.branch, campos, paths=env)
+    configurar_tests(wt.repo, tests_cmd)
+    if campos:
+        tareas.actualizar(pid, wt.branch, campos, paths=env)
     assert cli.main(["review", wt.branch]) == 0
     assert salida(capsys)["datos"]["veredicto"] == "APROBAR"
     assert cli.main(["merge", wt.branch, "--confirm"]) == 3
@@ -242,7 +252,7 @@ def test_review_bloqueadores_tests_y_confianza(env, tarea, revisor, capsys, camp
 
 def test_review_sin_tests_no_inventa_evidencia(env, tarea, revisor, capsys, monkeypatch):
     wt, pid, _ = tarea
-    tareas.actualizar(pid, wt.branch, {"tests_cmd": None}, paths=env)
+    configurar_tests(wt.repo, None)
     assert cli.main(["review", wt.branch]) == 0
     datos = salida(capsys)["datos"]
     assert datos["tests_sha"] is None and datos["tests_ok"] is None
@@ -265,7 +275,7 @@ def test_review_fallida_invalida_aprobacion_anterior(env, tarea, revisor, monkey
 
 def test_review_tests_que_cambian_sha_no_habilitan_merge(env, tarea, revisor, capsys):
     wt, pid, sha = tarea
-    tareas.actualizar(pid, wt.branch, {"tests_cmd": "git commit --allow-empty -qm tests"}, paths=env)
+    configurar_tests(wt.repo, "git commit --allow-empty -qm tests")
     assert cli.main(["review", wt.branch]) == 0
     datos = salida(capsys)["datos"]
     assert datos["sha_revisado"] == sha and datos["tests_sha"] != sha
@@ -291,3 +301,70 @@ def test_tareas_desde_worktree_usa_el_proyecto_original(tarea, monkeypatch, caps
     monkeypatch.chdir(wt.path)
     assert cli.main(["tareas", "--json"]) == 0
     assert salida(capsys)["datos"]["tareas"][0]["rama"] == wt.branch
+
+
+def test_review_no_reusa_tests_cmd_viejo_del_registro(env, tarea, revisor, capsys):
+    wt, pid, _ = tarea
+    tareas.actualizar(pid, wt.branch, {"tests_cmd": "true"}, paths=env)
+    configurar_tests(wt.repo, "exit 1")
+    assert cli.main(["review", wt.branch]) == 0
+    datos = salida(capsys)["datos"]
+    assert datos["tests_cmd"] == "exit 1" and datos["tests_ok"] is False
+
+
+def test_review_sin_veredicto_no_deja_sha_revisado(env, tarea, revisor, monkeypatch, capsys):
+    wt, pid, _ = tarea
+    monkeypatch.setattr(chat, "default_executor", lambda *args: chat.Reply("no sé"))
+    assert cli.main(["review", wt.branch]) == 1
+    assert salida(capsys)["estado"] == "ERROR"
+    assert tareas.obtener(pid, wt.branch, paths=env)["sha_revisado"] is None
+    tty(monkeypatch, f"forzar {wt.branch}")
+    assert cli.main(["merge", wt.branch, "--confirm", "--forzar"]) == 3
+    assert "review vieja" in str(salida(capsys))
+
+
+def test_merge_bloquea_si_la_tarea_cambia_mientras_se_confirma(env, tarea, capsys):
+    wt, pid, _ = tarea
+
+    def confirmar_y_rechazar(prompt):
+        tareas.actualizar(pid, wt.branch, {"veredicto": "RECHAZAR"}, paths=env)
+        return wt.branch
+
+    args = cli.build_parser().parse_args(["merge", wt.branch, "--confirm"])
+    assert cli.cmd_merge(args, leer_tty=confirmar_y_rechazar) == 3
+    assert "cambió mientras confirmabas" in str(salida(capsys))
+    assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha
+
+
+def test_merge_muestra_que_se_confirma(tarea, capsys):
+    wt, _, sha = tarea
+    vistos = []
+    args = cli.build_parser().parse_args(["merge", wt.branch, "--confirm"])
+    assert cli.cmd_merge(args, leer_tty=lambda prompt: vistos.append(prompt) or wt.branch) == 0
+    assert f"Mergear {sha[:8]} de {wt.branch} en main" in vistos[0] and "FORZADO" not in vistos[0]
+
+
+def test_merge_forzado_lo_dice_y_pide_otro_texto(env, tarea, capsys):
+    wt, pid, _ = tarea
+    tareas.actualizar(pid, wt.branch, {"veredicto": "RECHAZAR"}, paths=env)
+    vistos = []
+    args = cli.build_parser().parse_args(["merge", wt.branch, "--confirm", "--forzar"])
+    assert cli.cmd_merge(args, leer_tty=lambda prompt: vistos.append(prompt) or wt.branch) == 1
+    assert "FORZADO" in vistos[0] and "RECHAZAR" in vistos[0] and f"«forzar {wt.branch}»" in vistos[0]
+    assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha
+
+
+def test_descartar_muestra_que_se_pierde(tarea, capsys):
+    wt, _, _ = tarea
+    vistos = []
+    args = cli.build_parser().parse_args(["descartar", wt.branch, "--confirm"])
+    assert cli.cmd_descartar(args, leer_tty=lambda prompt: vistos.append(prompt) or "no") == 1
+    assert f"Descartar {wt.branch}" in vistos[0] and "se pierden los cambios" in vistos[0]
+    assert wt.path.exists()
+
+
+def test_tareas_json_malformado_es_error_sin_traceback(env, tarea, capsys):
+    _, pid, _ = tarea
+    (env.state_dir / pid / "tareas.json").write_text('[{"rama": 1}]')
+    assert cli.main(["tareas"]) == 1
+    assert salida(capsys)["estado"] == "ERROR"

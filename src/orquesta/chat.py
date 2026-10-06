@@ -538,11 +538,24 @@ def _calibrate(store: Store, who: str, confianza, acierto: bool, fuente: str) ->
         pass
 
 
+def _repo_of(project: dict) -> Path:
+    """Repo git del proyecto (el proyecto puede ser un subdirectorio del repo)."""
+    d = Path(project["dir"])
+    return worktrees.git_toplevel(d) or d
+
+
+def _project_wt(store: Store, project: dict, branch: str) -> worktrees.Worktree | None:
+    try:
+        return worktrees._find(store.paths, branch, _repo_of(project))
+    except worktrees.WorktreeError:
+        return None
+
+
 def _verify_and_review(store: Store, cid: str, project: dict, writer: str, reply: Reply,
                        executor: Executor) -> None:
     branch = reply.meta["branch"]
     confianza = (reply.meta.get("contrato") or runner.parse_contract(reply.text) or {}).get("confianza")
-    wt = next((w for w in worktrees.list_worktrees(store.paths) if w.branch == branch), None)
+    wt = _project_wt(store, project, branch)
     tests = worktrees.run_tests(wt) if wt is not None else None
     store.update(cid, lambda c: next(x for x in c["worktrees"] if x["branch"] == branch).update(
         confianza_autor=confianza))
@@ -565,7 +578,7 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
     """Review cruzado automático, ciega al autor: lo escrito por una familia de modelos lo revisa otra
     (autopreferencia: arXiv 2404.13076). Solo puede RECHAZAR con evidencia concreta (arXiv 2509.01494)."""
     reviewer = _reviewer_for(store, writer)
-    wt = next((w for w in worktrees.list_worktrees(store.paths) if w.branch == branch), None)
+    wt = _project_wt(store, project, branch)
     diff = ""
     if wt is not None:
         diff = subprocess.run(["git", "diff", f"{wt.base_sha}..{branch}"], cwd=wt.repo,
@@ -838,7 +851,7 @@ def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> 
         if razones:
             raise NeedsForce(razones[0])
     try:
-        worktrees.merge(store.paths, branch, repo=wt.get("repo") or store.project_of(conv)["dir"])
+        worktrees.merge(store.paths, branch, repo=wt.get("repo") or _repo_of(store.project_of(conv)))
     except worktrees.WorktreeError as exc:
         raise ChatError(str(exc)) from None
     store.update(cid, lambda c: _wt(c, branch).update(status="mergeado"))
@@ -848,5 +861,5 @@ def discard_worktree(store: Store, cid: str, branch: str) -> None:
     conv = store.get_conversation(cid)
     wt = _wt(conv, branch)
     worktrees.clean(store.paths, branch, force=True,
-                    repo=wt.get("repo") or store.project_of(conv)["dir"])
+                    repo=wt.get("repo") or _repo_of(store.project_of(conv)))
     store.update(cid, lambda c: _wt(c, branch).update(status="descartado"))

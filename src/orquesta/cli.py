@@ -199,13 +199,15 @@ def _comando_confirmado(args: argparse.Namespace, repo: Path) -> str:
     return shlex.join(partes)
 
 
-def _confirmar_tarea(args: argparse.Namespace, repo: Path, *, leer_tty=None) -> int | None:
+def _confirmar_tarea(args: argparse.Namespace, repo: Path, *, leer_tty=None, detalle: str = "",
+                     esperado: str | None = None) -> int | None:
     from orquesta import cli_json, confirmar
     comando = _comando_confirmado(args, repo)
     if not args.confirm:
         return _emit_tarea(args.cmd, cli_json.NECESITO_CONFIRMACION, {"comando": comando})
     try:
-        coincide = confirmar.pedir_confirmacion(texto_esperado=args.branch, comando=comando,
+        coincide = confirmar.pedir_confirmacion(texto_esperado=esperado or args.branch, comando=comando,
+                                                 detalle=detalle,
                                                  **({"leer_tty": leer_tty} if leer_tty is not None else {}))
     except confirmar.SinTTY:
         return _emit_tarea(args.cmd, cli_json.NECESITO_CONFIRMACION, {"comando": comando})
@@ -239,7 +241,7 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
         revisor = revision.elegir_revisor(chat.mf.load(paths) or {}, wt.agent)
         if revisor is None:
             return _emit_tarea(args.cmd, cli_json.ERROR, motivo="no hay un revisor de otra familia disponible")
-        tests = worktrees.run_tests(wt, registro.get("tests_cmd"))
+        tests = worktrees.run_tests(wt)  # siempre el comando actual de .orquesta/proyecto.toml
         tests_sha = worktrees._git(wt.path, "rev-parse", "HEAD") if tests is not None else None
         evidencia = (f"Resultado de los tests del proyecto: {'PASARON' if tests['ok'] else 'FALLARON'} "
                      f"(`{tests['cmd']}`).\n```\n{tests['salida']}\n```" if tests is not None else
@@ -250,9 +252,9 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
         reply = (executor or chat.default_executor)(paths, project, revisor, prompt)
         veredicto = revision.parsear_veredicto(reply.text) if not reply.error else None
         registro = tareas.actualizar(pid, wt.branch, {
-            "sha_revisado": sha if not reply.error else None, "tests_sha": tests_sha,
+            "sha_revisado": sha if not reply.error and veredicto is not None else None, "tests_sha": tests_sha,
             "tests_ok": tests["ok"] if tests is not None else None,
-            "tests_cmd": tests["cmd"] if tests is not None else registro.get("tests_cmd"),
+            "tests_cmd": tests["cmd"] if tests is not None else None,
             "veredicto": veredicto, "revisor": revisor,
             "confianza_autor": registro.get("confianza_autor"),
         }, str(wt.repo), paths=paths)
@@ -290,9 +292,20 @@ def cmd_merge(args: argparse.Namespace, *, leer_tty=None) -> int:
         razones = revision.razones_bloqueo(tareas.a_registro_review(registro))
         if razones and not args.forzar:
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO, {"razones": razones}, "\n".join(razones))
-        resultado = _confirmar_tarea(args, wt.repo, leer_tty=leer_tty)
+        detalle = f"Mergear {sha[:8]} de {wt.branch} en {registro['destino']} ({wt.repo})"
+        esperado = wt.branch
+        if razones:
+            detalle += "\nFORZADO: se saltean:\n- " + "\n- ".join(razones)
+            esperado = f"forzar {wt.branch}"
+        resultado = _confirmar_tarea(args, wt.repo, leer_tty=leer_tty, detalle=detalle, esperado=esperado)
         if resultado is not None:
             return resultado
+        # Mientras el usuario confirmaba pudo correr otra review: si la tarea cambió, no se usa la vieja.
+        vigente = tareas.obtener(pid, wt.branch, str(wt.repo), paths=paths)
+        claves = ("status", "sha_revisado", "tests_sha", "tests_ok", "veredicto", "confianza_autor")
+        if vigente is None or any(vigente.get(k) != registro.get(k) for k in claves):
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO,
+                               motivo="la tarea cambió mientras confirmabas: revisala y volvé a correr el merge")
         try:
             if not worktrees._is_merged(wt.repo, registro["base_sha"]):
                 raise worktrees.WorktreeError("el SHA base ya no es ancestro del destino")
@@ -313,7 +326,8 @@ def cmd_descartar(args: argparse.Namespace, *, leer_tty=None) -> int:
         wt = worktrees._find(paths, args.branch, args.repo)
         pid = worktrees.project_id(wt.repo)
         registro = tareas.obtener(pid, wt.branch, str(wt.repo), paths=paths)
-        resultado = _confirmar_tarea(args, wt.repo, leer_tty=leer_tty)
+        resultado = _confirmar_tarea(args, wt.repo, leer_tty=leer_tty,
+                                     detalle=f"Descartar {wt.branch} ({wt.repo}): se pierden los cambios")
         if resultado is not None:
             return resultado
         worktrees.discard(paths, wt.branch, repo=wt.repo)

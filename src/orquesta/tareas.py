@@ -28,9 +28,16 @@ def _lock(archivo: Path) -> FileLock:
 
 def _leer(archivo: Path) -> list[dict]:
     try:
-        return json.loads(archivo.read_text(encoding="utf-8"))
+        datos = json.loads(archivo.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{archivo} no es JSON válido: {exc}") from None
+    if not isinstance(datos, list) or not all(
+            isinstance(r, dict) and all(isinstance(r.get(k), str) for k in ("rama", "repo", "status"))
+            for r in datos):
+        raise ValueError(f"{archivo} no tiene la forma esperada (lista de tareas con rama, repo y status)")
+    return datos
 
 
 def _guardar(archivo: Path, registros: list[dict]) -> None:
@@ -108,3 +115,4 @@ def a_registro_review(tarea: dict) -> dict:
         "confianza_autor": tarea.get("confianza_autor"),  # ya en 0-100
         "review": {"veredicto": tarea.get("veredicto")},  # tal cual parsear_veredicto
     }
+

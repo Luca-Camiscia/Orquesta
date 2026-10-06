@@ -518,7 +518,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
             if w.get("status") == "abierto":
                 try:
                     w["conflictos"] = worktrees_mod.conflicts(
-                        paths, w["branch"], repo=w.get("repo") or store.project_of(conv)["dir"])
+                        paths, w["branch"], repo=w.get("repo") or chat._repo_of(store.project_of(conv)))
                 except worktrees_mod.WorktreeError:
                     w["conflictos"] = None
         return conv
