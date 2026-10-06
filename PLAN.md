@@ -4,6 +4,10 @@ Plan aprobado el 2026-10-04. Decisiones: **1a** `~/orquesta/` con lo mínimo en 
 **2a** codex oficial por npm (se reemplaza el snap de terceros); **3a** auditoría liviana también del
 plugin oficial de Codex.
 
+> **Estado (2026-10-06):** la fase 2 (plugin de Claude Code) está implementada y en producción. Lo de
+> `~/.claude/agents/orquesta` y el bloque de `~/.claude/CLAUDE.md` descritos abajo es el diseño original
+> (fase 1) y ya fue retirado por `orquesta migrar corte`. El diseño vigente está en `docs/plugin-plan.md`.
+
 ## Dónde vive cada cosa
 
 - `~/orquesta/`: repo git y paquete Python (registro, generador, doctor, runner, UI, tests,
@@ -70,6 +74,10 @@ de agentes es nuevo: el watcher no existía). Por eso el paso 7 corre en una ses
    arregla en su worktree, abogado del diablo revisa, el orquestador verifica con pytest y mergea.
    Presentado en mood debate.
 
-## Fase 2: plugin de Claude Code (aprobada el 2026-10-05)
+## Fase 2: plugin de Claude Code (implementada el 2026-10-06)
 
-Brief en `docs/plugin-brief.md` y plan por etapas en `docs/plugin-plan.md` (el progreso se marca ahí).
+Aprobada el 2026-10-05. Brief en `docs/plugin-brief.md`; plan, decisiones técnicas, modelo de amenaza,
+resultados del spike, riesgos y progreso por etapas en `docs/plugin-plan.md`. Orquesta es hoy el plugin
+local `orquesta@orquesta-local` (generado en `~/orquesta/plugin/orquesta`, agentes `orquesta:<nombre>`,
+comandos `/orquesta:mood|plan|reunion|rrhh|tareas`). Corte real hecho por el usuario el 2026-10-06. La UI
+quedó como panel sin chat. Resumen para el usuario en `README.md`.

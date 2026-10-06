@@ -37,6 +37,7 @@ tras quitar espacios al principio y al final. No hay variables de entorno ni
 flags que salteen la confirmación.
 
 Si no puede abrir la terminal, `pedir_confirmacion()` lanza `SinTTY` con el
-atributo `comando_sugerido`. Los módulos todavía no están conectados a los
-comandos existentes; al integrarlos, el comando debe convertir esa excepción
-en el sobre `NECESITO_CONFIRMACION`.
+atributo `comando_sugerido`. Los comandos que confirman (`merge`, `descartar`,
+`generate --confirm`, `migrar corte|rollback`) convierten esa excepción en el
+sobre `NECESITO_CONFIRMACION` (exit 3) con el comando exacto, que el usuario corre
+en una segunda terminal (`!` de Claude Code tampoco tiene TTY).

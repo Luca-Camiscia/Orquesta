@@ -2,6 +2,11 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-06 12:00 — Documentación de la migración a plugin de Claude Code
+
+- README, PLAN, AGENTS y `docs/cli-json.md` actualizados: orquesta es el plugin local `orquesta@orquesta-local`, corte y rollback con `orquesta migrar`, confirmaciones en segunda terminal, modelo de amenaza, sandbox de Bash (opción c, no en v1) y snippet de `statusLine`
+- `docs/plugin-plan.md`: E2-E5 marcadas como hechas (corte real el 2026-10-06 y fixes post-corte)
+
 ## 2026-10-06 08:59 — Aplicar cambios del registro
 
 - plugin (~/orquesta/plugin): 3 archivos (0 creados, 3 modificados, 0 borrados)

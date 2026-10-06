@@ -2,14 +2,14 @@
 
 orquesta es un ecosistema multimodelo. Claude Code orquesta y delega en GPT (Codex CLI) y en
 Gemini (Antigravity CLI, `agy`) usando las suscripciones del usuario, sin API keys. Tiene un
-registro YAML, un generador de subagentes, un runner, un doctor y una UI web local.
+registro YAML, un generador del plugin de Claude Code (`orquesta@orquesta-local`), un runner, un doctor y una UI web local.
 
 ## Comandos
 
 ```bash
 uv run pytest                      # suite completa (~360 tests, ~20 s); tiene que quedar en verde
 PYTHONPATH=$PWD/src uv run pytest  # dentro de un worktree: sin esto testeás el paquete del repo principal
-uv run orquesta generate --dry-run # qué cambiaría en ~/.claude sin escribir nada
+uv run orquesta generate --dry-run # qué cambiaría en el plugin (~/orquesta/plugin) sin escribir nada
 uv run orquesta doctor --skip-live # chequeos de salud sin llamar a los backends
 uv run orquesta ui --no-browser    # UI en http://127.0.0.1:8787
 ```
@@ -21,7 +21,12 @@ uv run orquesta ui --no-browser    # UI en http://127.0.0.1:8787
 | `orquesta.yaml` | Registro de agentes, moods y orquestador. Es la fuente de verdad |
 | `backends.yaml` | La ÚNICA fuente de comandos de backend (codex, agy). No hardcodees comandos en otro lado |
 | `src/orquesta/schema.py` | Modelos pydantic del registro y de backends, más `check_registry` |
-| `src/orquesta/generate.py`, `render.py`, `claude_md.py` | Generan `~/.claude/agents/orquesta/*.md` y el bloque de `~/.claude/CLAUDE.md` |
+| `src/orquesta/generate.py`, `render.py`, `plugin_render.py` | Generan el plugin en `plugin/orquesta/` (agentes, comandos, skill, hooks, contexto del orquestador) |
+| `src/orquesta/claude_md.py` | Bloque de `~/.claude/CLAUDE.md` del deploy viejo (solo fase `legacy`) |
+| `src/orquesta/migracion.py`, `migracion_cmd.py` | Fase (`legacy`/`plugin`) y `orquesta migrar estado\|corte\|rollback` con diario idempotente |
+| `src/orquesta/hooks.py` | Hooks del plugin: `session-start` (inyecta el contexto) y `pre-bash` (avisa ante `--confirm`/evasión) |
+| `src/orquesta/confirmar.py`, `cli_json.py` | Confirmación humana por `/dev/tty` y sobre JSON de la CLI (`docs/cli-json.md`) |
+| `src/orquesta/tareas.py`, `revision.py` | Registro de tareas (SHA revisado, tests) y review/merge con bloqueos |
 | `src/orquesta/guard.py`, `manifest.py` | Agentes protegidos, escaladas y manifiesto de deploy (hashes) |
 | `src/orquesta/runner.py`, `worktrees.py`, `procs.py` | `orquesta run`: arma el comando, aplica sandbox, worktree y límites de paralelismo, y detecta rate limit |
 | `src/orquesta/chat.py` | Proyectos, conversaciones y reuniones (rondas, moderada, crítica, posturas, seccionado), review automática |
@@ -29,12 +34,14 @@ uv run orquesta ui --no-browser    # UI en http://127.0.0.1:8787
 | `src/orquesta/modelos.py` | Descubre modelos (caché de Codex, `agy models`, alias de Claude) |
 | `src/orquesta/usage.py`, `calibration.py` | Uso por ventana de 5 h y calibración de la confianza declarada |
 | `src/orquesta/ui/app.py`, `ui/index.html` | FastAPI más una UI vanilla JS en un solo archivo, con temas por `data-estilo` y tokens CSS |
-| `docs/` | `headless.md` (invocaciones verificadas), `investigacion.md` (papers y decisiones) |
+| `docs/` | `headless.md` (invocaciones verificadas), `investigacion.md` (papers), `cli-json.md`, `plugin-brief.md`, `plugin-plan.md` (decisiones y modelo de amenaza del plugin) |
+| `plugin/` | Plugin generado por `orquesta generate`, ignorado por git. No lo edites a mano |
 | `state/`, `backups/`, `worktrees/`, `sandbox/`, `conversaciones/` | Estado local, ignorado por git. No lo edites a mano |
 
 ## Reglas
 
-- **No escribas en `~/.claude` a mano.** Los agentes y el bloque de CLAUDE.md los genera `orquesta generate`.
+- **No escribas en `~/.claude` a mano.** El plugin (`plugin/`) lo genera `orquesta generate`; tras generar, `/reload-plugins`.
+- **Confirmaciones:** el modelo nunca corre `--confirm`/`--forzar`. Sin TTY la CLI devuelve `NECESITO_CONFIRMACION` (exit 3) con el comando para la segunda terminal del usuario.
 - **Agentes protegidos** (`protected: true`, como that-it-guy) y escaladas (read-only → write, más
   permisos, plugins nuevos) requieren confirmación explícita del usuario (`--confirm`). Nunca la des por tu cuenta.
 - **Campos nuevos en `Agent`:** agregalos a `editing.FIELD_ORDER`/`DEFAULTS` y a `guard._LATER_FIELDS`
