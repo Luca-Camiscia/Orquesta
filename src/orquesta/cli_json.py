@@ -41,6 +41,7 @@ def sobre(comando: str, estado: str, datos=None, errores=None, avisos=None,
     }
 
 
-def emit(sobre: dict, stream=sys.stdout) -> int:
-    print(json.dumps(sobre, ensure_ascii=False), file=stream)
+def emit(sobre: dict, stream=None) -> int:
+    # sys.stdout se resuelve al llamar, no al importar: si no, queda atado a un stdout que ya no existe.
+    print(json.dumps(sobre, ensure_ascii=False), file=stream or sys.stdout)
     return exit_code(sobre["estado"])

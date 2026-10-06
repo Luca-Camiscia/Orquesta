@@ -10,10 +10,11 @@ class SinTTY(Exception):
         super().__init__(f"Sin terminal disponible. Corré: {comando_sugerido}")
 
 
-def pedir_confirmacion(texto_esperado: str, comando: str, *, leer_tty=None) -> bool:
+def pedir_confirmacion(texto_esperado: str, comando: str, *, detalle: str = "", leer_tty=None) -> bool:
     if not texto_esperado.strip():
         raise ValueError("pedir_confirmacion necesita un texto no vacío: si no, Enter confirmaría")
-    prompt = f"Para confirmar, escribí «{texto_esperado}»: "
+    # El detalle dice qué se confirma (SHA, destino, barreras salteadas): sin eso, confirmar es a ciegas.
+    prompt = (f"{detalle}\n" if detalle else "") + f"Para confirmar, escribí «{texto_esperado}»: "
     if leer_tty is not None:
         linea = leer_tty(prompt)
     else:

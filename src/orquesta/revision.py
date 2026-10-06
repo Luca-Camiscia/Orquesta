@@ -37,6 +37,10 @@ def parsear_veredicto(texto: str | None) -> str | None:
 
 
 def razones_bloqueo(registro: dict) -> list[str]:
+    """Detecta bloqueadores para merge: tests fallidos, confianza baja, veredicto no-APROBAR.
+    
+    Entrada: dict con keys branch, tests (dict|None con ok/cmd), confianza_autor (0-100), review.veredicto
+    """
     razones = []
     branch = registro.get("branch", "")
     tests = registro.get("tests")

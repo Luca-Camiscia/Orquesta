@@ -521,7 +521,8 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         for w in conv.get("worktrees", []):
             if w.get("status") == "abierto":
                 try:
-                    w["conflictos"] = worktrees_mod.conflicts(paths, w["branch"])
+                    w["conflictos"] = worktrees_mod.conflicts(
+                        paths, w["branch"], repo=w.get("repo") or chat._repo_of(store.project_of(conv)))
                 except worktrees_mod.WorktreeError:
                     w["conflictos"] = None
         return conv
@@ -531,7 +532,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         if body.get("confirm") is not True:
             return JSONResponse({"needs_confirmation": True, "detail": "Confirmá el merge."}, status_code=409)
         try:
-            worktrees_mod.merge(paths, body.get("branch", ""))
+            worktrees_mod.merge(paths, body.get("branch", ""), repo=body.get("repo"))
         except worktrees_mod.WorktreeError as exc:
             return JSONResponse({"errors": [str(exc)]}, status_code=422)
         return {"ok": True}
@@ -541,7 +542,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         if body.get("confirm") is not True:
             return JSONResponse({"needs_confirmation": True, "detail": "Confirmá el descarte."}, status_code=409)
         try:
-            worktrees_mod.clean(paths, body.get("branch", ""), force=True)
+            worktrees_mod.discard(paths, body.get("branch", ""), repo=body.get("repo"))
         except worktrees_mod.WorktreeError as exc:
             return JSONResponse({"errors": [str(exc)]}, status_code=422)
         return {"ok": True}
@@ -555,7 +556,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
                     "created_at": w.created_at, "huerfano": orphan.get(w.branch)}
             try:
                 item["diffstat"] = worktrees_mod.diffstat(w)
-                item["conflictos"] = worktrees_mod.conflicts(paths, w.branch)
+                item["conflictos"] = worktrees_mod.conflicts(paths, w.branch, repo=w.repo)
             except worktrees_mod.WorktreeError:
                 item["diffstat"], item["conflictos"] = "", None
             out.append(item)
