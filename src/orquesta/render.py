@@ -25,12 +25,25 @@ RUNNER_STATES = ("RATE_LIMIT, OCUPADO, ORQUESTA_OFF, NO_GIT, VIOLACION_READ_ONLY
 class RenderContext:
     paths: Paths
     backends: BackendsConfig
+    agent_prefix: str = ""
+    agent_names: tuple[str, ...] = ()
+
+    def reference_agents(self, text: str) -> str:
+        """Prefija referencias de delegación; conserva namespaces, rutas y comandos CLI."""
+        if not self.agent_prefix or not self.agent_names:
+            return text
+        names = "|".join(re.escape(name) for name in sorted(self.agent_names, key=len, reverse=True))
+        pattern = (r"(?P<cli>\borquesta\s+(?:run|edit|show|wt\s+new)\b[^`\n]*)|"
+                   rf"(?P<agent>(?<![\w:/.-])(?:{names})(?![\w:/-]|\.[\w]))")
+        return re.sub(pattern, lambda m: m[0] if m["cli"] else self.agent_prefix + m[0], text)
 
     def substitute(self, text: str) -> str:
         """Reemplaza los placeholders de rutas que pueden usar los prompts."""
         p = self.paths
+        text = self.reference_agents(text)
         for key, value in {"{orquesta_home}": p.home, "{agents_dir}": p.agents_dir,
-                           "{claude_md}": p.claude_md, "{registry}": p.registry}.items():
+                           "{claude_md}": p.claude_md, "{registry}": p.registry,
+                           "{plugin_dir}": p.plugin_dir}.items():
             text = text.replace(key, str(value))
         return text
 
@@ -117,7 +130,7 @@ def _external_body(agent: Agent, backend: Backend, ctx: RenderContext) -> str:
         f"Sos un **wrapper**: no resolvés la tarea vos. Tu único trabajo es pasársela a "
         f"**{backend.label}** con `orquesta run` y devolverle el resultado al orquestador.",
         "",
-        f"- **Rol:** {agent.role.strip()}",
+        f"- **Rol:** {ctx.reference_agents(agent.role.strip())}",
         f"- **Backend:** `{agent.backend}` · modelo: {agent.backend_model or 'el default del CLI'}"
         f" · modo: **{agent.mode}** · aislamiento: **{agent.effective_isolation}**",
         "",
@@ -170,7 +183,7 @@ def render_agent_md(agent: Agent, ctx: RenderContext) -> str:
     backend = ctx.backends.backends.get(agent.backend)
     fields: dict[str, Any] = {
         "name": agent.name,
-        "description": effective_description(agent, backend),
+        "description": ctx.reference_agents(effective_description(agent, backend)),
         "tools": _tools_value(agent.tools),
         "model": agent.effective_wrapper_model,
     }
@@ -194,6 +207,17 @@ def render_agent_md(agent: Agent, ctx: RenderContext) -> str:
     else:
         body = _claude_body(agent, ctx)
     return render_frontmatter(fields) + "\n" + body
+
+
+def copy_agent_manual(agent: Agent, ctx: RenderContext) -> str:
+    """Lee un agente manual sin regenerarlo ni cambiar sus bytes UTF-8."""
+    from orquesta.config import read_manual
+    from orquesta.schema import ConfigError
+
+    text = read_manual(ctx.paths, agent.name)
+    if text is None:
+        raise ConfigError([f"agente {agent.name!r}: es manual pero no existe manual/{agent.name}.md"])
+    return text
 
 
 # --- bloque de CLAUDE.md ---------------------------------------------------------------------
@@ -240,7 +264,8 @@ def render_block_inner(reg: Registry, ctx: RenderContext) -> str:
         when = "; ".join(_cell(r) for r in a.route_when) or _cell(a.role)
         if a.avoid_when:
             when += ". NO usar si " + "; ".join(_cell(x) for x in a.avoid_when)
-        lines.append(f"| `{a.name}` | {a.backend} | {a.mode} | {a.effective_isolation} | {when} |")
+        lines.append(f"| `{ctx.agent_prefix}{a.name}` | {a.backend} | {a.mode} | "
+                     f"{a.effective_isolation} | {ctx.reference_agents(when)} |")
     lines += [
         "",
         "Los agentes de plugins (p. ej. `codex:codex-rescue`) no forman parte de este ruteo: "
