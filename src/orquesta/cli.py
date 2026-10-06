@@ -385,6 +385,15 @@ def cmd_tareas(args: argparse.Namespace) -> int:
         return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
 
 
+def cmd_hook(args: argparse.Namespace) -> int:
+    from orquesta import hooks
+    try:
+        paths = default_paths()
+    except Exception:  # noqa: BLE001 — un hook roto no traba la sesión
+        return 0
+    return hooks.run(args.evento, paths)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="orquesta", description="Ecosistema multi-modelo para Claude Code.")
     sub = p.add_subparsers(dest="cmd")
@@ -455,6 +464,9 @@ def build_parser() -> argparse.ArgumentParser:
     formato.add_argument("--json", action="store_true", help="salida JSON (default)")
     formato.add_argument("--linea", action="store_true", help="resumen en una sola línea de texto")
     t.set_defaults(func=cmd_tareas)
+    h = sub.add_parser("hook", help="hooks del plugin de Claude Code (leen el evento por stdin)")
+    h.add_argument("evento", choices=["session-start", "pre-bash"])
+    h.set_defaults(func=cmd_hook)
     return p
 
 
