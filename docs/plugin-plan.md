@@ -10,6 +10,7 @@ rondas de preguntas). Autor: `claude-arquitecto`; review adversarial: `codex-abo
 - Status line: `orquesta tareas --linea`, enchufada a mano en `statusLine`. La API de hooks early access queda fuera de v1.
 - Conversaciones viejas: solo en disco y export.
 - Sandbox de Bash de Claude Code (opción c): no en v1, solo documentado.
+- Escaladas que también exigen `--confirm` (E1.1b, decisión 2026-10-06): agregar tools de escritura (`Write`, `Edit`, `NotebookEdit`, `Bash`) o `"*"`, `isolation: worktree → none`, claves nuevas o cambiadas en `extra_frontmatter`, y cambios de `role`.
 - `!` no tiene TTY (probado por el usuario: `not a tty`): las confirmaciones se corren en una segunda terminal. Sin bandeja web.
 
 ## Modelo de amenaza
@@ -67,6 +68,7 @@ Reglas comunes: worktree `orquesta/<agente>/<tarea>`, `PYTHONPATH=$PWD/src uv ru
 | E0.1 | codex-tester | Caracterización: `NeedsForce` (3 causas), regex de veredicto, `_reviewer_for`, `_judge_for` (incluye 3 familias), golden de `render_agent_md`/`render_block_inner` | — |
 | E0.2 | codex-refactorista | Extraer `revision.py` sin cambio de comportamiento | E0.1 |
 | E1.1 | codex-forjador | Guard: `alta`, `baja`, `prompt`, enabled, línea base explícita | — |
+| E1.1b | codex-forjador | Guard: escaladas por tools, isolation, extra_frontmatter y role | E1.1 |
 | E1.2 | codex-forjador | `cli_json.py`, `docs/cli-json.md`, `confirmar.py` (TTY) | — |
 | E1.2b | codex-forjador | `generate --confirm` pasa por `confirmar.py` | E1.2 |
 | E1.3 | codex-forjador | `tareas.py`, `_find` con repo, merge por SHA, CLI review/merge/descartar/tareas | E0.2, E1.2 |
@@ -117,5 +119,5 @@ lo que pida; generate no atómico frente a `/reload-plugins`.
 
 ## Progreso
 
-- Hecho: E0.1, E0.2, E1.2, E1.3, E2.0, E2.1, E3.0 (2026-10-05/06). E1.1 integrado en su rama, en review.
+- Hecho: E0.1, E0.2, E1.2, E1.3, E2.0, E2.1, E3.0 (2026-10-05/06). E1.1 (aplicado, commit c769b9f).
 - [x] E0 · [ ] E1 · [ ] E2 · [ ] E3 · [ ] E4 · [ ] E5
