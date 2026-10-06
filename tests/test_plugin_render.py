@@ -189,3 +189,13 @@ def test_comandos_usan_argumentos_y_rrhh_abre_la_sesion_aparte(ctx):
     for nombre in ("plan", "reunion", "mood"):
         assert "$ARGUMENTS" in files[f"orquesta/commands/{nombre}.md"]
     assert "orquesta rrhh abrir" in files["orquesta/commands/rrhh.md"]
+
+
+def test_subcomando_rrhh_no_se_prefija_aunque_haya_un_agente_rrhh(ctx):
+    render_ctx = RenderContext(paths=ctx["paths"], backends=parse_backends(backends_dict()),
+                               agent_prefix="orquesta:", agent_names=("rrhh", "claude-juez"))
+    text = render_ctx.reference_agents(
+        "Corré `orquesta rrhh triage` y `orquesta rrhh nota`; consultá a rrhh o a claude-juez.")
+    assert "orquesta orquesta:" not in text
+    assert "`orquesta rrhh triage`" in text and "`orquesta rrhh nota`" in text
+    assert "consultá a orquesta:rrhh o a orquesta:claude-juez" in text

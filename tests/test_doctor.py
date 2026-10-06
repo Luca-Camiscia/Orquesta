@@ -255,6 +255,11 @@ def test_plugin_de_terceros_sin_auditoria_es_warn(denv):
     assert check(correr(denv), "plugin-algo@otro-market").status == "warn"
 
 
+def test_plugin_propio_de_orquesta_no_pide_auditoria(denv):
+    _plugin(denv, "orquesta@orquesta-local", "")
+    assert not [c for c in correr(denv).checks if c.id == "plugin-orquesta@orquesta-local"]
+
+
 def test_repo_sucio_es_warn(denv):
     (denv.home / "suelto.txt").write_text("x")
     c = check(correr(denv), "git")

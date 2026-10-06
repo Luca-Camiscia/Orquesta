@@ -33,7 +33,7 @@ class RenderContext:
         if not self.agent_prefix or not self.agent_names:
             return text
         names = "|".join(re.escape(name) for name in sorted(self.agent_names, key=len, reverse=True))
-        pattern = (r"(?P<cli>\borquesta\s+(?:run|edit|show|wt\s+new)\b[^`\n]*)|"
+        pattern = (r"(?P<cli>\borquesta\s+(?:run|edit|show|rrhh|wt\s+new)\b[^`\n]*)|"
                    rf"(?P<agent>(?<![\w:/.-])(?:{names})(?![\w:/-]|\.[\w]))")
         return re.sub(pattern, lambda m: m[0] if m["cli"] else self.agent_prefix + m[0], text)
 

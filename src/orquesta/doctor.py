@@ -629,6 +629,8 @@ def _plugins(ctx: _Ctx) -> list[Check]:
     audits = _audits(ctx.paths)
     out, official = [], []
     for pid, entries in sorted(installed.items()):
+        if pid == "orquesta@orquesta-local":  # lo genera orquesta; lo cubre plugin-instalado
+            continue
         e = (entries or [{}])[0]
         sha, version = str(e.get("gitCommitSha") or ""), e.get("version", "?")
         mine = [a for a in audits if a["plugin"] == pid]
