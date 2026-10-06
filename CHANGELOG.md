@@ -2,6 +2,11 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-05 21:59 — Agregar claude-interrogador
+
+- CLAUDE.md: bloque actualizado
+- + agente `claude-interrogador` (claude, read-only)
+
 ## 2026-10-05 00:00 — Agregar reclutador Gemini y opinión opcional en RR. HH.
 
 - CLAUDE.md: bloque actualizado
