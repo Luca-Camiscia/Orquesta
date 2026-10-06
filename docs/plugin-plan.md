@@ -10,6 +10,7 @@ rondas de preguntas). Autor: `claude-arquitecto`; review adversarial: `codex-abo
 - Status line: `orquesta tareas --linea`, enchufada a mano en `statusLine`. La API de hooks early access queda fuera de v1.
 - Conversaciones viejas: solo en disco y export.
 - Sandbox de Bash de Claude Code (opción c): no en v1, solo documentado.
+- `!` no tiene TTY (probado por el usuario: `not a tty`): las confirmaciones se corren en una segunda terminal. Sin bandeja web.
 
 ## Modelo de amenaza
 
@@ -33,7 +34,7 @@ vea, y que una evasión deliberada deje rastro.
    solo aviso. (b) Freno real: `merge --confirm|--forzar`, `descartar --confirm`, `generate --confirm`,
    `migrar corte|rollback --confirm` y la confirmación de línea base leen de `/dev/tty` un texto
    (rama, agente o "corte"). Sin TTY (el Bash tool no tiene) → `NECESITO_CONFIRMACION`, exit 3 y el
-   comando exacto para que lo corra el usuario. Sin variable de entorno que lo saltee; en tests el
+   comando exacto para que el usuario lo corra en una segunda terminal (`!` no tiene TTY). Sin variable de entorno que lo saltee; en tests el
    lector se inyecta. `/api/apply` de la UI conserva su `confirm` (clic del usuario + token).
 4. **CLI.** Sobre `{"version":1,"comando","estado","generacion","datos","errores","avisos"}`, exit
    0/1/3 (`docs/cli-json.md`). Comandos: `reunion`, `review`, `merge`, `descartar`,
