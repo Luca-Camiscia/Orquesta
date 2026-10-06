@@ -95,7 +95,7 @@ def test_contexto_reusa_bloque_y_agrega_reglas(reg, ctx):
     for rule in ["Reglas de orquestación", ".orquesta/plan.md", "único OK", "merge a main",
                  "escaladas", "altas", "bajas", "prompt", "fallas", "review rechazada",
                  "segunda terminal", "comando exacto", "run_in_background", "tres familias",
-                 "reinicio", "orquesta rrhh triage --json"]:
+                 "reinicio", "orquesta rrhh triage"]:
         assert rule in prose
 
 

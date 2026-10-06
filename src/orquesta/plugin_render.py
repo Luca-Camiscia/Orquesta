@@ -29,7 +29,7 @@ _COMMANDS = {
         "Hablar con Recursos Humanos",
         "El usuario quiere conversar con RR. HH. (proponer, cambiar o dar de baja agentes). Esa conversación "
         "vive en una sesión aparte con memoria: decile que corra `orquesta rrhh abrir` en su terminal. "
-        "No la simules acá. (Para armar equipos en silencio usá `orquesta rrhh triage --json`.)",
+        "No la simules acá. (Para armar equipos en silencio usá `orquesta rrhh triage` (pedido por stdin).)",
     ),
     "tareas": (
         "Consultar el estado de las tareas",
@@ -96,7 +96,7 @@ _RULES = """### Reglas de orquestación del plugin
 - Reuniones: usá `run_in_background` y evitá un juez si participan las tres familias.
 - Generación: si la generación del sobre JSON no coincide con este contexto,
   pedí reinicio antes de seguir.
-- RR. HH.: consultá en silencio con `orquesta rrhh triage --json`.
+- RR. HH.: consultá en silencio con `orquesta rrhh triage` (pedido por stdin).
 """
 
 
