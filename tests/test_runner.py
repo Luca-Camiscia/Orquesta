@@ -54,12 +54,10 @@ def test_runner_manifest_error_no_ejecuta_backend(env, proyecto, monkeypatch, fa
     monkeypatch.setattr(runner, "_execute", backend_prohibido)
     result = correr(env, "codex-critico", "hola", proyecto)
     assert result.status == "ERROR"
-    assert result.exit_code == 1
-    data = json.loads(runner.format_result(result))
-    assert data["estado"] == "ERROR"
-    assert data["comando"] == "run"
-    assert f"manifiesto de la fase {fase}" in data["errores"][0]
-    assert "orquesta doctor" in data["errores"][0]
+    assert result.exit_code == runner.EXIT_CODES["ERROR"]
+    salida = runner.format_result(result)  # los wrappers leen la línea ESTADO: mismo formato que el resto
+    assert salida.startswith("ESTADO: ERROR — ")
+    assert f"manifiesto de la fase {fase}" in salida and "orquesta doctor" in salida
 
 
 BACKENDS = parse_backends(backends_dict()).backends

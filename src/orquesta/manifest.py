@@ -49,7 +49,10 @@ def load(paths: Paths) -> dict | None:
     Devuelve None solo en legacy sin archivo (primer deploy).
     Raises: ManifestError si está corrupto o falta en plugin.
     """
-    fase = migracion.fase(paths)
+    try:
+        fase = migracion.fase(paths)
+    except ValueError as exc:
+        raise ManifestError(f"no se puede saber la fase de deploy: {exc}") from exc
     path = paths.legacy_manifest if fase == "legacy" else paths.plugin_manifest
     error = f"manifiesto de la fase {fase} ausente o corrupto: {path}"
     try:

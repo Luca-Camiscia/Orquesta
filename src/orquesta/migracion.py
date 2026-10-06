@@ -11,6 +11,9 @@ from filelock import FileLock
 from orquesta.paths import Paths
 
 
+FASES = ("legacy", "plugin")
+
+
 def _sha12_claude_dir(claude_dir: Path) -> str:
     """Devuelve sha256(str(claude_dir.resolve()))[:12]."""
     return hashlib.sha256(str(claude_dir.resolve()).encode("utf-8")).hexdigest()[:12]
@@ -23,7 +26,12 @@ def fase(paths: Paths) -> str:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return "legacy"
-    return data["fase"]
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"{path} no es JSON válido: {exc}") from None
+    valor = data.get("fase") if isinstance(data, dict) else None
+    if valor not in FASES:
+        raise ValueError(f"{path}: fase inválida {valor!r}")
+    return valor
 
 
 def set_fase(paths: Paths, nueva_fase: str) -> None:
@@ -32,7 +40,7 @@ def set_fase(paths: Paths, nueva_fase: str) -> None:
     Raises:
         ValueError: si nueva_fase no es legacy o plugin.
     """
-    if nueva_fase not in ("legacy", "plugin"):
+    if nueva_fase not in FASES:
         raise ValueError(f"fase inválida: {nueva_fase!r}; usá 'legacy' o 'plugin'")
     folder = paths.state_dir / "migracion"
     folder.mkdir(parents=True, exist_ok=True)

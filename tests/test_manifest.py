@@ -37,3 +37,12 @@ def test_load_corrupto_levanta_manifesterror(env, fase, contenido):
     migracion.set_fase(env, fase)
     with pytest.raises(manifest.ManifestError, match=fase):
         manifest.load(env)
+
+
+@pytest.mark.parametrize("contenido", ["no es json", '{"fase": "plugins"}', "[]"])
+def test_archivo_de_fase_corrupto_es_manifest_error(env, contenido):
+    migracion.set_fase(env, "legacy")
+    archivo = next((env.state_dir / "migracion").glob("*.json"))
+    archivo.write_text(contenido, encoding="utf-8")
+    with pytest.raises(manifest.ManifestError, match="fase de deploy"):
+        manifest.load(env)

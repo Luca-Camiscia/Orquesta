@@ -25,7 +25,6 @@ from typing import Iterator
 from filelock import FileLock, Timeout
 
 from orquesta import manifest as mf
-from orquesta import cli_json, migracion
 from orquesta import procs
 from orquesta import worktrees
 from orquesta.config import load_backends
@@ -59,8 +58,6 @@ class RunResult:
 
     @property
     def exit_code(self) -> int:
-        if self.meta.get("manifest_error"):
-            return 1
         return EXIT_CODES[self.status]
 
 
@@ -317,11 +314,9 @@ def _resolve(paths: Paths, agent: str) -> tuple[mf.DeployedAgent | None, dict | 
                                                  Backend | None, RunResult | None]:
     try:
         manifest = mf.load(paths)
-    except mf.ManifestError:
-        fase = migracion.fase(paths)
-        return None, None, None, RunResult("ERROR", detail=(
-            f"manifiesto de la fase {fase} ausente o corrupto; corré `orquesta doctor` "
-            "para diagnosticar"), meta={"agent": agent, "manifest_error": True, "fase": fase})
+    except mf.ManifestError as exc:
+        return None, None, None, RunResult("ERROR", detail=f"{exc}; corré `orquesta doctor` para diagnosticar",
+                                           meta={"agent": agent})
     entry = mf.deployed_agent(manifest, agent)
     if entry is None:
         return None, None, None, RunResult("ERROR", detail=(
@@ -466,9 +461,6 @@ def ping(paths: Paths, agent: str) -> RunResult:
 
 
 def format_result(r: RunResult) -> str:
-    if r.meta.get("manifest_error"):
-        return json.dumps(cli_json.sobre("run", "ERROR", datos=r.meta, errores=[r.detail]),
-                          ensure_ascii=False)
     lines: list[str] = []
     if r.status != "OK":
         lines.append(f"ESTADO: {r.status} — {r.detail}" if r.detail else f"ESTADO: {r.status}")

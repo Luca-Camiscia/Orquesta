@@ -38,15 +38,16 @@ def estado(client):
 
 
 @pytest.mark.parametrize("fase", ["legacy", "plugin"])
-@pytest.mark.parametrize("endpoint", ["/api/state", "/api/apply/dry-run"])
-def test_manifest_error_devuelve_json_sin_traceback(client, app_env, fase, endpoint):
+def test_manifest_error_devuelve_json_sin_traceback(client, app_env, fase):
     if fase == "legacy":
         app_env.manifest.write_text("invalid", encoding="utf-8")
     migracion.set_fase(app_env, fase)
-    r = client.get(endpoint) if endpoint == "/api/state" else client.post(endpoint, json={})
+    # generate tiene que poder reparar un manifiesto roto (línea base desde HEAD)
+    assert client.post("/api/apply/dry-run", json={}).status_code == 200
+    r = client.get("/api/state")
     assert r.status_code == 500
-    assert r.json() == {"status": "error",
-                        "message": f"manifiesto de la fase {fase} ausente o corrupto"}
+    errores = r.json()["errors"]
+    assert f"manifiesto de la fase {fase}" in errores[0] and "Traceback" not in errores[0]
     assert r.headers["x-frame-options"] == "DENY"
 
 

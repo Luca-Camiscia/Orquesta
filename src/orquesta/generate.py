@@ -110,7 +110,10 @@ def _read(path: Path) -> str | None:
 
 
 def _baseline(paths: Paths, manual_texts: dict[str, str]) -> dict[str, guard.Baseline] | None:
-    deployed = manifest.load(paths)
+    try:
+        deployed = manifest.load(paths)
+    except manifest.ManifestError:
+        deployed = None  # generate tiene que poder reparar un manifiesto roto: la línea base sale de HEAD
     if deployed is not None:
         return guard.baseline_from_manifest(deployed)
     head = registry_at_head(paths)
