@@ -163,16 +163,17 @@ def test_triage_sin_revisor_cruzado_informa_el_hueco(plantel):
     "Puede que ya esté arreglado, chequealo por favor",
     "Validar y confirmar que el problema aún existe antes de implementar",
     "checar si el issue todavía pasa",
-    "Verificar si funciona",
-    "Verificar ya funciona",
+    "Verificar si ya funciona",
+    "Reproducí si el error todavía pasa",
+    "Verificalo, quizá ya está resuelto",
+    "Comprobá: quizá funciona",
+    "No estamos seguros: verificar el login",
     "Check: puede que funcione",
     "Comprobá: quizás funciona",
     "Confirmá: todavía pasa",
     "Validación: acaso funciona",
     "Reproduzco: podría funcionar",
     "No estoy segura: verificar el login",
-    "¿Estás seguro? Comprobar el login",
-    "VERIFICÓ, verificás y comprobá si funciona",
 ])
 def test_triage_abstencion_verificar_primero(plantel, texto):
     t = rrhh.triage(texto, plantel, MODELOS)
@@ -198,6 +199,11 @@ def test_triage_abstencion_verificar_primero(plantel, texto):
     "No estoy segura: quizás ya funciona",
     "¿Estás seguro? Podría ya funcionar",
     "Validar y confirmar el problema antes de implementar",
+    "Crear función para validar si un cuit es válido",
+    "Implementar autenticación y verificar si el token es válido",
+    "Validar datos del formulario ya que fallan las pruebas",
+    "Si estás seguro de la solución, validá y confirmá los cambios",
+    "Verificar si funciona",
 ])
 def test_triage_sin_abstencion_en_pedidos_normales(plantel, texto):
     t = rrhh.triage(texto, plantel, MODELOS)

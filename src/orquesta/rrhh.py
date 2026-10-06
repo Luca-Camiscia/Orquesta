@@ -256,13 +256,18 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
     """
     palabras = _palabras(texto)
     normal = _normalizar(texto)
-    verificacion = _palabras("verificar verifica verificó verificás verificá checar chequea chequear chequealo "
-                            "chequeá check checking comprobar comprobá confirmar confirmá validar "
-                            "valida validación reproducir reproduce reproduzco")
+    verificacion = _palabras("verificar verifica verificó verificás verificá verificalo checar chequea chequear "
+                            "chequealo chequeá check checking comprobar comprobá comprobalo confirmar confirmá "
+                            "confirmalo validar valida validá validalo validación reproducir reproduce reproducí "
+                            "reproducilo reproduzco")
     tiene_verbo_verificacion = bool(palabras & verificacion)
-    # «ya» y «si» son stopwords; buscar la duda en el texto normalizado.
-    marcadores_duda = re.search(r"\b(?:si|ya|puede que|podria|quizas|todavia|aun|acaso)\b", normal) or re.search(
-        r"\b(?:no estoy|estas)\s+segur[oa]\b", normal)
+    # La duda es sobre si el problema persiste. «si» y «ya» sueltos no cuentan: «validar si un cuit es válido»
+    # es una especificación, y «ya que» es causal. «ya» solo vale ante un estado («ya funciona», «ya está»).
+    marcadores_duda = re.search(
+        r"\b(?:puede que|podria|quizas?|todavia|aun|acaso)\b"
+        r"|\bya\s+(?:esta|estan|funciona|funcionan|pasa|pasan|anda|andan|existe|existen|no|fue|fueron|"
+        r"resuelto|arreglado|corregido)\b"
+        r"|\bno\s+(?:estoy|estamos)\s+segur[oa]s?\b", normal)
     abstencion = tiene_verbo_verificacion and bool(marcadores_duda)
     razones = []
     dificultad = 1
