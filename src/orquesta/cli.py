@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from orquesta.paths import default_paths
+from orquesta import manifest as mf
 
 RESTART_NOTE = "Reiniciá la sesión de Claude Code para cargar los cambios."
 
@@ -165,6 +166,17 @@ def cmd_wt(args: argparse.Namespace) -> int:
                                   task=args.task)
             print(f"worktree: {wt.path}\nrama: {wt.branch}\nbase: {wt.base_sha[:12]}")
         elif args.wt_cmd == "clean":
+            if args.force:  # descarta trabajo sin mergear: lo confirma una persona, como `descartar`
+                from orquesta import confirmar
+                try:
+                    if not confirmar.pedir_confirmacion(
+                            texto_esperado=args.branch, comando=f"orquesta wt clean {args.branch} --force",
+                            detalle=f"Borrar {args.branch} sin mergear: se pierden los cambios"):
+                        print("❌ Confirmación cancelada.")
+                        return 1
+                except confirmar.SinTTY as exc:
+                    print(f"⚠️  Necesito confirmación: corré en tu terminal `{exc.comando_sugerido}`")
+                    return 3
             worktrees.clean(paths, args.branch, force=args.force)
             print(f"✅ Worktree y rama {args.branch} eliminados.")
         elif args.wt_cmd == "prune":
@@ -262,7 +274,7 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
             return _emit_tarea(args.cmd, cli_json.ERROR, registro,
                                reply.error or "la review no devolvió un veredicto válido")
         return _emit_tarea(args.cmd, cli_json.OK, registro)
-    except (worktrees.WorktreeError, OSError, ValueError) as exc:
+    except (worktrees.WorktreeError, mf.ManifestError, OSError, ValueError) as exc:
         return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
 
 
@@ -301,20 +313,26 @@ def cmd_merge(args: argparse.Namespace, *, leer_tty=None) -> int:
         if resultado is not None:
             return resultado
         # Mientras el usuario confirmaba pudo correr otra review: si la tarea cambió, no se usa la vieja.
-        vigente = tareas.obtener(pid, wt.branch, str(wt.repo), paths=paths)
+        # La verificación y el merge van bajo el mismo lock que usa la review para invalidar la evidencia.
         claves = ("status", "sha_revisado", "tests_sha", "tests_ok", "veredicto", "confianza_autor")
-        if vigente is None or any(vigente.get(k) != registro.get(k) for k in claves):
-            return _emit_tarea(args.cmd, cli_json.BLOQUEADO,
-                               motivo="la tarea cambió mientras confirmabas: revisala y volvé a correr el merge")
-        try:
+
+        def mergear():
             if not worktrees._is_merged(wt.repo, registro["base_sha"]):
                 raise worktrees.WorktreeError("el SHA base ya no es ancestro del destino")
-            datos = worktrees.merge_sha(paths, wt.branch, sha, registro["destino"], repo=wt.repo)
+            return worktrees.merge_sha(paths, wt.branch, sha, registro["destino"], repo=wt.repo)
+
+        try:
+            datos = tareas.cerrar_si_vigente(pid, wt.branch, str(wt.repo), {k: registro.get(k) for k in claves},
+                                             mergear, status="mergeado", paths=paths)
         except worktrees.WorktreeError as exc:
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO, motivo=str(exc))
-        tareas.actualizar(pid, wt.branch, {"status": "mergeado"}, str(wt.repo), paths=paths)
-        return _emit_tarea(args.cmd, cli_json.OK, datos)
-    except (worktrees.WorktreeError, OSError, ValueError) as exc:
+        if datos is None:
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO,
+                               motivo="la tarea cambió mientras confirmabas: revisala y volvé a correr el merge")
+        avisos = [] if registro.get("tests_ok") is not None else [
+            "el proyecto no tiene comando de tests (.orquesta/proyecto.toml): se mergeó solo con la review"]
+        return cli_json.emit(cli_json.sobre(args.cmd, cli_json.OK, datos=datos, avisos=avisos))
+    except (worktrees.WorktreeError, mf.ManifestError, OSError, ValueError) as exc:
         return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
 
 
@@ -337,7 +355,7 @@ def cmd_descartar(args: argparse.Namespace, *, leer_tty=None) -> int:
         else:
             tareas.actualizar(pid, wt.branch, {"status": "descartado"}, str(wt.repo), paths=paths)
         return _emit_tarea(args.cmd, cli_json.OK, {"rama": wt.branch, "status": "descartado"})
-    except (worktrees.WorktreeError, OSError, ValueError) as exc:
+    except (worktrees.WorktreeError, mf.ManifestError, OSError, ValueError) as exc:
         return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
 
 

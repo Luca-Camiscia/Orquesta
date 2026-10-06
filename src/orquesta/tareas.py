@@ -116,3 +116,21 @@ def a_registro_review(tarea: dict) -> dict:
         "review": {"veredicto": tarea.get("veredicto")},  # tal cual parsear_veredicto
     }
 
+
+def cerrar_si_vigente(project_id: str, rama: str, repo: str, esperado: dict, accion, *,
+                      status: str, paths: Paths | None = None):
+    """Bajo el lock de tareas.json: si la tarea sigue igual que `esperado`, corre `accion()` y marca `status`.
+
+    Una review concurrente toma el mismo lock para invalidar la evidencia, así que no puede colarse entre
+    la última verificación y el merge. Devuelve lo que devuelve `accion`, o None si la tarea cambió.
+    """
+    archivo = _archivo(project_id, paths)
+    with _lock(archivo):
+        registros = _leer(archivo)
+        registro = _buscar(registros, rama, repo)
+        if registro is None or any(registro.get(k) != v for k, v in esperado.items()):
+            return None
+        resultado = accion()
+        registro["status"] = status
+        _guardar(archivo, registros)
+        return resultado
