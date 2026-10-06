@@ -12,6 +12,7 @@ Códigos de salida de `generate`: 0 ok/sin cambios, 1 errores, 3 requiere confir
 from __future__ import annotations
 
 import argparse
+import shlex
 import os
 import sys
 from pathlib import Path
@@ -22,11 +23,32 @@ from orquesta import manifest as mf
 RESTART_NOTE = "Reiniciá la sesión de Claude Code para cargar los cambios."
 
 
+def _confirmar_humano(esperado: str, comando: str, detalle: str) -> bool:
+    """Confirmación por /dev/tty para comandos de texto (no JSON). False = no se confirmó (ya avisó)."""
+    from orquesta import confirmar
+    try:
+        if confirmar.pedir_confirmacion(texto_esperado=esperado, comando=comando, detalle=detalle):
+            return True
+        print("❌ Confirmación cancelada: no se aplicó nada.")
+    except confirmar.SinTTY as exc:
+        print(f"⛔ Necesito que lo confirmes vos: corré en tu terminal\n  {exc.comando_sugerido}")
+    return False
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
     from orquesta.generate import GenerateError, TestsFailed, apply_plan, build_plan
 
     paths = default_paths()
     plan = build_plan(paths, confirmations=args.confirm or [])
+    if args.confirm and not args.dry_run and not plan.errors and not plan.violations and not plan.empty:
+        # --confirm solo vale si lo confirma una persona en la terminal (docs/plugin-plan.md, decisión 3).
+        confirmadas = [v for v in build_plan(paths).violations if v.agent in set(args.confirm)]
+        if confirmadas and not _confirmar_humano(
+                " ".join(sorted({v.agent for v in confirmadas})),
+                "orquesta generate " + " ".join(f"--confirm {a}" for a in args.confirm)
+                + (f" -m {shlex.quote(args.message)}" if args.message else ""),
+                "Aplicar cambios que requieren confirmación:\n" + "\n".join(f"- {v}" for v in confirmadas)):
+            return 3
     if plan.errors:
         print("❌ Hay errores en el registro; no se aplicó nada:")
         print("\n".join(f"  - {e}" for e in plan.errors))
@@ -76,6 +98,76 @@ def cmd_run(args: argparse.Namespace) -> int:
                                               timeout_s=args.timeout), paths)
     print(runner.format_result(result))
     return result.exit_code
+
+
+def cmd_reunion(args: argparse.Namespace) -> int:
+    from orquesta import chat, cli_json, runner
+
+    cwd = Path(args.cwd or os.getcwd()).expanduser().resolve()
+    datos = {"conversation_id": None, "modo": args.modo, "titulo": args.titulo,
+             "cwd": str(cwd), "mensajes": []}
+    errors: list[str] = []
+    avisos: list[str] = []
+    estado = cli_json.OK
+
+    def executor(paths, project, participant, prompt):
+        reply = chat.default_executor(paths, project, participant, prompt)
+        if reply.error:
+            errors.append(reply.error)
+        return reply
+
+    off = runner.find_orquesta_off(cwd)
+    if off:
+        estado = cli_json.ORQUESTA_OFF
+        errors.append(f"la delegación está desactivada por {off}; sacá .orquesta-off para ejecutar la reunión")
+    else:
+        store = None
+        conv = None
+        try:
+            question = (sys.stdin.readline() if sys.stdin.isatty() else sys.stdin.read()).strip()
+            if not question:
+                raise chat.ChatError("pasá la pregunta por stdin")
+            paths = default_paths()
+            store = chat.Store(paths)
+            project = store.project_for_dir(str(cwd))
+            participants = [p.strip() for p in args.participantes.split(",") if p.strip()]
+            aspectos = [a.strip() for a in args.aspectos.split(";") if a.strip()] if args.aspectos else None
+            conv = store.create_conversation(project["id"], args.titulo, "reunion", participants,
+                                             mode=args.modo, origen="terminal", aspectos=aspectos)
+            datos.update(conversation_id=conv["id"], titulo=conv["title"])
+            chat.run_turn(store, conv["id"], question, executor=executor)
+        except (chat.ChatError, mf.ManifestError, OSError) as exc:
+            errors.append(str(exc))
+        if conv is not None:
+            conv = store.get_conversation(conv["id"])
+            labels = chat._labels(conv)
+            for m in conv["messages"]:
+                who = m["author"]
+                if who != chat.USER and who not in labels:
+                    labels[who] = f"Participante {chr(65 + len(labels))}"
+            datos["mensajes"] = [
+                {"autor": labels.get(m["author"], m["author"]), "texto": chat._redact_map(m["text"], labels),
+                 "confianza": ((m.get("meta") or {}).get("contrato") or runner.parse_contract(m["text"])).get("confianza")}
+                for m in conv["messages"]
+            ]
+            verdict = next((m for m in reversed(conv["messages"])
+                            if (m.get("meta") or {}).get("rol") == "veredicto"), None)
+            if verdict is not None:
+                judge = verdict["author"]
+                datos["juez"] = judge
+                if args.modo == "critica":
+                    datos["veredicto"] = chat._redact_map(verdict["text"], labels)
+                try:
+                    if any(chat._family(store, p) == chat._family(store, judge) for p in conv["participants"]):
+                        datos["aviso"] = f"el juez ({judge}) es de una familia que participa; evaluá el veredicto con ese sesgo en cuenta"
+                        avisos.append(datos["aviso"])
+                except mf.ManifestError as exc:
+                    errors.append(str(exc))
+        if errors:
+            estado = cli_json.OCUPADO if any("ESTADO: OCUPADO" in e for e in errors) else cli_json.ERROR
+    if errors:
+        datos["error"] = "\n".join(dict.fromkeys(errors))
+    return cli_json.emit(cli_json.sobre("reunion", estado, datos=datos, errores=errors, avisos=avisos))
 
 
 def cmd_ui(args: argparse.Namespace) -> int:
@@ -128,6 +220,14 @@ def cmd_plugins(args: argparse.Namespace) -> int:
         print("⛔ Instalar o desinstalar plugins toca la config global de Claude Code: agregá --yes "
               "para confirmar explícitamente.")
         return 2
+    if args.pl_cmd in ("install", "uninstall"):
+        objetivo = args.plugin_id
+        comando = shlex.join(["orquesta", "plugins", args.pl_cmd]
+                             + ([args.repo] if args.pl_cmd == "install" else []) + [objetivo, "--yes"])
+        if not _confirmar_humano(objetivo, comando,
+                                 f"{'Instalar' if args.pl_cmd == 'install' else 'Desinstalar'} el plugin {objetivo} "
+                                 "en la config global de Claude Code"):
+            return 3
     try:
         if args.pl_cmd == "install":
             info = plugins.install(paths, args.repo, args.plugin_id)
@@ -385,6 +485,15 @@ def cmd_tareas(args: argparse.Namespace) -> int:
         return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
 
 
+def cmd_hook(args: argparse.Namespace) -> int:
+    from orquesta import hooks
+    try:
+        paths = default_paths()
+    except Exception:  # noqa: BLE001 — un hook roto no traba la sesión
+        return 0
+    return hooks.run(args.evento, paths)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="orquesta", description="Ecosistema multi-modelo para Claude Code.")
     sub = p.add_subparsers(dest="cmd")
@@ -409,6 +518,14 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--ping", action="store_true", help="ping mínimo por el backend del agente")
     r.add_argument("--timeout", type=float, help="segundos; pisa el timeout del modo (para correr en background)")
     r.set_defaults(func=cmd_run)
+
+    reunion = sub.add_parser("reunion", help="ejecutar una reunión modal (lee la pregunta de stdin)")
+    reunion.add_argument("--modo", required=True, choices=("rondas", "moderada", "critica", "posturas", "seccionado"))
+    reunion.add_argument("--participantes", required=True, help="slugs de agentes separados por comas")
+    reunion.add_argument("--aspectos", help="aspectos separados por punto y coma")
+    reunion.add_argument("--cwd", help="directorio del proyecto (default: el actual)")
+    reunion.add_argument("--titulo", help="título de la conversación")
+    reunion.set_defaults(func=cmd_reunion)
 
     d = sub.add_parser("doctor", help="chequeos de salud del ecosistema (sin LLM)")
     d.add_argument("--json", action="store_true", help="salida JSON (para la UI)")
@@ -455,7 +572,20 @@ def build_parser() -> argparse.ArgumentParser:
     formato.add_argument("--json", action="store_true", help="salida JSON (default)")
     formato.add_argument("--linea", action="store_true", help="resumen en una sola línea de texto")
     t.set_defaults(func=cmd_tareas)
+    h = sub.add_parser("hook", help="hooks del plugin de Claude Code (leen el evento por stdin)")
+    h.add_argument("evento", choices=["session-start", "pre-bash"])
+    h.set_defaults(func=cmd_hook)
+    _sin_abreviaturas(p)
     return p
+
+
+def _sin_abreviaturas(parser: argparse.ArgumentParser) -> None:
+    """argparse acepta `--conf` como `--confirm`: en una CLI que confirma acciones eso confunde al hook."""
+    parser.allow_abbrev = False
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for sub in action.choices.values():
+                _sin_abreviaturas(sub)
 
 
 def main(argv: list[str] | None = None) -> int:

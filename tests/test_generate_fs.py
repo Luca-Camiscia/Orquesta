@@ -6,7 +6,7 @@ import json
 import pytest
 
 from helpers import dump_yaml, git, load_yaml, snapshot
-from orquesta import cli
+from orquesta import cli, confirmar
 from orquesta.claude_md import START, extract_inner
 from orquesta.generate import GenerateError, GuardError, TestsFailed, apply_plan, build_plan
 
@@ -282,7 +282,18 @@ def test_nuevas_reglas_salen_con_3_y_confirmadas_se_aplican(env, monkeypatch, ca
     assert cli.main(["generate", "-m", "cambio"]) == 3
     assert f"--confirm {name}" in capsys.readouterr().out
     assert snapshot(env.claude_dir) == before
+    # Sin terminal (como el Bash de Claude Code) --confirm no alcanza: lo tiene que confirmar una persona.
+    def sin_tty(**kw):
+        raise confirmar.SinTTY(kw["comando"])
+    monkeypatch.setattr(confirmar, "pedir_confirmacion", sin_tty)
+    assert cli.main(["generate", "-m", "confirmado", "--confirm", name]) == 3
+    assert "corré en tu terminal" in capsys.readouterr().out
+    assert snapshot(env.claude_dir) == before
+    vistos = []
+    monkeypatch.setattr(confirmar, "pedir_confirmacion",
+                        lambda **kw: vistos.append(kw) or kw["texto_esperado"] == name)
     assert cli.main(["generate", "-m", "confirmado", "--confirm", name]) == 0
+    assert kind in vistos[0]["detalle"] or name in vistos[0]["detalle"]
     assert "Aplicado" in capsys.readouterr().out
     assert build_plan(env).empty and build_plan(env).violations == []
     md = env.agents_dir / f"{name}.md"
