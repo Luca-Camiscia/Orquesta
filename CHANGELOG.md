@@ -2,6 +2,11 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-06 00:07 — Migrar la línea base de prompts del guard
+
+- manifiesto de deploy actualizado
+- línea base de prompts migrada
+
 ## 2026-10-05 21:59 — Agregar claude-interrogador
 
 - CLAUDE.md: bloque actualizado
