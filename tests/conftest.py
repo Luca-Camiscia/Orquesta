@@ -35,3 +35,10 @@ def env(tmp_path) -> Paths:
     git(home, "add", "-A")
     git(home, "commit", "-qm", "init")
     return Paths(home=home, claude_dir=claude)
+
+
+@pytest.fixture(autouse=True)
+def _sin_sesiones_reales(monkeypatch):
+    """Los tests no consultan al `claude` real para contar sesiones abiertas."""
+    from orquesta import generate
+    monkeypatch.setattr(generate, "_live_sessions", lambda paths: 0)

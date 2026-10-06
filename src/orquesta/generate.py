@@ -376,15 +376,10 @@ def get_lock(paths: Paths) -> FileLock:
 
 
 def _live_sessions(paths: Paths) -> int:
+    """Sesiones de Claude Code abiertas (para avisar que hay que recargar). Tolerante: ante cualquier falla, 0."""
     try:
-        # El CLI puede persistir migraciones al arrancar, incluso en esta consulta.
-        # Consultar una copia evita escrituras indirectas en claude_dir después del corte.
-        with tempfile.TemporaryDirectory(prefix="orquesta-sesiones-") as tmp:
-            config = Path(tmp) / "claude"
-            if paths.claude_dir.exists():
-                shutil.copytree(paths.claude_dir, config)
-            proc = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True,
-                                  timeout=2, env=dict(os.environ, CLAUDE_CONFIG_DIR=str(config)))
+        proc = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True, timeout=5,
+                              env=dict(os.environ, CLAUDE_CONFIG_DIR=str(paths.claude_dir)))
         if proc.returncode != 0:
             return 0
         data = json.loads(proc.stdout)

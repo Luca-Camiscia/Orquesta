@@ -46,6 +46,8 @@ def test_runner_manifest_error_no_ejecuta_backend(env, proyecto, monkeypatch, fa
     deploy(env)
     if fase == "legacy":
         env.manifest.write_text("invalid", encoding="utf-8")
+    if fase == "plugin":
+        env.plugin_manifest.unlink(missing_ok=True)  # generate en legacy también escribe el plugin
     migracion.set_fase(env, fase)
 
     def backend_prohibido(*args, **kwargs):

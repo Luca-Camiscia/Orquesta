@@ -14,6 +14,8 @@ from helpers import dump_yaml, load_yaml, snapshot
 from orquesta import generate, manifest, migracion
 from orquesta.claude_md import START, extract_inner
 
+_REAL_LIVE_SESSIONS = generate._live_sessions  # el conftest la reemplaza por 0 en el resto de los tests
+
 
 @pytest.fixture(autouse=True)
 def sin_claude_real(monkeypatch):
@@ -184,15 +186,13 @@ def test_secreto_en_prompt_bloquea_plugin(env, phase):
 @pytest.mark.parametrize("response", ['{"sessions": [{"id": "a"}, {"id": "b"}]}',
                                       '[{"id": "a"}, {"id": "b"}]'])
 def test_sesiones_abiertas_en_resumen_solo_post_apply(env, monkeypatch, response):
+    monkeypatch.setattr(generate, "_live_sessions", _REAL_LIVE_SESSIONS)
     real_run = subprocess.run
 
     def run(command, **kwargs):
         if command == ["claude", "agents", "--json"]:
-            assert kwargs["timeout"] == 2
-            config = Path(kwargs["env"]["CLAUDE_CONFIG_DIR"])
-            assert config != env.claude_dir
-            assert snapshot(config) == snapshot(env.claude_dir)
-            (config / ".claude.json").write_text('{"migrado": true}')
+            # Consulta directa: el estado propio de Claude Code no es un archivo generado por orquesta.
+            assert Path(kwargs["env"]["CLAUDE_CONFIG_DIR"]) == env.claude_dir
             return subprocess.CompletedProcess(command, 0, response, "")
         return real_run(command, **kwargs)
 
@@ -203,11 +203,11 @@ def test_sesiones_abiertas_en_resumen_solo_post_apply(env, monkeypatch, response
     assert "Hay 2 sesiones abiertas de Claude Code: reinicialas o usá /reload-plugins para cargar los cambios" in result.summary
     assert not any("sesiones abiertas" in line for line in plan.summary)
     assert "sesiones abiertas" not in env.changelog.read_text()
-    assert not (env.claude_dir / ".claude.json").exists()
 
 
 @pytest.mark.parametrize("response", ["[]", "{}", "no JSON", "timeout", "fallo"])
 def test_sesiones_ausentes_o_fallo_no_afectan_apply(env, monkeypatch, response):
+    monkeypatch.setattr(generate, "_live_sessions", _REAL_LIVE_SESSIONS)
     real_run = subprocess.run
 
     def run(command, **kwargs):

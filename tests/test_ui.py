@@ -43,6 +43,8 @@ def estado(client):
 def test_manifest_error_devuelve_json_sin_traceback(client, app_env, fase):
     if fase == "legacy":
         app_env.manifest.write_text("invalid", encoding="utf-8")
+    if fase == "plugin":
+        app_env.plugin_manifest.unlink(missing_ok=True)
     migracion.set_fase(app_env, fase)
     # generate tiene que poder reparar un manifiesto roto (línea base desde HEAD)
     assert client.post("/api/apply/dry-run", json={}).status_code == 200
