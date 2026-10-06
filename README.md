@@ -225,7 +225,7 @@ PYTHONPATH=$PWD/src uv run pytest  # dentro de un worktree
 ## Desinstalar
 
 ```bash
-orquesta migrar rollback            # desinstala el plugin y el marketplace, y restaura el deploy viejo
+orquesta migrar rollback --confirm  # desinstala el plugin y el marketplace, y restaura el deploy viejo
 uv tool uninstall orquesta
 claude plugin uninstall codex@openai-codex && claude plugin marketplace remove openai-codex
 rm -r ~/orquesta

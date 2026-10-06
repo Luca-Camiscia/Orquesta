@@ -7,7 +7,7 @@ registro YAML, un generador del plugin de Claude Code (`orquesta@orquesta-local`
 ## Comandos
 
 ```bash
-uv run pytest                      # suite completa (~360 tests, ~20 s); tiene que quedar en verde
+uv run pytest                      # suite completa (~920 tests, ~50 s); tiene que quedar en verde
 PYTHONPATH=$PWD/src uv run pytest  # dentro de un worktree: sin esto testeás el paquete del repo principal
 uv run orquesta generate --dry-run # qué cambiaría en el plugin (~/orquesta/plugin) sin escribir nada
 uv run orquesta doctor --skip-live # chequeos de salud sin llamar a los backends

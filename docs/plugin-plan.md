@@ -120,7 +120,7 @@ lo que pida; generate no atómico frente a `/reload-plugins`.
 ## Progreso
 
 - Hecho (2026-10-06): E0, E1, E2.0-E2.5, E3.0, E3.1, E4.1, E5.1. E5.2 en sandbox: generate → corte → sesión real con el plugin instalado (15 agentes, 5 comandos, contexto con la generación correcta) → rollback idéntico, doctor sin fallas.
-- Pendiente para el usuario: (1) revisar y aplicar la rama `orquesta/orquestador/e2-6-e3-2` (agente rrhh, that-it-guy, regla de no mergear): `git merge orquesta/orquestador/e2-6-e3-2` y en su terminal `orquesta generate --confirm that-it-guy --confirm rrhh --confirm codex-forjador --confirm codex-tester --confirm codex-refactorista -m "…"`; (2) corte real en su terminal: `orquesta migrar corte --confirm` y `orquesta doctor`; (3) borrar la rama abandonada `orquesta/codex-forjador/e5-1-migrar` con `orquesta wt clean orquesta/codex-forjador/e5-1-migrar --force`. Sin verificar en vivo (se agotó la cuota): la denegación del hook pre-bash en una sesión con el plugin instalado (cubierta por tests y por el spike).
+- Pendientes del usuario resueltos el 2026-10-06: rama e2-6-e3-2 aplicada (`generate --confirm`, commit 2604aa3), corte real hecho y rama abandonada `e5-1-migrar` borrada. Hook pre-bash: cubierto por tests y por el spike; falta la prueba manual en una sesión interactiva.
 - E5.3 (corte real) hecho por el usuario el 2026-10-06: `orquesta migrar corte`, plugin `orquesta@orquesta-local` instalado, deploy viejo y bloque de CLAUDE.md retirados.
 - Fixes post-corte: el subcomando `orquesta rrhh` no se prefija con el namespace del plugin; el doctor no pide auditoría del plugin propio.
 - E5.4 (docs): README, PLAN, AGENTS, modelo de amenaza, sandbox (c) y snippet de statusLine.
