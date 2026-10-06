@@ -291,3 +291,14 @@ def test_generacion_cambia_con_el_contenido_del_plugin(env, monkeypatch):
     despues = generate.build_plan(env)
     gen = lambda plan: json.loads(plan.plugin_files[env.plugin_manifest])["generacion"]
     assert gen(antes) != gen(despues)
+
+
+def test_varios_respaldos_sin_plugin_no_adivina(env):
+    generate.apply_plan(generate.build_plan(env), "deploy", run_tests=None)
+    os.replace(env.plugin_root, env.plugin_root.with_name(".plugin.old-1"))
+    env.plugin_root.with_name(".plugin.old-2").mkdir()
+    editar = load_yaml(env.registry)
+    editar["agents"][0]["route_when"] = ["otra cosa"]
+    dump_yaml(editar, env.registry)
+    with pytest.raises(generate.GenerateError, match="varios respaldos"):
+        generate.apply_plan(generate.build_plan(env), "x", run_tests=None)

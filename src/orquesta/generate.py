@@ -241,6 +241,12 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         plan.errors.append("un archivo de entrada (manual/ o el registro) cambió mientras se armaba el plan; "
                            "volvé a correr `orquesta generate --dry-run`")
         return plan
+    # Los .md manuales del plugin tienen que ser los mismos textos que evaluó el guard.
+    for a in reg.enabled_agents():
+        if a.manual and files.get(f"orquesta/agents/{a.name}.md") != manual_texts.get(a.name):
+            plan.errors.append(f"manual/{a.name}.md cambió mientras se armaba el plan; volvé a correr "
+                               "`orquesta generate --dry-run`")
+            return plan
     plan.plugin_files = {paths.plugin_root / relative: content for relative, content in files.items()}
     plan.plugin_files[paths.plugin_manifest] = manifest.dumps(plugin_manifest)
     desired.update(plan.plugin_files)
@@ -461,9 +467,14 @@ def _recuperar_plugin(paths: Paths) -> None:
     if root.is_symlink():
         raise GenerateError(f"{paths.pretty(root)} es un enlace simbólico: orquesta solo reemplaza una "
                             "carpeta real. Sacá el enlace y volvé a correr generate.")
-    viejas = sorted(root.parent.glob(".plugin.old-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    viejas = list(root.parent.glob(".plugin.old-*"))
     if not root.exists() and viejas:
-        os.replace(viejas.pop(0), root)
+        # Como esto corre al principio de cada apply bajo el lock, cuando falta plugin_root hay a lo sumo
+        # un `.old` (el deploy anterior completo). Si hay más, no adivinamos cuál es el bueno.
+        if len(viejas) > 1:
+            raise GenerateError("falta el plugin y hay varios respaldos " + ", ".join(sorted(p.name for p in viejas))
+                                + f" en {paths.pretty(root.parent)}: dejá el correcto como `plugin` y borrá el resto")
+        os.replace(viejas.pop(), root)
     for resto in [*viejas, *root.parent.glob(".plugin.tmp-*")]:
         shutil.rmtree(resto, ignore_errors=True)
 
