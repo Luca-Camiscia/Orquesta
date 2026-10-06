@@ -23,7 +23,7 @@ from typing import Callable
 
 from ruamel.yaml import YAML
 
-from orquesta import catalog, manifest as mf, worktrees
+from orquesta import catalog, manifest as mf, migracion, worktrees
 from orquesta.claude_md import extract_inner, MarkerError
 from orquesta.config import load_all, load_backends
 from orquesta.generate import build_plan
@@ -206,8 +206,15 @@ def _sync(ctx: _Ctx) -> list[Check]:
         return [Check("agentes", "Agentes desplegados", "warn", msg, "Arreglá el registro primero."),
                 Check("claude-md", "Bloque de CLAUDE.md", "warn", msg, "Arreglá el registro primero.")]
     paths = ctx.paths
+    try:
+        manifest = mf.load(paths)
+    except mf.ManifestError:
+        message = f"manifiesto de la fase {migracion.fase(paths)} ausente o corrupto"
+        return [Check(cid, name, "fail", message,
+                      "Corré `orquesta doctor --fix` o revisá `state/migracion/`.")
+                for cid, name in (("agentes", "Agentes desplegados"),
+                                  ("claude-md", "Bloque de CLAUDE.md"))]
     plan = ctx.plan = build_plan(paths)
-    manifest = mf.load(paths)
     registry_text = paths.registry.read_text(encoding="utf-8")
     unapplied = manifest is None or manifest.get("registry_sha256") != mf.sha256(registry_text)
 
@@ -414,7 +421,12 @@ def _claude_live(ctx: _Ctx) -> list[Check]:
         return [Check("claude-agentes", "Claude Code carga los agentes", "warn", msg,
                       "Revisá que `claude -p` funcione.", cached)]
     loaded = set(init.get("agents") or [])
-    deployed = sorted(((mf.load(ctx.paths) or {}).get("agents") or {}).keys())
+    try:
+        deployed = sorted(((mf.load(ctx.paths) or {}).get("agents") or {}).keys())
+    except mf.ManifestError:
+        return [Check("claude-agentes", "Claude Code carga los agentes", "fail",
+                      f"manifiesto de la fase {migracion.fase(ctx.paths)} ausente o corrupto",
+                      "Corré `orquesta doctor --fix` o revisá `state/migracion/`.")]
     missing = [a for a in deployed if a not in loaded]
     if missing:
         agentes = Check("claude-agentes", "Claude Code carga los agentes", "fail",

@@ -17,7 +17,7 @@ from fastapi import Body, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from ruamel.yaml import YAML
 
-from orquesta import catalog, doctor, editing
+from orquesta import catalog, doctor, editing, migracion
 from orquesta import manifest as mf
 from orquesta import chat, modelos, moods, reclutador, rrhh, runner
 from orquesta import worktrees as worktrees_mod
@@ -91,6 +91,11 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
     @app.exception_handler(editing.Conflict)
     async def _conflict(_, exc):
         return JSONResponse({"detail": str(exc)}, status_code=409)
+
+    @app.exception_handler(mf.ManifestError)
+    async def _manifest(_, exc):
+        return JSONResponse({"status": "error", "message": (
+            f"manifiesto de la fase {migracion.fase(paths)} ausente o corrupto")}, status_code=500)
 
     @app.exception_handler(editing.NeedsConfirmation)
     async def _confirm(_, exc):

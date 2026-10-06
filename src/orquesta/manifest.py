@@ -9,7 +9,12 @@ import hashlib
 import json
 from dataclasses import dataclass
 
+from orquesta import migracion
 from orquesta.paths import Paths
+
+
+class ManifestError(Exception):
+    """Manifiesto ausente o corrupto en la fase actual."""
 
 
 @dataclass(frozen=True)
@@ -39,10 +44,25 @@ def dumps(data: dict) -> str:
 
 
 def load(paths: Paths) -> dict | None:
+    """Carga el manifiesto de la fase actual, sin fallback.
+
+    Devuelve None solo en legacy sin archivo (primer deploy).
+    Raises: ManifestError si está corrupto o falta en plugin.
+    """
+    fase = migracion.fase(paths)
+    path = paths.legacy_manifest if fase == "legacy" else paths.plugin_manifest
+    error = f"manifiesto de la fase {fase} ausente o corrupto: {path}"
     try:
-        return json.loads(paths.manifest.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        if fase == "legacy":
+            return None
+        raise ManifestError(error) from exc
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ManifestError(error) from exc
+    if not isinstance(data, dict):
+        raise ManifestError(error)
+    return data
 
 
 def deployed_agent(manifest: dict | None, name: str) -> DeployedAgent | None:
