@@ -43,6 +43,15 @@ def extract_inner(text: str) -> str | None:
     return text[i + len(START):j - len(END)].replace("\r\n", "\n").strip("\n")
 
 
+def remove_block(original: str) -> str:
+    """Quita ambos marcadores y su contenido, sin tocar ningún byte externo."""
+    span = find_block(original)
+    if span is None:
+        return original
+    i, j = span
+    return original[:i] + original[j:]
+
+
 def apply_block(original: str | None, inner: str) -> str:
     """Contenido nuevo de CLAUDE.md con `inner` entre los marcadores."""
     inner = inner.replace("\r\n", "\n").strip("\n")
