@@ -114,6 +114,7 @@ def a_registro_review(tarea: dict) -> dict:
         "tests": tests,
         "confianza_autor": tarea.get("confianza_autor"),  # ya en 0-100
         "review": {"veredicto": tarea.get("veredicto")},  # tal cual parsear_veredicto
+        **({"diff": tarea["diff"]} if "diff" in tarea else {}),
     }
 
 

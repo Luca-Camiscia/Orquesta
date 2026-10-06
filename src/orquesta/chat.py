@@ -882,6 +882,12 @@ def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> 
     conv = store.get_conversation(cid)
     wt = _wt(conv, branch)
     if not force:
+        try:
+            repo = wt.get("repo") or _repo_of(store.project_of(conv))
+            base_sha = wt.get("base_sha") or worktrees._find(store.paths, branch, repo).base_sha
+            wt["diff"] = worktrees._git(repo, "diff", f"{base_sha}..{branch}")
+        except (worktrees.WorktreeError, OSError, ValueError):
+            pass
         razones = razones_bloqueo(wt)
         if razones:
             raise NeedsForce(razones[0])
