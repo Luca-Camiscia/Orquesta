@@ -282,7 +282,7 @@ def test_primer_deploy_sin_manifest_no_exige_confirmacion(env):
     editar_registro(env, lambda d: d["agents"][3].update(prompt="nuevo prompt"))
     plan = build_plan(env)
     assert plan.violations == []
-    assert "línea base de prompts migrada" in plan.summary
+    assert "línea base de prompts migrada" not in plan.summary  # no hay nada que migrar
     aplicar(env)
 
 
@@ -326,3 +326,10 @@ def test_manifiesto_roto_usa_head_y_el_guard_sigue_activo(env):
     plan2 = build_plan(env, confirmations={"mantenedor"})
     assert apply_plan(plan2, "repara el manifiesto", run_tests=ok_tests).applied
     assert json.loads(env.manifest.read_text(encoding="utf-8"))["agents"]
+
+
+def test_borrar_el_manifiesto_no_apaga_el_guard(env):
+    aplicar(env)
+    env.manifest.unlink()
+    editar_registro(env, lambda d: d["agents"][3].update(prompt="nuevo prompt"))
+    assert [v.agent for v in build_plan(env).violations] == ["mantenedor"]

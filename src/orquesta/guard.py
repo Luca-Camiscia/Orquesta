@@ -103,8 +103,10 @@ def check(baseline: dict[str, Baseline] | None, new: Registry,
     for name, base in baseline.items():
         agent = new_by_name.get(name)
         if not base.protected:
-            if agent is None or (base.enabled and not agent.enabled):
-                out.append(Violation(name, "baja", "se elimina o se deshabilita un agente"))
+            if agent is None:
+                out.append(Violation(name, "baja", "se elimina el agente (si es un renombre, el nombre nuevo sale como alta)"))
+            elif base.enabled and not agent.enabled:
+                out.append(Violation(name, "baja", "se deshabilita el agente"))
             continue
         if agent is None:
             out.append(Violation(name, "protected", "se elimina o se renombra un agente protegido"))
@@ -112,14 +114,18 @@ def check(baseline: dict[str, Baseline] | None, new: Registry,
             out.append(Violation(name, "protected", "cambia la definición de un agente protegido"))
     for agent in new.agents:
         base = baseline.get(agent.name)
-        if base is None or (not base.enabled and agent.enabled):
-            out.append(Violation(agent.name, "alta", "se agrega o se habilita un agente"))
-        if base and not base.protected:
+        # Un agente deshabilitado no se despliega: la alta se confirma cuando se habilita.
+        if agent.enabled and (base is None or not base.enabled):
+            out.append(Violation(agent.name, "alta", "se agrega un agente" if base is None else "se habilita el agente"))
+        if base and not base.protected and (base.enabled or agent.enabled):
             if base.prompt_sha256 is not None:
                 if prompt_hash(agent, manual_texts.get(agent.name)) != base.prompt_sha256:
-                    out.append(Violation(agent.name, "prompt", "cambia el prompt de un agente"))
+                    out.append(Violation(agent.name, "prompt",
+                                         "cambia el prompt o el .md manual (o se activa o desactiva `manual`)"))
             elif base.entry_sha256 and entry_hash(agent, manual_texts.get(agent.name)) != base.entry_sha256:
-                out.append(Violation(agent.name, "prompt", "cambia la definición con línea base ausente"))
+                out.append(Violation(agent.name, "prompt",
+                                     "cambió algo del agente desde el último deploy y el manifiesto es de una "
+                                     "versión anterior (sin hash de prompt): confirmá una sola vez"))
         if base and base.mode == "read-only" and agent.mode == "write":
             out.append(Violation(agent.name, "escalation", "pasa de read-only a write"))
         if base:

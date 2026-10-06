@@ -168,7 +168,7 @@ def test_linea_base_de_prompts_ausente(changed, has_entry):
     v = check(base, new)
     if changed and has_entry:
         assert [(x.agent, x.kind) for x in v] == [("codex-forja", "prompt")]
-        assert "línea base ausente" in v[0].detail
+        assert "versión anterior" in v[0].detail
     else:
         assert v == []
 
@@ -187,3 +187,13 @@ def test_linea_base_desplegada_vacia_exige_altas():
         ("gemini-lector", "alta"), ("codex-forja", "alta"),
         ("codex-critico", "alta"), ("mantenedor", "alta"),
     ]
+
+
+def test_agente_nuevo_deshabilitado_no_pide_alta_hasta_habilitarlo():
+    def nuevo(enabled):
+        def mod(d):
+            extra = dict(d["agents"][1], name="codex-nuevo", enabled=enabled)
+            d["agents"].append(extra)
+        return mod
+    assert [x.kind for x in check(BASE, reg(nuevo(False)))] == []
+    assert [(x.agent, x.kind) for x in check(BASE, reg(nuevo(True)))] == [("codex-nuevo", "alta")]
