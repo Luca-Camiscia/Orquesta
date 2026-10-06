@@ -146,7 +146,7 @@ def test_corte_idempotente_sobre_interrupciones(deploy, monkeypatch, paso):
     assert migracion.fase(deploy) == "plugin"
     assert len(list((deploy.state_dir / "migracion").glob("backup-*"))) == 1
     assert sum(c[2] == "install" for c in run.calls) == 1
-    assert sum(c[2] == "list" for c in run.calls) == 1
+    assert 1 <= sum(c[2] == "list" for c in run.calls) <= 3  # verificación + reconciliación del estado real
 
 
 @pytest.mark.parametrize("falla", [["marketplace", "add"], ["install"], ["list"], None])

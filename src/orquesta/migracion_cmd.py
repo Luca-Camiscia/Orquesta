@@ -73,6 +73,15 @@ def _plugin_instalado(paths: Paths, run: Runner) -> bool:
     return False
 
 
+def _marketplace_presente(paths: Paths) -> bool:
+    """Estado real del marketplace local (lo que escribe `claude plugin marketplace add`)."""
+    try:
+        data = json.loads((paths.claude_dir / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and "orquesta-local" in data
+
+
 def _diario_path(paths: Paths) -> Path:
     """Diario separado del archivo de fase existente, uno por claude_dir."""
     sha = migracion._sha12_claude_dir(paths.claude_dir)
@@ -201,11 +210,24 @@ def migrar_corte(paths: Paths, run: Runner, confirmar: bool, generacion: str | N
                     _generar_plugin(paths)
                 _marcar(paths, diario, "plugin_generado")
             if "plugin_instalado" not in pasos:
-                if not diario.get("marketplace_agregado"):
+                # Se reconcilia con el estado real, no con el diario: si una corrida anterior se cortó
+                # después de que Claude Code completó la operación, no se repite.
+                agregado_ahora = False
+                if not _marketplace_presente(paths):
                     _ejecutar(paths, run, "marketplace", "add", str(paths.plugin_root))
-                    diario["marketplace_agregado"] = time.time()
-                    _guardar(paths, diario)
-                _ejecutar(paths, run, "install", PLUGIN, "-s", "user")
+                    agregado_ahora = True
+                diario["marketplace_agregado"] = time.time()
+                _guardar(paths, diario)
+                if not _plugin_instalado(paths, run):
+                    try:
+                        _ejecutar(paths, run, "install", PLUGIN, "-s", "user")
+                    except ValueError:
+                        if agregado_ahora:  # no dejar un marketplace a medias si el install falla
+                            run(["claude", "plugin", "marketplace", "remove", "orquesta-local"],
+                                env=dict(os.environ, CLAUDE_CONFIG_DIR=str(paths.claude_dir)))
+                            diario.pop("marketplace_agregado", None)
+                            _guardar(paths, diario)
+                        raise
                 _marcar(paths, diario, "plugin_instalado")
             if "plugin_verificado" not in pasos:
                 if not _plugin_instalado(paths, run):
@@ -305,11 +327,11 @@ def migrar_rollback(paths: Paths, run: Runner, confirmar: bool, generacion: str 
             if "rollback_legacy_verificado" not in pasos:
                 _marcar(paths, diario, "rollback_legacy_verificado")
             if "rollback_plugin_desinstalado" not in pasos:
-                if diario["pasos"].get("plugin_instalado"):
+                if _plugin_instalado(paths, run):  # estado real: también cubre un install sin marca
                     _ejecutar(paths, run, "uninstall", PLUGIN, "-s", "user")
                 _marcar(paths, diario, "rollback_plugin_desinstalado")
             if "rollback_marketplace_retirado" not in pasos:
-                if diario.get("marketplace_agregado"):
+                if _marketplace_presente(paths):
                     _ejecutar(paths, run, "marketplace", "remove", "orquesta-local")
                 _marcar(paths, diario, "rollback_marketplace_retirado")
             migracion.set_fase(paths, "legacy")
