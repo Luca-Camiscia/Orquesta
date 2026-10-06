@@ -34,6 +34,7 @@ class ClaudeFalso:
         self.falla = falla
         self.calls = []
         self.instalado = False
+        self.habilitado = True
         self.marketplace = False
 
     def __call__(self, cmd, *, env):
@@ -51,10 +52,14 @@ class ClaudeFalso:
             assert self.marketplace
             self.instalado = True
         elif cmd[2:] == ["list", "--json"]:
-            entries = [{"id": "orquesta@orquesta-local", "scope": "user",
-                        "version": "1.0.0", "enabled": True,
-                        "installPath": str(self.origen)}] if self.instalado else []
+            # Formato real de Claude Code 2.1.290: installPath es la copia en cache; readFromFolder, la carpeta.
+            entries = [{"id": "orquesta@orquesta-local", "scope": "user", "version": "1.0.0",
+                        "enabled": self.habilitado,
+                        "installPath": str(self.paths.plugins_dir / "cache" / "orquesta-local" / "orquesta"),
+                        "readFromFolder": str(self.origen)}] if self.instalado else []
             return 0, json.dumps(entries), ""
+        elif cmd[2:] == ["enable", "orquesta@orquesta-local", "-s", "user"]:
+            self.habilitado = True
         elif cmd[2:] == ["uninstall", "orquesta@orquesta-local", "-s", "user"]:
             self.instalado = False
         elif cmd[2:] == ["marketplace", "remove", "orquesta-local"]:
@@ -252,7 +257,7 @@ def test_estado_verifica_read_from_folder_antes_que_install_path(env, tmp_path, 
     """Read from usa readFromFolder en la CLI actual, aunque exista un cache instalado."""
     from orquesta.migracion_cmd import migrar_estado
     def run(cmd, *, env):
-        return 0, json.dumps([{"id": "orquesta@orquesta-local", "scope": "user",
+        return 0, json.dumps([{"id": "orquesta@orquesta-local", "scope": "user", "enabled": True,
                                "installPath": str(paths.plugin_dir if not local else tmp_path / "cache"),
                                "readFromFolder": str(paths.plugin_dir if local else tmp_path / "otro")}]), ""
     paths = env
@@ -397,3 +402,44 @@ def test_paths_plugin_respetan_entorno(env, monkeypatch):
     assert paths.plugin_dir == env.home / "plugin" / "orquesta"
     assert paths.plugin_manifest == env.home / "plugin" / ".orquesta-manifest.json"
     assert paths.legacy_manifest == paths.manifest == env.agents_dir / ".orquesta-manifest.json"
+
+
+def test_corte_con_plugin_deshabilitado_lo_habilita_antes_de_retirar(deploy):
+    run = ClaudeFalso(deploy)
+    run.marketplace = True
+    deploy.plugins_dir.mkdir(exist_ok=True)
+    (deploy.plugins_dir / "known_marketplaces.json").write_text(json.dumps(
+        {"orquesta-local": {"source": {"source": "directory", "path": str(deploy.plugin_root)}}}))
+    run.instalado, run.habilitado = True, False
+    assert corte(deploy, run)[0] == "OK"
+    assert ["claude", "plugin", "enable", "orquesta@orquesta-local", "-s", "user"] in run.calls
+    assert run.habilitado and not deploy.agents_dir.exists()
+
+
+def test_corte_no_retira_si_el_plugin_desaparece_entre_corridas(deploy, monkeypatch):
+    from orquesta import migracion_cmd
+    run = ClaudeFalso(deploy)
+    marcar = migracion_cmd._marcar
+    def interrumpir(paths, diario, nombre):
+        marcar(paths, diario, nombre)
+        if nombre == "plugin_verificado":
+            raise RuntimeError("interrupción")
+    with monkeypatch.context() as m:
+        m.setattr(migracion_cmd, "_marcar", interrumpir)
+        with pytest.raises(RuntimeError):
+            corte(deploy, run)
+    run.habilitado = False  # el usuario lo deshabilitó entre corridas
+    antes = snapshot(deploy.agents_dir), deploy.claude_md.read_bytes()
+    estado, datos = corte(deploy, run)
+    assert estado == "ERROR" and "no se retira" in datos["motivo"]
+    assert antes == (snapshot(deploy.agents_dir), deploy.claude_md.read_bytes())
+
+
+def test_marketplace_ajeno_frena_con_instrucciones_y_el_rollback_no_lo_borra(deploy, tmp_path):
+    run = ClaudeFalso(deploy)
+    deploy.plugins_dir.mkdir(exist_ok=True)
+    ajeno = {"orquesta-local": {"source": {"source": "directory", "path": str(tmp_path / "otro")}}}
+    (deploy.plugins_dir / "known_marketplaces.json").write_text(json.dumps(ajeno))
+    estado, datos = corte(deploy, run)
+    assert estado == "ERROR" and "marketplace remove orquesta-local" in datos["motivo"]
+    assert json.loads((deploy.plugins_dir / "known_marketplaces.json").read_text()) == ajeno

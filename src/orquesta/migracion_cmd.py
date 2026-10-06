@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -27,7 +28,8 @@ PLUGIN = "orquesta@orquesta-local"
 def run_claude(cmd: list[str], *, env: dict) -> tuple[int, str, str]:
     """Ejecuta la CLI en la configuración indicada, nunca heredando el destino."""
     try:
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
+        # cwd neutro: `claude plugin list` también mira los plugins del proyecto del cwd.
+        proc = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=tempfile.gettempdir(),
                               stdin=subprocess.DEVNULL, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, "", str(exc)
@@ -49,28 +51,29 @@ def _plugin_generado(paths: Paths) -> bool:
                                      paths.plugin_dir / "plugin.json"))
 
 
-def _plugin_instalado(paths: Paths, run: Runner) -> bool:
-    """Exige que orquesta-local se lea desde el plugin local resuelto."""
+def _estado_plugin(paths: Paths, run: Runner) -> str:
+    """Estado real según `claude plugin list --json`: "ausente", "deshabilitado", "otra_carpeta" u "ok".
+
+    Solo cuenta `readFromFolder` (la carpeta desde la que Claude Code lee el plugin); `installPath` es la
+    copia en plugins/cache y no prueba nada.
+    """
     data = json.loads(_ejecutar(paths, run, "list", "--json"))
     entries = data.get("plugins", []) if isinstance(data, dict) else data
-    if isinstance(entries, dict):
-        entries = [{**entry, "id": pid} for pid, values in entries.items()
-                   for entry in (values if isinstance(values, list) else [values])
-                   if isinstance(entry, dict)]
     if not isinstance(entries, list):
-        return False
+        return "ausente"
     for entry in entries:
-        if not isinstance(entry, dict):
+        if not isinstance(entry, dict) or entry.get("id") != PLUGIN:
             continue
-        pid = entry.get("id") or entry.get("name")
-        if pid != PLUGIN and not (pid == "orquesta" and entry.get("marketplace") == "orquesta-local"):
-            continue
-        origin = (entry.get("readFromFolder") or entry.get("readFrom") or entry.get("read_from")
-                  or entry.get("Read from:")
-                  or entry.get("installPath"))
-        if isinstance(origin, str) and Path(origin).resolve() == paths.plugin_dir.resolve():
-            return True
-    return False
+        origen = entry.get("readFromFolder")
+        if not (isinstance(origen, str) and Path(origen).resolve() == paths.plugin_dir.resolve()):
+            return "otra_carpeta"
+        return "ok" if entry.get("enabled") is True else "deshabilitado"
+    return "ausente"
+
+
+def _plugin_instalado(paths: Paths, run: Runner) -> bool:
+    """Instalado, habilitado y leyendo de paths.plugin_dir."""
+    return _estado_plugin(paths, run) == "ok"
 
 
 def _marketplace_presente(paths: Paths) -> bool:
@@ -79,7 +82,14 @@ def _marketplace_presente(paths: Paths) -> bool:
         data = json.loads((paths.claude_dir / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return isinstance(data, dict) and "orquesta-local" in data
+    if not isinstance(data, dict) or "orquesta-local" not in data:
+        return False
+    origen = ((data["orquesta-local"] or {}).get("source") or {}).get("path")
+    if not (isinstance(origen, str) and Path(origen).resolve() == paths.plugin_root.resolve()):
+        raise ValueError(f"ya existe un marketplace `orquesta-local` que apunta a {origen!r}, no a "
+                         f"{paths.plugin_root}: sacalo con `claude plugin marketplace remove orquesta-local` "
+                         "y volvé a correr el corte")
+    return True
 
 
 def _diario_path(paths: Paths) -> Path:
@@ -206,8 +216,7 @@ def migrar_corte(paths: Paths, run: Runner, confirmar: bool, generacion: str | N
                 _backup_fijado(paths, diario)
                 _marcar(paths, diario, "backup_ok")
             if "plugin_generado" not in pasos:
-                if not _plugin_generado(paths):
-                    _generar_plugin(paths)
+                _generar_plugin(paths)  # siempre: un plugin viejo o editado a mano no se instala
                 _marcar(paths, diario, "plugin_generado")
             if "plugin_instalado" not in pasos:
                 # Se reconcilia con el estado real, no con el diario: si una corrida anterior se cortó
@@ -216,9 +225,15 @@ def migrar_corte(paths: Paths, run: Runner, confirmar: bool, generacion: str | N
                 if not _marketplace_presente(paths):
                     _ejecutar(paths, run, "marketplace", "add", str(paths.plugin_root))
                     agregado_ahora = True
-                diario["marketplace_agregado"] = time.time()
-                _guardar(paths, diario)
-                if not _plugin_instalado(paths, run):
+                    diario["marketplace_agregado"] = time.time()  # solo si lo agregó orquesta
+                    _guardar(paths, diario)
+                estado_plugin = _estado_plugin(paths, run)
+                if estado_plugin == "otra_carpeta":
+                    raise ValueError(f"{PLUGIN} está instalado desde otra carpeta: desinstalalo con "
+                                     f"`claude plugin uninstall {PLUGIN} -s user` y volvé a correr el corte")
+                if estado_plugin == "deshabilitado":
+                    _ejecutar(paths, run, "enable", PLUGIN, "-s", "user")
+                elif estado_plugin == "ausente":
                     try:
                         _ejecutar(paths, run, "install", PLUGIN, "-s", "user")
                     except ValueError:
@@ -234,6 +249,10 @@ def migrar_corte(paths: Paths, run: Runner, confirmar: bool, generacion: str | N
                     raise ValueError(f"orquesta no está instalado con Read from: {paths.plugin_dir.resolve()}")
                 _marcar(paths, diario, "plugin_verificado")
             if "legacy_retirado" not in pasos:
+                # Se verifica de nuevo con el estado real justo antes de retirar: la marca del diario puede
+                # ser de una corrida anterior y el plugin pudo desinstalarse o deshabilitarse en el medio.
+                if not _plugin_instalado(paths, run):
+                    raise ValueError("el plugin ya no está instalado y habilitado: no se retira el deploy viejo")
                 original = generate._read(paths.claude_md)
                 nuevo = remove_block(original) if original is not None else None
                 if paths.agents_dir.exists():
@@ -327,11 +346,11 @@ def migrar_rollback(paths: Paths, run: Runner, confirmar: bool, generacion: str 
             if "rollback_legacy_verificado" not in pasos:
                 _marcar(paths, diario, "rollback_legacy_verificado")
             if "rollback_plugin_desinstalado" not in pasos:
-                if _plugin_instalado(paths, run):  # estado real: también cubre un install sin marca
+                if _estado_plugin(paths, run) in ("ok", "deshabilitado"):  # estado real: cubre un install sin marca
                     _ejecutar(paths, run, "uninstall", PLUGIN, "-s", "user")
                 _marcar(paths, diario, "rollback_plugin_desinstalado")
             if "rollback_marketplace_retirado" not in pasos:
-                if _marketplace_presente(paths):
+                if diario.get("marketplace_agregado") and _marketplace_presente(paths):
                     _ejecutar(paths, run, "marketplace", "remove", "orquesta-local")
                 _marcar(paths, diario, "rollback_marketplace_retirado")
             migracion.set_fase(paths, "legacy")
