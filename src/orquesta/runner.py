@@ -312,7 +312,11 @@ def hold_slots(paths: Paths, backend: str, n: int) -> Iterator[None]:
 
 def _resolve(paths: Paths, agent: str) -> tuple[mf.DeployedAgent | None, dict | None,
                                                  Backend | None, RunResult | None]:
-    manifest = mf.load(paths)
+    try:
+        manifest = mf.load(paths)
+    except mf.ManifestError as exc:
+        return None, None, None, RunResult("ERROR", detail=f"{exc}; corré `orquesta doctor` para diagnosticar",
+                                           meta={"agent": agent})
     entry = mf.deployed_agent(manifest, agent)
     if entry is None:
         return None, None, None, RunResult("ERROR", detail=(

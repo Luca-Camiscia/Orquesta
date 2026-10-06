@@ -7,7 +7,7 @@ import shutil
 import pytest
 
 from helpers import REPO, dump_yaml, git, load_yaml
-from orquesta import catalog, doctor, worktrees
+from orquesta import catalog, doctor, migracion, worktrees
 from orquesta.generate import apply_plan, build_plan
 from orquesta.runner import RunResult
 
@@ -92,6 +92,29 @@ def check(report, cid):
 def test_todo_ok(denv):
     r = correr(denv)
     assert r.overall == "ok", [(c.id, c.status, c.message) for c in r.checks if c.status != "ok"]
+
+
+@pytest.mark.parametrize("fase", ["plugin", "legacy"])
+@pytest.mark.parametrize("live", [False, True])
+@pytest.mark.parametrize("only", [None, "agentes", "claude-md"])
+def test_manifiesto_ausente_o_corrupto_es_fail(denv, fase, live, only):
+    if fase == "legacy":
+        denv.manifest.write_text("invalid", encoding="utf-8")
+    migracion.set_fase(denv, fase)
+    report = correr(denv, live=live, only=only)
+    assert report.overall == "fail"
+    c = next(c for c in report.checks if f"manifiesto de la fase {fase}" in c.message)
+    assert c.status == "fail"
+    assert "orquesta generate" in c.suggestion
+    assert "state/migracion/" in c.suggestion
+
+
+def test_archivo_de_fase_corrupto_es_fail_sin_traceback(denv):
+    migracion.set_fase(denv, "legacy")
+    next((denv.state_dir / "migracion").glob("*.json")).write_text("no es json", encoding="utf-8")
+    report = correr(denv)
+    assert report.overall == "fail"
+    assert any("fase de deploy" in c.message and c.status == "fail" for c in report.checks)
 
 
 def test_md_editado_a_mano_es_warn_y_sugiere_regenerar(denv):

@@ -99,3 +99,61 @@ def test_clean_de_rama_sin_mergear_requiere_force(env, repo):
         worktrees.clean(env, wt.branch)
     worktrees.clean(env, wt.branch, force=True)
     assert not wt.path.exists()
+
+
+def test_find_rama_en_varios_repos_requiere_repo(env, repo, tmp_path):
+    otro = tmp_path / "otro"
+    git(tmp_path, "clone", "-q", str(repo), str(otro))
+    a = worktrees.create(env, repo=repo, agent="codex-forja", task="fix")
+    b = worktrees.create(env, repo=otro, agent="codex-forja", task="fix")
+    assert a.branch == b.branch
+    with pytest.raises(worktrees.WorktreeError, match="varios repos registrados"):
+        worktrees._find(env, a.branch)
+    assert worktrees._find(env, a.branch, repo=repo / ".") == a
+    worktrees.discard(env, a.branch, repo=repo)
+    assert worktrees.list_worktrees(env) == [b]
+
+
+def test_merge_sha_mergea_el_commit_revisado(env, repo, monkeypatch):
+    wt = worktrees.create(env, repo=repo, agent="codex-forja", task="fix")
+    (wt.path / "b.txt").write_text("nuevo\n")
+    worktrees.commit_all(wt, "fix")
+    sha = git(wt.path, "rev-parse", "HEAD")
+    comandos = []
+    original = worktrees._git
+
+    def registrar(cwd, *args, **kwargs):
+        comandos.append(args)
+        return original(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(worktrees, "_git", registrar)
+    result = worktrees.merge_sha(env, wt.branch, sha, "main", repo=repo)
+    assert result == {"status": "ok", "sha_merged": sha, "destino": "main"}
+    assert git(repo, "rev-parse", "HEAD") == sha
+    assert (repo / "b.txt").read_text() == "nuevo\n"
+    assert ("merge", "--no-edit", sha) in comandos
+    assert ("merge", "--no-edit", wt.branch) not in comandos
+
+
+@pytest.mark.parametrize("problema,mensaje", [
+    ("rama", "destino"), ("sucio", "limpio"), ("sha", "review vieja"),
+    ("base", "ancestro"), ("worktree_sucio", "limpio")])
+def test_merge_sha_barreras(env, repo, problema, mensaje):
+    wt = worktrees.create(env, repo=repo, agent="codex-forja", task="fix")
+    sha = wt.base_sha
+    if problema == "rama":
+        git(repo, "checkout", "-qb", "otra")
+    elif problema == "sucio":
+        (repo / "a.txt").write_text("cambio sin commit\n")
+    elif problema == "worktree_sucio":
+        (wt.path / "a.txt").write_text("cambio sin commit\n")
+    elif problema == "sha":
+        (wt.path / "b.txt").write_text("nuevo")
+        worktrees.commit_all(wt, "fix")
+    elif problema == "base":
+        git(repo, "checkout", "--orphan", "nueva")
+        git(repo, "commit", "-qm", "otra historia")
+        git(repo, "branch", "-M", "main")
+    with pytest.raises(worktrees.WorktreeError, match=mensaje):
+        worktrees.merge_sha(env, wt.branch, sha, "main", repo=repo)
+    assert git(wt.path, "rev-parse", "HEAD") == worktrees._branch_tip(repo, wt.branch)

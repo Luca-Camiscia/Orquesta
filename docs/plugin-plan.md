@@ -10,6 +10,7 @@ rondas de preguntas). Autor: `claude-arquitecto`; review adversarial: `codex-abo
 - Status line: `orquesta tareas --linea`, enchufada a mano en `statusLine`. La API de hooks early access queda fuera de v1.
 - Conversaciones viejas: solo en disco y export.
 - Sandbox de Bash de Claude Code (opción c): no en v1, solo documentado.
+- `!` no tiene TTY (probado por el usuario: `not a tty`): las confirmaciones se corren en una segunda terminal. Sin bandeja web.
 
 ## Modelo de amenaza
 
@@ -33,7 +34,7 @@ vea, y que una evasión deliberada deje rastro.
    solo aviso. (b) Freno real: `merge --confirm|--forzar`, `descartar --confirm`, `generate --confirm`,
    `migrar corte|rollback --confirm` y la confirmación de línea base leen de `/dev/tty` un texto
    (rama, agente o "corte"). Sin TTY (el Bash tool no tiene) → `NECESITO_CONFIRMACION`, exit 3 y el
-   comando exacto para que lo corra el usuario. Sin variable de entorno que lo saltee; en tests el
+   comando exacto para que el usuario lo corra en una segunda terminal (`!` no tiene TTY). Sin variable de entorno que lo saltee; en tests el
    lector se inyecta. `/api/apply` de la UI conserva su `confirm` (clic del usuario + token).
 4. **CLI.** Sobre `{"version":1,"comando","estado","generacion","datos","errores","avisos"}`, exit
    0/1/3 (`docs/cli-json.md`). Comandos: `reunion`, `review`, `merge`, `descartar`,
@@ -90,6 +91,21 @@ Reglas comunes: worktree `orquesta/<agente>/<tarea>`, `PYTHONPATH=$PWD/src uv ru
 Reviews: el orquestador en todos; `claude-centinela` en E1.3, E2.4, E3.1 y E5.1; `gemini-ux-revisor` en
 E4.1. Paralelismo: codex ≤ 2, claude ≤ 3.
 
+## Resultados del spike E2.0/E3.0 (ver `docs/headless.md`)
+
+- Confirmado: namespace `orquesta:<n>`, `additionalContext` llega al modelo, `--agent orquesta:<n>`,
+  marketplace de carpeta que se lee en vivo, `--continue` en cwd dedicado, `dontAsk` con allow-list.
+- PreToolUse `ask` en `claude -p` equivale a **deny** (también con `bypassPermissions`). Se mantiene: los
+  delegados headless nunca pueden correr comandos con `--confirm`. El `permissionDecisionReason` dice que
+  la confirmación la corre el usuario en su terminal.
+- `agent_type` llega con prefijo (`orquesta:claude-juez`) y no existe sin `--agent` (E2.4).
+- Con cwd bajo `/home/luca`, Claude carga `~/.claude/CLAUDE.md` como memoria de un directorio ancestro
+  aunque `CLAUDE_CONFIG_DIR` sea otro. El E2E (E5.2) corre con el proyecto de prueba bajo `/tmp`, si no
+  ve el bloque global de orquesta duplicado.
+- E2.3: el plugin se escribe en una carpeta temporal y se renombra (no exponer escrituras a medias a
+  `/reload-plugins`). E2.5: `plugin-instalado` verifica que `claude plugin list` diga "Read from: <carpeta>".
+- E3.1: `--continue` + `dontAsk` + allow-list alcanzan; `state/rrhh/` es exclusivo de RR. HH.
+
 ## Riesgos
 
 Tope de 600 s del Bash tool (reuniones en background); namespace `orquesta:`; SessionStart que falla en
@@ -101,4 +117,5 @@ lo que pida; generate no atómico frente a `/reload-plugins`.
 
 ## Progreso
 
+- Hecho: E0.1, E1.2, E2.0, E3.0 (2026-10-05).
 - [ ] E0 · [ ] E1 · [ ] E2 · [ ] E3 · [ ] E4 · [ ] E5

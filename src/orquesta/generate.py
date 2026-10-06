@@ -22,7 +22,7 @@ from filelock import FileLock
 
 from orquesta import guard, manifest
 from orquesta.claude_md import MarkerError, apply_block, find_block
-from orquesta.config import load_all, read_manual
+from orquesta.config import load_all, read_manual, registry_at_head
 from orquesta.paths import Paths
 from orquesta.render import RenderContext, render_agent_md, render_block_inner
 from orquesta.schema import ConfigError
@@ -109,8 +109,14 @@ def _read(path: Path) -> str | None:
         return None
 
 
-def _baseline(paths: Paths) -> dict[str, guard.Baseline] | None:
-    deployed = manifest.load(paths)
+def _baseline(paths: Paths, manual_texts: dict[str, str]) -> dict[str, guard.Baseline] | None:
+    """Lo desplegado (manifiesto). Sin manifiesto es el primer deploy: no hay línea base.
+    Con el manifiesto roto, la línea base sale de HEAD, así generate puede repararlo sin apagar el guard."""
+    try:
+        deployed = manifest.load(paths)
+    except manifest.ManifestError:
+        head = registry_at_head(paths)
+        return guard.baseline_from_registry(head, manual_texts) if head else None
     if deployed is not None and ("guard" in deployed or "agents" in deployed):
         return guard.baseline_from_manifest(deployed)
     return None
@@ -135,7 +141,7 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         elif a.enabled:
             plan.errors.append(f"agente {a.name!r}: es manual pero no existe manual/{a.name}.md")
 
-    baseline = _baseline(paths)
+    baseline = _baseline(paths, manual_texts)
     plan.violations = guard.pending(guard.check(baseline, reg, manual_texts),
                                     confirmations)
 

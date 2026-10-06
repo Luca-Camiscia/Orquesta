@@ -314,3 +314,15 @@ def test_cambiar_solo_route_when_no_pide_confirmacion(env):
     editar_registro(env, lambda d: d["agents"][1].update(route_when=["otro caso"]))
     assert build_plan(env).violations == []
     aplicar(env)
+
+
+def test_manifiesto_roto_usa_head_y_el_guard_sigue_activo(env):
+    aplicar(env)
+    env.manifest.write_text("no es json", encoding="utf-8")
+    editar_registro(env, lambda d: d["agents"][3].update(prompt="nuevo prompt"))
+    plan = build_plan(env)
+    assert plan.errors == []
+    assert [v.agent for v in plan.violations] == ["mantenedor"]
+    plan2 = build_plan(env, confirmations={"mantenedor"})
+    assert apply_plan(plan2, "repara el manifiesto", run_tests=ok_tests).applied
+    assert json.loads(env.manifest.read_text(encoding="utf-8"))["agents"]

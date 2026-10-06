@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from helpers import dump_yaml, git, load_yaml
-from orquesta import doctor
+from orquesta import doctor, migracion
 from orquesta.generate import apply_plan, build_plan
 from orquesta.ui.app import create_app
 
@@ -35,6 +35,20 @@ def estado(client):
     r = client.get("/api/state")
     assert r.status_code == 200, r.text
     return r.json()
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+def test_manifest_error_devuelve_json_sin_traceback(client, app_env, fase):
+    if fase == "legacy":
+        app_env.manifest.write_text("invalid", encoding="utf-8")
+    migracion.set_fase(app_env, fase)
+    # generate tiene que poder reparar un manifiesto roto (línea base desde HEAD)
+    assert client.post("/api/apply/dry-run", json={}).status_code == 200
+    r = client.get("/api/state")
+    assert r.status_code == 500
+    errores = r.json()["errors"]
+    assert f"manifiesto de la fase {fase}" in errores[0] and "Traceback" not in errores[0]
+    assert r.headers["x-frame-options"] == "DENY"
 
 
 def agente(client, nombre):
