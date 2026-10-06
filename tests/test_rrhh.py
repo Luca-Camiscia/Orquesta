@@ -196,7 +196,7 @@ def test_evaluar_reviews_de_store(env):
 
 def test_evaluar_incluye_reviews_de_tareas(env):
     from orquesta import tareas
-    for n, veredicto in enumerate(("ACEPTAR", "RECHAZAR", "REVISAR", None)):
+    for n, veredicto in enumerate(("APROBAR", "RECHAZAR", "APROBAR CON CAMBIOS", None)):
         tareas.registrar("proyecto", {"repo": str(env.home), "rama": f"b{n}",
                          "agente": "codex-forja", "veredicto": veredicto}, paths=env)
     a = next(a for a in rrhh.evaluar(env) if a["name"] == "codex-forja")

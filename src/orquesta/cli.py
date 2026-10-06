@@ -249,7 +249,6 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
         prompt = revision.prompt_review(project["name"], project["dir"], diff, evidencia)
         reply = (executor or chat.default_executor)(paths, project, revisor, prompt)
         veredicto = revision.parsear_veredicto(reply.text) if not reply.error else None
-        veredicto = {"APROBAR": "ACEPTAR", "APROBAR CON CAMBIOS": "REVISAR"}.get(veredicto, veredicto)
         registro = tareas.actualizar(pid, wt.branch, {
             "sha_revisado": sha if not reply.error else None, "tests_sha": tests_sha,
             "tests_ok": tests["ok"] if tests is not None else None,
@@ -281,10 +280,14 @@ def cmd_merge(args: argparse.Namespace, *, leer_tty=None) -> int:
         if registro["status"] != "abierto":
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO, motivo="la tarea no está abierta")
         sha = worktrees._branch_tip(wt.repo, wt.branch)
-        if sha != registro.get("sha_revisado") or sha != registro.get("tests_sha"):
+        if sha != registro.get("sha_revisado"):
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO,
                                motivo=f"review vieja: corré `orquesta review {wt.branch}`")
-        razones = revision.razones_bloqueo(registro)
+        # tests_sha solo se exige igual si hubo tests (tests_ok no es None)
+        if registro.get("tests_ok") is not None and sha != registro.get("tests_sha"):
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO,
+                               motivo=f"review vieja: corré `orquesta review {wt.branch}`")
+        razones = revision.razones_bloqueo(tareas.a_registro_review(registro))
         if razones and not args.forzar:
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO, {"razones": razones}, "\n".join(razones))
         resultado = _confirmar_tarea(args, wt.repo, leer_tty=leer_tty)
@@ -337,7 +340,7 @@ def cmd_tareas(args: argparse.Namespace) -> int:
         registros = tareas.listar(worktrees.project_id(repo), "abierto", paths=paths)
         if args.linea:
             reviews = sum(r.get("veredicto") is not None for r in registros)
-            bloqueadas = sum(bool(revision.razones_bloqueo(r)) for r in registros)
+            bloqueadas = sum(bool(revision.razones_bloqueo(tareas.a_registro_review(r))) for r in registros)
             print(f"{len(registros)} tareas abiertas ({reviews} en review, {bloqueadas} bloqueadas)")
             return 0
         return _emit_tarea(args.cmd, cli_json.OK, {

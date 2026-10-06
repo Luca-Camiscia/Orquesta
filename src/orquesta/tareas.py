@@ -91,3 +91,20 @@ def listar(project_id: str, filtro_status: str | None = None, *,
     archivo = _archivo(project_id, paths)
     with _lock(archivo):
         return [r for r in _leer(archivo) if filtro_status is None or r["status"] == filtro_status]
+
+
+def a_registro_review(tarea: dict) -> dict:
+    """Adapta un registro de tarea a formato para revision.razones_bloqueo.
+    
+    Entrada: registro de tareas.json con keys rama, tests_ok, tests_cmd, confianza_autor, veredicto
+    Salida: dict con keys branch, tests, confianza_autor, review.veredicto
+    """
+    tests = None
+    if tarea.get("tests_ok") is not None:
+        tests = {"ok": tarea["tests_ok"], "cmd": tarea.get("tests_cmd", "")}
+    return {
+        "branch": tarea.get("rama", ""),
+        "tests": tests,
+        "confianza_autor": tarea.get("confianza_autor"),  # ya en 0-100
+        "review": {"veredicto": tarea.get("veredicto")},  # tal cual parsear_veredicto
+    }

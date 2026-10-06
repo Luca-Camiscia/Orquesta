@@ -117,9 +117,7 @@ def _reviews(conversaciones: list[dict], paths: Paths | None = None) -> list[tup
         for archivo in sorted(paths.state_dir.glob("*/tareas.json")):
             for tarea in tareas.listar(archivo.parent.name, paths=paths):
                 if tarea.get("veredicto") and tarea.get("agente"):
-                    verdict = tarea["veredicto"].upper()
-                    out.append((tarea["agente"], {"ACEPTAR": "APROBAR", "REVISAR": "APROBAR CON CAMBIOS"}
-                                .get(verdict, verdict)))
+                    out.append((tarea["agente"], tarea["veredicto"]))
     return out
 
 

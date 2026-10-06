@@ -25,7 +25,7 @@ def tarea(env, tmp_path, monkeypatch):
     tareas.registrar(pid, {"repo": str(repo), "rama": wt.branch, "agente": wt.agent,
                           "destino": "main", "base_sha": wt.base_sha, "tests_cmd": "true",
                           "sha_revisado": sha, "tests_sha": sha, "tests_ok": True,
-                          "veredicto": "ACEPTAR", "confianza_autor": 0.9}, paths=env)
+                          "veredicto": "APROBAR", "confianza_autor": 90}, paths=env)
     monkeypatch.setattr(cli, "default_paths", lambda: env)
     monkeypatch.chdir(repo)
     return wt, pid, sha
@@ -61,7 +61,7 @@ def test_review_con_veredicto_rechazar(env, tarea, monkeypatch, capsys):
     registro = tareas.obtener(pid, wt.branch, paths=env)
     assert registro["sha_revisado"] == registro["tests_sha"] == sha
     assert registro["revisor"] == "gemini-reclutador"
-    assert registro["confianza_autor"] == 0.9  # no atribuirle al autor la confianza del revisor
+    assert registro["confianza_autor"] == 90  # no atribuirle al autor la confianza del revisor
 
 
 def test_merge_sin_confirm_necesita_confirmacion(tarea, capsys):
@@ -215,7 +215,7 @@ def test_review_registra_tarea_y_descubre_tests_del_proyecto(env, tarea, revisor
     config.write_text('[worktree]\ntests = "test -f b.txt"\n')
     assert cli.main(["review", wt.branch]) == 0
     datos = salida(capsys)["datos"]
-    assert datos["veredicto"] == "ACEPTAR" and datos["destino"] == "main"
+    assert datos["veredicto"] == "APROBAR" and datos["destino"] == "main"
     assert datos["tests_cmd"] == "test -f b.txt" and datos["tests_ok"] is True
     assert datos["tests_sha"] == datos["sha_revisado"] == sha
     # La configuración local queda fuera del merge; al limpiarla, la review habilita el SHA.
@@ -234,20 +234,22 @@ def test_review_bloqueadores_tests_y_confianza(env, tarea, revisor, capsys, camp
     wt, pid, _ = tarea
     tareas.actualizar(pid, wt.branch, campos, paths=env)
     assert cli.main(["review", wt.branch]) == 0
-    assert salida(capsys)["datos"]["veredicto"] == "ACEPTAR"
+    assert salida(capsys)["datos"]["veredicto"] == "APROBAR"
     assert cli.main(["merge", wt.branch, "--confirm"]) == 3
     assert motivo in str(salida(capsys)["errores"])
     assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha
 
 
-def test_review_sin_tests_no_inventa_evidencia(env, tarea, revisor, capsys):
+def test_review_sin_tests_no_inventa_evidencia(env, tarea, revisor, capsys, monkeypatch):
     wt, pid, _ = tarea
     tareas.actualizar(pid, wt.branch, {"tests_cmd": None}, paths=env)
     assert cli.main(["review", wt.branch]) == 0
     datos = salida(capsys)["datos"]
     assert datos["tests_sha"] is None and datos["tests_ok"] is None
-    assert cli.main(["merge", wt.branch, "--confirm", "--forzar"]) == 3
-    assert salida(capsys)["estado"] == "BLOQUEADO"
+    # Sin tests, merge debe funcionar con TTY correcta y veredicto APROBAR
+    tty(monkeypatch, wt.branch)
+    assert cli.main(["merge", wt.branch, "--confirm"]) == 0
+    assert salida(capsys)["estado"] == "OK"
 
 
 @pytest.mark.parametrize("texto,error", [("sin veredicto", None), ("Veredicto: APROBAR", "falló el backend")])

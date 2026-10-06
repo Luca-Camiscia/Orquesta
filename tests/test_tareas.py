@@ -12,9 +12,9 @@ def test_registro_actualizar_y_listar(env, tmp_path):
     assert a["status"] == "abierto" and a["sha_revisado"] is None
     assert a["tests_ok"] is None
     tareas.registrar("proyecto", {"repo": repo, "rama": "feature", "tests_cmd": "true"}, paths=env)
-    tareas.actualizar("proyecto", "feature", {"veredicto": "ACEPTAR"}, repo=repo, paths=env)
+    tareas.actualizar("proyecto", "feature", {"veredicto": "APROBAR"}, repo=repo, paths=env)
     assert tareas.obtener("proyecto", "feature", paths=env)["agente"] == "codex"
-    assert tareas.listar("proyecto", "abierto", paths=env)[0]["veredicto"] == "ACEPTAR"
+    assert tareas.listar("proyecto", "abierto", paths=env)[0]["veredicto"] == "APROBAR"
     tareas.actualizar("proyecto", "feature", {"status": "descartado"}, paths=env)
     assert tareas.listar("proyecto", "abierto", paths=env) == []
     assert len(json.loads((env.state_dir / "proyecto" / "tareas.json").read_text())) == 1
