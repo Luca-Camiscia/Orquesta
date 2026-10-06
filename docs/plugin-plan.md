@@ -91,6 +91,21 @@ Reglas comunes: worktree `orquesta/<agente>/<tarea>`, `PYTHONPATH=$PWD/src uv ru
 Reviews: el orquestador en todos; `claude-centinela` en E1.3, E2.4, E3.1 y E5.1; `gemini-ux-revisor` en
 E4.1. Paralelismo: codex ≤ 2, claude ≤ 3.
 
+## Resultados del spike E2.0/E3.0 (ver `docs/headless.md`)
+
+- Confirmado: namespace `orquesta:<n>`, `additionalContext` llega al modelo, `--agent orquesta:<n>`,
+  marketplace de carpeta que se lee en vivo, `--continue` en cwd dedicado, `dontAsk` con allow-list.
+- PreToolUse `ask` en `claude -p` equivale a **deny** (también con `bypassPermissions`). Se mantiene: los
+  delegados headless nunca pueden correr comandos con `--confirm`. El `permissionDecisionReason` dice que
+  la confirmación la corre el usuario en su terminal.
+- `agent_type` llega con prefijo (`orquesta:claude-juez`) y no existe sin `--agent` (E2.4).
+- Con cwd bajo `/home/luca`, Claude carga `~/.claude/CLAUDE.md` como memoria de un directorio ancestro
+  aunque `CLAUDE_CONFIG_DIR` sea otro. El E2E (E5.2) corre con el proyecto de prueba bajo `/tmp`, si no
+  ve el bloque global de orquesta duplicado.
+- E2.3: el plugin se escribe en una carpeta temporal y se renombra (no exponer escrituras a medias a
+  `/reload-plugins`). E2.5: `plugin-instalado` verifica que `claude plugin list` diga "Read from: <carpeta>".
+- E3.1: `--continue` + `dontAsk` + allow-list alcanzan; `state/rrhh/` es exclusivo de RR. HH.
+
 ## Riesgos
 
 Tope de 600 s del Bash tool (reuniones en background); namespace `orquesta:`; SessionStart que falla en
@@ -102,4 +117,5 @@ lo que pida; generate no atómico frente a `/reload-plugins`.
 
 ## Progreso
 
+- Hecho: E0.1, E1.2, E2.0, E3.0 (2026-10-05).
 - [ ] E0 · [ ] E1 · [ ] E2 · [ ] E3 · [ ] E4 · [ ] E5
