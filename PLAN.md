@@ -69,3 +69,7 @@ de agentes es nuevo: el watcher no existía). Por eso el paso 7 corre en una ses
 5. Flujo real en ~/orquesta/sandbox/empanometro (repo git): bibliotecario diagnostica, forjador
    arregla en su worktree, abogado del diablo revisa, el orquestador verifica con pytest y mergea.
    Presentado en mood debate.
+
+## Fase 2: plugin de Claude Code (aprobada el 2026-10-05)
+
+Brief en `docs/plugin-brief.md` y plan por etapas en `docs/plugin-plan.md` (el progreso se marca ahí).
