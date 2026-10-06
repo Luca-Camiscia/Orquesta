@@ -231,6 +231,9 @@ def test_un_plan_obsoleto_no_se_aplica(env):
     ("nuevo", "alta"), ("eliminar", "baja"), ("deshabilitar", "baja"),
     ("habilitar", "alta"), ("prompt", "prompt"), ("manual", "prompt"),
     ("sin_hash", "prompt"),
+    ("tools", "escalation"), ("isolation", "escalation"),
+    ("extra_nueva", "escalation"), ("extra_valor", "escalation"),
+    ("role", "escalation"), ("role_protegido", "protected"),
 ])
 def test_nuevas_reglas_salen_con_3_y_confirmadas_se_aplican(env, monkeypatch, capsys, case, kind):
     if case == "habilitar":
@@ -238,6 +241,8 @@ def test_nuevas_reglas_salen_con_3_y_confirmadas_se_aplican(env, monkeypatch, ca
     if case == "manual":
         editar_registro(env, lambda d: d["agents"][1].update(manual=True))
         (env.manual_dir / "codex-forja.md").write_text("versión A\n")
+    if case == "extra_valor":
+        editar_registro(env, lambda d: d["agents"][1].update(extra_frontmatter={"maxTurns": 10}))
     aplicar(env)
     if case == "nuevo":
         editar_registro(env, lambda d: d["agents"].append(
@@ -251,11 +256,21 @@ def test_nuevas_reglas_salen_con_3_y_confirmadas_se_aplican(env, monkeypatch, ca
     elif case == "sin_hash":
         m = json.loads(env.manifest.read_text())
         m["guard"]["codex-forja"].pop("prompt_sha256", None)
+        m["guard"]["codex-forja"].pop("role_hash", None)
         env.manifest.write_text(json.dumps(m))
         editar_registro(env, lambda d: d["agents"][1].update(role="Otro rol"))
+    elif case == "tools":
+        editar_registro(env, lambda d: d["agents"][1].update(tools=["Bash", "Write"]))
+    elif case == "isolation":
+        editar_registro(env, lambda d: d["agents"][1].update(isolation="none"))
+    elif case in ("extra_nueva", "extra_valor"):
+        editar_registro(env, lambda d: d["agents"][1].update(extra_frontmatter={"maxTurns": 20}))
+    elif case in ("role", "role_protegido"):
+        index = 3 if case == "role_protegido" else 1
+        editar_registro(env, lambda d: d["agents"][index].update(role="Otro rol"))
     else:
         editar_registro(env, lambda d: d["agents"][1].update(prompt="nuevo prompt"))
-    name = "nuevo" if case == "nuevo" else "codex-forja"
+    name = "nuevo" if case == "nuevo" else "mantenedor" if case == "role_protegido" else "codex-forja"
     assert [(v.agent, v.kind) for v in build_plan(env).violations] == [(name, kind)]
     monkeypatch.setenv("ORQUESTA_HOME", str(env.home))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(env.claude_dir))
@@ -333,3 +348,31 @@ def test_borrar_el_manifiesto_no_apaga_el_guard(env):
     env.manifest.unlink()
     editar_registro(env, lambda d: d["agents"][3].update(prompt="nuevo prompt"))
     assert [v.agent for v in build_plan(env).violations] == ["mantenedor"]
+
+
+def test_manifest_guarda_linea_base_efectiva_y_hashes(env):
+    import hashlib
+    editar_registro(env, lambda d: d["agents"][1].update(
+        tools=["Read", "Bash"], extra_frontmatter={"maxTurns": 10}))
+    aplicar(env)
+    entry = json.loads(env.manifest.read_text())["guard"]["codex-forja"]
+    assert entry["tools_effective"] == "Read, Bash"
+    assert entry["isolation_effective"] == "worktree"
+    assert entry["extra_frontmatter_dict"] == {"maxTurns": 10}
+    assert entry["extra_frontmatter_sha256"] == hashlib.sha256(b'{"maxTurns": 10}').hexdigest()
+    assert entry["role_hash"] == hashlib.sha256(b"Implementa fixes acotados.").hexdigest()
+
+
+def test_manifest_legacy_migra_campos_sin_falsos_positivos(env):
+    aplicar(env)
+    m = json.loads(env.manifest.read_text())
+    for entry in m["guard"].values():
+        for key in ("tools_effective", "isolation_effective", "extra_frontmatter_dict", "role_hash",
+                    "extra_frontmatter_sha256"):
+            entry.pop(key)
+    env.manifest.write_text(json.dumps(m))
+    plan = build_plan(env)
+    assert plan.errors == [] and plan.violations == []
+    assert [c.path for c in plan.changes] == [env.manifest]
+    assert apply_plan(plan, "migra la línea base", run_tests=ok_tests).applied
+    assert build_plan(env).empty

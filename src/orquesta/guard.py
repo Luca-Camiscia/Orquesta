@@ -12,22 +12,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Iterable
 
 from orquesta.catalog import ELEVATED_PERMISSION_MODES
-from orquesta.schema import Agent, Registry
-
-
-@dataclass(frozen=True)
-class Baseline:
-    entry_sha256: str
-    mode: str
-    protected: bool
-    permission_mode: str | None
-    plugins: tuple = ()
-    enabled: bool = True
-    prompt_sha256: str | None = None
+from orquesta.render import effective_tools
+from orquesta.schema import Agent, Baseline, Registry
 
 
 @dataclass(frozen=True)
@@ -35,6 +26,7 @@ class Violation:
     agent: str
     kind: str  # protected | escalation | permission_mode | plugins | alta | baja | prompt
     detail: str
+    title: str | None = None
 
     def __str__(self) -> str:
         return (f"{self.agent}: {self.detail}. Requiere confirmación explícita del usuario "
@@ -70,12 +62,35 @@ def prompt_hash(agent: Agent, manual_text: str | None = None) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _frontmatter_hash(fields: dict) -> str:
+    raw = json.dumps(fields, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _role_hash(agent: Agent) -> str:
+    return hashlib.sha256(agent.role.encode("utf-8")).hexdigest()
+
+
+_WRITE_TOOLS = frozenset({"Write", "Edit", "NotebookEdit", "MultiEdit", "Bash"})
+
+
+def _tool_names(value: str | list[str]) -> set[str]:
+    # Los argumentos de Agent(a,b) y Bash(...) no separan tools.
+    items = re.split(r",(?![^()]*\))", value) if isinstance(value, str) else value
+    return {item.strip().split("(", 1)[0] for item in items}
+
+
 def baseline_from_registry(reg: Registry,
                            manual_texts: dict[str, str] | None = None) -> dict[str, Baseline]:
     manual_texts = manual_texts or {}
     return {a.name: Baseline(entry_hash(a, manual_texts.get(a.name)), a.mode, a.protected,
                              _permission_mode(a), tuple(a.plugins), a.enabled,
-                             prompt_hash(a, manual_texts.get(a.name)))
+                             prompt_hash(a, manual_texts.get(a.name)),
+                             tools_effective=deepcopy(effective_tools(a)),
+                             isolation_effective=a.effective_isolation,
+                             extra_frontmatter_dict=deepcopy(a.extra_frontmatter or {}),
+                             extra_frontmatter_sha256=_frontmatter_hash(a.extra_frontmatter or {}),
+                             role_hash=_role_hash(a))
             for a in reg.agents}
 
 
@@ -89,7 +104,12 @@ def baseline_from_manifest(manifest: dict) -> dict[str, Baseline]:
                              bool(e.get("protected")), e.get("permission_mode"),
                              tuple(e.get("plugins") or ()),
                              enabled,
-                             e.get("prompt_sha256"))
+                             e.get("prompt_sha256"),
+                             tools_effective=e.get("tools_effective"),
+                             isolation_effective=e.get("isolation_effective"),
+                             extra_frontmatter_dict=e.get("extra_frontmatter_dict"),
+                             extra_frontmatter_sha256=e.get("extra_frontmatter_sha256"),
+                             role_hash=e.get("role_hash"))
     return out
 
 
@@ -129,6 +149,38 @@ def check(baseline: dict[str, Baseline] | None, new: Registry,
         if base and base.mode == "read-only" and agent.mode == "write":
             out.append(Violation(agent.name, "escalation", "pasa de read-only a write"))
         if base:
+            if base.tools_effective is not None:
+                before = _tool_names(base.tools_effective)
+                after = _tool_names(effective_tools(agent))
+                if "*" not in before:
+                    added_tools = sorted((after - before) & _WRITE_TOOLS)
+                    if "*" in after:
+                        added_tools = ["* (todas las tools)"]
+                    if added_tools:
+                        out.append(Violation(agent.name, "escalation",
+                                             f"se agregan tools de escritura o acceso a todas las tools "
+                                             f"({', '.join(added_tools)})", "tools"))
+            if (base.isolation_effective == "worktree" and agent.mode == "write"
+                    and agent.effective_isolation == "none"):
+                out.append(Violation(agent.name, "escalation",
+                                     "isolation pasa de worktree a none: escribe directo en el proyecto",
+                                     "isolation"))
+            if base.extra_frontmatter_dict is not None:
+                before_extra = base.extra_frontmatter_dict
+                after_extra = agent.extra_frontmatter or {}
+                before_hash = base.extra_frontmatter_sha256 or _frontmatter_hash(before_extra)
+                if before_hash != _frontmatter_hash(after_extra):
+                    keys = sorted(k for k in before_extra.keys() | after_extra.keys()
+                                  if k != "permissionMode" and (k not in before_extra
+                                      or k not in after_extra or before_extra[k] != after_extra[k]))
+                    if keys:
+                        out.append(Violation(agent.name, "escalation",
+                                             f"cambian claves o valores de extra_frontmatter ({', '.join(keys)})",
+                                             "extra_frontmatter"))
+            if (not base.protected and base.role_hash is not None
+                    and base.role_hash != _role_hash(agent)):
+                out.append(Violation(agent.name, "escalation",
+                                     "cambia role, que forma parte del prompt del agente en el .md", "role"))
             added = sorted(set(agent.plugins) - set(base.plugins))
             if added:
                 out.append(Violation(agent.name, "plugins", f"se le agregan plugins ({', '.join(added)})"))
