@@ -27,14 +27,16 @@ from filelock import FileLock
 from orquesta import manifest as mf
 from orquesta import procs, runner, worktrees
 from orquesta.paths import Paths
+from orquesta.revision import (
+    CONFIDENCE_ESCALATION, JUDGE, JUDGE_CANDIDATES, ORCHESTRATOR, REVIEW_PREFERENCE,
+    elegir_revisor, parsear_veredicto, prompt_review, razones_bloqueo,
+)
 
-ORCHESTRATOR = "orquestador"
 USER = "usuario"
 MAX_MODERATED_STEPS = 4
 MODES = ("rondas", "moderada", "critica", "posturas", "seccionado")
 STANCES = ("a favor", "en contra", "neutral")
 DEFAULT_ASPECTS = ("corrección", "seguridad", "performance", "mantenibilidad", "tests")
-JUDGE = "claude-juez"
 HISTORY_CHARS = 24000
 CLAUDE_TIMEOUT = 540
 CANCELLED = "ESTADO: CANCELADO — lo cortaste vos"
@@ -55,7 +57,6 @@ class NeedsForce(ChatError):
     """Mergear sin una review aprobada requiere confirmación explícita."""
 
 
-REVIEW_PREFERENCE = ("codex-abogado-del-diablo", "gemini-bibliotecario", "claude-centinela")
 REVIEW_DIFF_CHARS = 20000
 
 
@@ -555,13 +556,8 @@ def _verify_and_review(store: Store, cid: str, project: dict, writer: str, reply
 
 def _reviewer_for(store: Store, writer: str) -> str:
     manifest = mf.load(store.paths) or {}
-    agents = manifest.get("agents") or {}
-    family = (agents.get(writer) or {}).get("backend")
-    ok = [n for n, e in agents.items() if e.get("mode") == "read-only" and e.get("backend") != family]
-    for name in REVIEW_PREFERENCE:
-        if name in ok:
-            return name
-    return ok[0] if ok else ORCHESTRATOR
+    reviewer = elegir_revisor(manifest, writer)
+    return reviewer if reviewer is not None else ORCHESTRATOR
 
 
 def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str, executor: Executor,
@@ -579,17 +575,9 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
     else:
         evidencia = (f"Resultado de los tests del proyecto: {'PASARON' if tests['ok'] else 'FALLARON'} "
                      f"(`{tests['cmd']}`).\n```\n{tests['salida'][-800:]}\n```")
-    prompt = (f"Review automático en el proyecto «{project['name']}» ({project['dir']}). Un agente dejó estos "
-              f"cambios (no importa quién: juzgá solo el código):\n\n```diff\n{diff}\n```\n\n{evidencia}\n\n"
-              f"Revisalos: bugs, casos borde, tests que faltan, riesgos. Hallazgos por severidad con "
-              f"archivo:línea. Pasar los tests no prueba que esté bien. Solo podés RECHAZAR con un hallazgo "
-              f"concreto (archivo:línea y caso que falla); lo demás va como APROBAR CON CAMBIOS. Terminá con "
-              f"una línea exacta `Veredicto: APROBAR`, `Veredicto: APROBAR CON CAMBIOS` o `Veredicto: "
-              f"RECHAZAR`, y después RESULTADO y CONFIANZA.")
+    prompt = prompt_review(project["name"], project["dir"], diff, evidencia)
     r = _speak(store, cid, project, reviewer, executor, prompt=prompt, meta={"rol": "review", "branch": branch})
-    # "APROBAR" a secas solo si no sigue "CON ...": "APROBAR  CON CAMBIOS" o "APROBAR con reservas" no habilitan el merge.
-    m = re.search(r"Veredicto:\s*(APROBAR(?:\s+CON\s+CAMBIOS)?|RECHAZAR)\b(?!\s+CON\b)", r.text or "", re.I)
-    verdict = " ".join(m.group(1).upper().split()) if m else None
+    verdict = parsear_veredicto(r.text)
 
     def save(c):
         w = next((x for x in c["worktrees"] if x["branch"] == branch), None)
@@ -689,10 +677,6 @@ def _parallel(store: Store, cid: str, project: dict, executor: Executor,
     for th in threads:
         th.join()
     return out
-
-
-JUDGE_CANDIDATES = (JUDGE, "codex-abogado-del-diablo", "gemini-bibliotecario")
-CONFIDENCE_ESCALATION = 75  # umbral de escalado, no peso de voto (arXiv 2505.19184, 2306.13063)
 
 
 def _family(store: Store, name: str) -> str:
@@ -849,17 +833,10 @@ def _wt(conv: dict, branch: str) -> dict:
 def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> None:
     conv = store.get_conversation(cid)
     wt = _wt(conv, branch)
-    if wt.get("tests") and not wt["tests"]["ok"] and not force:
-        raise NeedsForce(f"los tests del proyecto FALLARON en {branch} (`{wt['tests']['cmd']}`). "
-                         f"Si querés mergear igual, confirmalo explícitamente.")
-    conf = wt.get("confianza_autor")
-    if conf is not None and conf < CONFIDENCE_ESCALATION and not force:
-        raise NeedsForce(f"el autor declaró confianza {conf} (< {CONFIDENCE_ESCALATION}): revisá el diff o pedí "
-                         f"otra opinión antes de mergear. Si querés mergear igual, confirmalo explícitamente.")
-    verdict = (wt.get("review") or {}).get("veredicto")
-    if verdict != "APROBAR" and not force:
-        raise NeedsForce(f"la review de {branch} no está aprobada (veredicto: {verdict or 'sin review'}). "
-                         f"Si querés mergear igual, confirmalo explícitamente.")
+    if not force:
+        razones = razones_bloqueo(wt)
+        if razones:
+            raise NeedsForce(razones[0])
     try:
         worktrees.merge(store.paths, branch)
     except worktrees.WorktreeError as exc:
