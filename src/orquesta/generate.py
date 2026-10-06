@@ -2,8 +2,8 @@
 
 build_plan valida, aplica los guardrails, renderiza y calcula el diff, sin escribir nada.
 apply_plan hace backup → escribe → corre los tests → CHANGELOG + commit, todo en un paso; si algo
-falla, restaura el backup. Fuera del repo de orquesta solo escribe en `paths.agents_dir` y en el
-bloque marcado de `paths.claude_md`.
+falla, restaura el backup. En legacy escribe agentes, bloque de CLAUDE.md y plugin; después del
+corte solo escribe el plugin.
 """
 from __future__ import annotations
 
@@ -20,10 +20,11 @@ from typing import Callable, Iterable
 
 from filelock import FileLock
 
-from orquesta import guard, manifest
+from orquesta import guard, manifest, migracion
 from orquesta.claude_md import MarkerError, apply_block, find_block
 from orquesta.config import load_all, read_manual, registry_at_head
 from orquesta.paths import Paths
+from orquesta.plugin_render import render_plugin
 from orquesta.render import RenderContext, render_agent_md, render_block_inner
 from orquesta.schema import ConfigError
 
@@ -68,6 +69,9 @@ class Plan:
     errors: list[str] = field(default_factory=list)
     violations: list[guard.Violation] = field(default_factory=list)
     summary: list[str] = field(default_factory=list)
+    fase: str = "legacy"
+    plugin_files: dict[Path, str] = field(default_factory=dict)
+    plugin_snapshot: dict[Path, bytes] = field(default_factory=dict)
 
     @property
     def empty(self) -> bool:
@@ -75,9 +79,15 @@ class Plan:
 
     def diff(self) -> str:
         out: list[str] = []
+        plugin_changes = [c for c in self.changes if c.path.is_relative_to(self.paths.plugin_root)]
+        grouped = len(plugin_changes) > 20
+        if grouped:
+            out.append(_plugin_summary(self.paths, plugin_changes) + "\n")
         for c in self.changes:
+            if grouped and c in plugin_changes:
+                continue
             label = self.paths.pretty(c.path)
-            if c.path == self.paths.manifest:
+            if c.path in (self.paths.manifest, self.paths.plugin_manifest):
                 out.append(f"~ {label} (manifiesto de deploy actualizado)\n")
                 continue
             a = "/dev/null" if c.old is None else f"a/{label}"
@@ -133,9 +143,13 @@ def _baseline(paths: Paths, manual_texts: dict[str, str]) -> dict[str, guard.Bas
 def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
     plan = Plan(paths=paths)
     try:
+        plan.fase = migracion.fase(paths)
         reg, backends = load_all(paths)
     except ConfigError as exc:
         plan.errors = exc.errors
+        return plan
+    except ValueError as exc:
+        plan.errors = [str(exc)]
         return plan
     ctx = RenderContext(paths=paths, backends=backends)
 
@@ -160,7 +174,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         if content is None:
             continue
         target = paths.agents_dir / f"{a.name}.md"
-        desired[target] = content
+        if plan.fase == "legacy":
+            desired[target] = content
         deployed[a.name] = {
             "file": target.name,
             "sha256": manifest.sha256(content),
@@ -178,14 +193,15 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         }
 
     block = render_block_inner(reg, ctx)
-    old_claude = _read(paths.claude_md)
+    old_claude = _read(paths.claude_md) if plan.fase == "legacy" else None
     new_claude = old_claude
-    try:
-        new_claude = apply_block(old_claude, block)
-    except MarkerError as exc:
-        plan.errors.append(str(exc))
+    if plan.fase == "legacy":
+        try:
+            new_claude = apply_block(old_claude, block)
+        except MarkerError as exc:
+            plan.errors.append(str(exc))
 
-    desired[paths.manifest] = manifest.dumps({
+    deploy_manifest = {
         "generated_by": "orquesta",
         "registry_sha256": manifest.sha256(_read(paths.registry) or ""),
         "agents": deployed,
@@ -193,20 +209,71 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
                   for name, base in guard.baseline_from_registry(reg, manual_texts).items()},
         "limits": reg.limits.model_dump(),
         "claude_md_block_sha256": manifest.sha256(block),
-    })
+    }
+    if plan.fase == "legacy":
+        desired[paths.manifest] = manifest.dumps(deploy_manifest)
 
-    for path, content in [*desired.items(), (paths.claude_md, block)]:
+    if plan.errors:
+        return plan
+    plugin_ctx = RenderContext(paths=paths, backends=backends, agent_prefix="orquesta:",
+                               agent_names=tuple(a.name for a in reg.agents))
+    context = {"paths": paths, "generacion": ""}
+    # Los hashes de agentes no dependen de generacion. El contexto se renderiza de nuevo
+    # con el hash del manifiesto sin su propio campo, para evitar una referencia circular.
+    files = render_plugin(reg, backends.model_dump(), context)
+    plugin_deployed = {
+        a.name: {**deployed[a.name],
+                 "sha256": manifest.sha256(files[f"orquesta/agents/{a.name}.md"]),
+                 "backend_prompt": plugin_ctx.substitute(a.prompt).strip() if a.is_external else ""}
+        for a in reg.enabled_agents()
+    }
+    plugin_manifest = {**deploy_manifest, "agents": plugin_deployed,
+                       "claude_md_block_sha256": manifest.sha256(render_block_inner(reg, plugin_ctx))}
+    # La generación identifica TODO el plugin (agentes, comandos, hooks, contexto con generacion vacía)
+    # y el manifiesto: cualquier cambio de contenido, también en las reglas del código, la cambia.
+    huella = "\n".join(f"{ruta}\0{files[ruta]}" for ruta in sorted(files))
+    generacion = manifest.sha256(huella + "\0" + manifest.dumps(plugin_manifest))[:8]
+    plugin_manifest["generacion"] = generacion
+    primera = files
+    files = render_plugin(reg, backends.model_dump(), {**context, "generacion": generacion})
+    contexto = "orquesta/context/orquestador.md"
+    if {r: c for r, c in files.items() if r != contexto} != {r: c for r, c in primera.items() if r != contexto}:
+        plan.errors.append("un archivo de entrada (manual/ o el registro) cambió mientras se armaba el plan; "
+                           "volvé a correr `orquesta generate --dry-run`")
+        return plan
+    # Los .md manuales del plugin tienen que ser los mismos textos que evaluó el guard.
+    for a in reg.enabled_agents():
+        if a.manual and files.get(f"orquesta/agents/{a.name}.md") != manual_texts.get(a.name):
+            plan.errors.append(f"manual/{a.name}.md cambió mientras se armaba el plan; volvé a correr "
+                               "`orquesta generate --dry-run`")
+            return plan
+    plan.plugin_files = {paths.plugin_root / relative: content for relative, content in files.items()}
+    plan.plugin_files[paths.plugin_manifest] = manifest.dumps(plugin_manifest)
+    desired.update(plan.plugin_files)
+    plan.plugin_snapshot = _plugin_snapshot(paths)
+
+    scan = list(desired.items())
+    if plan.fase == "legacy":
+        scan.append((paths.claude_md, block))
+    for path, content in scan:
         found = guard.scan_secrets(content)
         if found:
             plan.errors.append(f"posible secreto ({', '.join(found)}) en {paths.pretty(path)}: no "
                                f"se escribe nada. Sacalo del registro.")
 
-    if paths.agents_dir.is_dir():
+    if plan.fase == "legacy" and paths.agents_dir.is_dir():
         for existing in sorted(paths.agents_dir.glob("*.md")):
             if existing not in desired:
                 plan.changes.append(Change(existing, _read(existing), None))
+    for existing, content in sorted(plan.plugin_snapshot.items()):
+        if existing not in desired:
+            plan.changes.append(Change(existing, content.decode("utf-8", errors="replace"), None))
     for path, content in desired.items():
-        old = _read(path)
+        if path.is_relative_to(paths.plugin_root):
+            previous = plan.plugin_snapshot.get(path)
+            old = previous.decode("utf-8", errors="replace") if previous is not None else None
+        else:
+            old = _read(path)
         if old != content:
             plan.changes.append(Change(path, old, content))
     if new_claude != old_claude:
@@ -221,8 +288,11 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
 
 def _summary(plan: Plan, deployed: dict[str, dict], old_claude: str | None) -> list[str]:
     lines = []
+    plugin_changes = []
     for c in plan.changes:
-        if c.path == plan.paths.claude_md:
+        if c.path.is_relative_to(plan.paths.plugin_root):
+            plugin_changes.append(c)
+        elif c.path == plan.paths.claude_md:
             had_block = old_claude is not None and _has_block(old_claude)
             lines.append("CLAUDE.md: bloque " + ("actualizado" if had_block else "creado"))
         elif c.path != plan.paths.manifest:
@@ -234,9 +304,21 @@ def _summary(plan: Plan, deployed: dict[str, dict], old_claude: str | None) -> l
                 lines.append(f"- agente `{name}`")
             else:
                 lines.append(f"~ agente `{name}`")
+    if plugin_changes:
+        lines.append(_plugin_summary(plan.paths, plugin_changes))
     if not lines and plan.changes:
         lines.append("manifiesto de deploy actualizado")
     return lines
+
+
+def _plugin_summary(paths: Paths, changes: list[Change]) -> str:
+    counts = {kind: sum(c.kind == kind for c in changes) for kind in ("crear", "modificar", "borrar")}
+    return (f"plugin ({paths.pretty(paths.plugin_root)}): {len(changes)} archivos "
+            f"({counts['crear']} creados, {counts['modificar']} modificados, {counts['borrar']} borrados)")
+
+
+def _plugin_snapshot(paths: Paths) -> dict[Path, bytes]:
+    return {p: p.read_bytes() for p in sorted(paths.plugin_root.rglob("*")) if p.is_file()}
 
 
 def _has_block(text: str) -> bool:
@@ -271,15 +353,18 @@ def apply_plan(plan: Plan, message: str, *,
         return ApplyResult(applied=False)
     paths = plan.paths
     now = now or datetime.now()
-    paths.state_dir.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(paths.state_dir / "generate.lock"), timeout=60):
+    with get_lock(paths):
         _verify_fresh(plan)
-        backup = _backup(paths, now)
+        _recuperar_plugin(paths)
+        backup = _backup(paths, now, plan.fase)
         old_changelog = _read(paths.changelog)
         tests_output = ""
         try:
             for change in plan.changes:
-                _write(paths, change)
+                if not change.path.is_relative_to(paths.plugin_root):
+                    _write(paths, change)
+            if any(c.path.is_relative_to(paths.plugin_root) for c in plan.changes):
+                _write_plugin(plan)
             if run_tests is not None:
                 ok, tests_output = run_tests(paths)
                 if not ok:
@@ -291,11 +376,44 @@ def apply_plan(plan: Plan, message: str, *,
             _restore_file(paths.changelog, old_changelog)
             raise
     _prune_backups(paths)
-    return ApplyResult(True, commit, backup, plan.summary, tests_output)
+    summary = list(plan.summary)
+    sessions = _live_sessions(paths)
+    if sessions:
+        summary.append(f"Hay {sessions} sesiones abiertas de Claude Code: reinicialas o usá "
+                       "/reload-plugins para cargar los cambios")
+    return ApplyResult(True, commit, backup, summary, tests_output)
+
+
+def get_lock(paths: Paths) -> FileLock:
+    """Lock común a generate y a los consumidores que modifican el deploy."""
+    paths.state_dir.mkdir(parents=True, exist_ok=True)
+    return FileLock(str(paths.state_dir / "generate.lock"), timeout=60)
+
+
+def _live_sessions(paths: Paths) -> int:
+    """Sesiones de Claude Code abiertas (para avisar que hay que recargar). Tolerante: ante cualquier falla, 0."""
+    try:
+        proc = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True, timeout=5,
+                              env=dict(os.environ, CLAUDE_CONFIG_DIR=str(paths.claude_dir)))
+        if proc.returncode != 0:
+            return 0
+        data = json.loads(proc.stdout)
+        sessions = data.get("sessions", []) if isinstance(data, dict) else data
+        return len(sessions) if isinstance(sessions, list) else 0
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return 0
 
 
 def _verify_fresh(plan: Plan) -> None:
+    if migracion.fase(plan.paths) != plan.fase:
+        raise GenerateError("la fase cambió desde que se armó el plan; volvé a correr "
+                            "`orquesta generate --dry-run`.")
+    if _plugin_snapshot(plan.paths) != plan.plugin_snapshot:
+        raise GenerateError(f"{plan.paths.pretty(plan.paths.plugin_root)} cambió desde que se armó "
+                            "el plan; volvé a correr `orquesta generate --dry-run`.")
     for c in plan.changes:
+        if c.path.is_relative_to(plan.paths.plugin_root):
+            continue
         if _read(c.path) != c.old:
             raise GenerateError(f"{plan.paths.pretty(c.path)} cambió desde que se armó el plan; "
                                 f"volvé a correr `orquesta generate --dry-run`.")
@@ -314,25 +432,84 @@ def _write(paths: Paths, change: Change) -> None:
     os.replace(tmp, change.path)
 
 
-def _backup(paths: Paths, now: datetime) -> Path:
+def _write_plugin(plan: Plan) -> None:
+    root = plan.paths.plugin_root
+    tmp = root.with_name(f".plugin.tmp-{os.getpid()}")
+    old = root.with_name(f".plugin.old-{os.getpid()}")
+    try:
+        tmp.mkdir()
+        for path, content in plan.plugin_files.items():
+            target = tmp / path.relative_to(root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with open(target, "w", encoding="utf-8", newline="") as fh:
+                fh.write(content)
+        if root.exists():
+            os.replace(root, old)
+        os.replace(tmp, root)
+    except BaseException:
+        if old.exists():
+            os.replace(old, root)
+        raise
+    finally:
+        if tmp.exists():
+            shutil.rmtree(tmp)
+    if old.exists():
+        shutil.rmtree(old)
+
+
+def _recuperar_plugin(paths: Paths) -> None:
+    """Deja el plugin en un estado consistente si una corrida anterior se cortó a mitad del reemplazo.
+
+    Si falta plugin_root pero quedó una `.plugin.old-*`, esa vuelve a su lugar (era el deploy anterior);
+    las `.plugin.tmp-*` son escrituras a medias y se borran. Corre bajo el lock de generate.
+    """
+    root = paths.plugin_root
+    if root.is_symlink():
+        raise GenerateError(f"{paths.pretty(root)} es un enlace simbólico: orquesta solo reemplaza una "
+                            "carpeta real. Sacá el enlace y volvé a correr generate.")
+    viejas = list(root.parent.glob(".plugin.old-*"))
+    if not root.exists() and viejas:
+        # Como esto corre al principio de cada apply bajo el lock, cuando falta plugin_root hay a lo sumo
+        # un `.old` (el deploy anterior completo). Si hay más, no adivinamos cuál es el bueno.
+        if len(viejas) > 1:
+            raise GenerateError("falta el plugin y hay varios respaldos " + ", ".join(sorted(p.name for p in viejas))
+                                + f" en {paths.pretty(root.parent)}: dejá el correcto como `plugin` y borrá el resto")
+        os.replace(viejas.pop(), root)
+    for resto in [*viejas, *root.parent.glob(".plugin.tmp-*")]:
+        shutil.rmtree(resto, ignore_errors=True)
+
+
+def _backup(paths: Paths, now: datetime, fase: str | None = None) -> Path:
     base = paths.backups_dir / now.strftime("%Y%m%d-%H%M%S-%f")
     dest, n = base, 1
     while dest.exists():
         n += 1
         dest = base.with_name(f"{base.name}-{n}")
     dest.mkdir(parents=True)
-    meta = {"agents_dir_existed": paths.agents_dir.is_dir(),
-            "claude_md_existed": paths.claude_md.is_file()}
+    # La fase es la del plan (ya validada por _verify_fresh bajo el lock), no una relectura.
+    legacy = (fase or migracion.fase(paths)) == "legacy"
+    meta = {"fase": "legacy" if legacy else "plugin",
+            "agents_dir_existed": legacy and paths.agents_dir.is_dir(),
+            "claude_md_existed": legacy and paths.claude_md.is_file(),
+            "plugin_root_existed": paths.plugin_root.is_dir()}
     if meta["agents_dir_existed"]:
         shutil.copytree(paths.agents_dir, dest / "agents")
     if meta["claude_md_existed"]:
         shutil.copy2(paths.claude_md, dest / "CLAUDE.md")
+    if meta["plugin_root_existed"]:
+        shutil.copytree(paths.plugin_root, dest / "plugin")
     (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     return dest
 
 
 def _restore(paths: Paths, backup: Path) -> None:
     meta = json.loads((backup / "meta.json").read_text(encoding="utf-8"))
+    if paths.plugin_root.exists():
+        shutil.rmtree(paths.plugin_root)
+    if meta.get("plugin_root_existed"):
+        shutil.copytree(backup / "plugin", paths.plugin_root)
+    if meta.get("fase", "legacy") != "legacy":
+        return
     if paths.agents_dir.is_dir():
         for p in paths.agents_dir.iterdir():
             if p.is_file():

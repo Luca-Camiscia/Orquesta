@@ -30,8 +30,15 @@ def env(tmp_path) -> Paths:
     dump_yaml(registry_dict(), home / "orquesta.yaml")
     dump_yaml(backends_dict(), home / "backends.yaml")
     (home / "manual").mkdir()
-    (home / ".gitignore").write_text("state/\nbackups/\nworktrees/\n", encoding="utf-8")
+    (home / ".gitignore").write_text("state/\nbackups/\nworktrees/\nplugin/\n", encoding="utf-8")
     git(home, "init", "-q", "-b", "main")
     git(home, "add", "-A")
     git(home, "commit", "-qm", "init")
     return Paths(home=home, claude_dir=claude)
+
+
+@pytest.fixture(autouse=True)
+def _sin_sesiones_reales(monkeypatch):
+    """Los tests no consultan al `claude` real para contar sesiones abiertas."""
+    from orquesta import generate
+    monkeypatch.setattr(generate, "_live_sessions", lambda paths: 0)

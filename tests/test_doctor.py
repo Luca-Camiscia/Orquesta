@@ -100,6 +100,8 @@ def test_todo_ok(denv):
 def test_manifiesto_ausente_o_corrupto_es_fail(denv, fase, live, only):
     if fase == "legacy":
         denv.manifest.write_text("invalid", encoding="utf-8")
+    else:
+        denv.plugin_manifest.unlink(missing_ok=True)  # generate en legacy también escribe el plugin
     migracion.set_fase(denv, fase)
     report = correr(denv, live=live, only=only)
     assert report.overall == "fail"
