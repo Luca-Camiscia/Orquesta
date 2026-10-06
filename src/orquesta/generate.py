@@ -109,13 +109,23 @@ def _read(path: Path) -> str | None:
         return None
 
 
+def _hay_deploy(paths: Paths) -> bool:
+    return any(d.is_dir() and any(d.glob("*.md")) for d in (paths.agents_dir, paths.plugin_dir / "agents"))
+
+
 def _baseline(paths: Paths, manual_texts: dict[str, str]) -> dict[str, guard.Baseline] | None:
+    """Lo desplegado (manifiesto). Solo es primer deploy si no hay manifiesto NI agentes desplegados.
+    Con el manifiesto roto, vacío o borrado habiendo agentes desplegados, la línea base sale de HEAD:
+    generate puede repararlo sin apagar el guard (un `rm` del manifiesto no saltea los protegidos)."""
     try:
         deployed = manifest.load(paths)
     except manifest.ManifestError:
-        deployed = None  # generate tiene que poder reparar un manifiesto roto: la línea base sale de HEAD
-    if deployed is not None:
-        return guard.baseline_from_manifest(deployed)
+        deployed = None
+    else:
+        if deployed is not None and ("guard" in deployed or "agents" in deployed):
+            return guard.baseline_from_manifest(deployed)
+        if deployed is None and not _hay_deploy(paths):
+            return None
     head = registry_at_head(paths)
     return guard.baseline_from_registry(head, manual_texts) if head else None
 
@@ -139,7 +149,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         elif a.enabled:
             plan.errors.append(f"agente {a.name!r}: es manual pero no existe manual/{a.name}.md")
 
-    plan.violations = guard.pending(guard.check(_baseline(paths, manual_texts), reg, manual_texts),
+    baseline = _baseline(paths, manual_texts)
+    plan.violations = guard.pending(guard.check(baseline, reg, manual_texts),
                                     confirmations)
 
     desired: dict[Path, str] = {}
@@ -179,6 +190,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         "registry_sha256": manifest.sha256(_read(paths.registry) or ""),
         "agents": deployed,
         "guard": {a.name: {"entry_sha256": guard.entry_hash(a, manual_texts.get(a.name)),
+                           "prompt_sha256": guard.prompt_hash(a, manual_texts.get(a.name)),
+                           "enabled": a.enabled,
                            "mode": a.mode, "protected": a.protected,
                            "permission_mode": a.extra_frontmatter.get("permissionMode"),
                            "plugins": list(a.plugins)}
@@ -206,6 +219,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
     plan.changes.sort(key=lambda c: str(c.path))
     plan.errors = list(dict.fromkeys(plan.errors))
     plan.summary = _summary(plan, deployed, old_claude)
+    if baseline and any(b.prompt_sha256 is None for b in baseline.values()):
+        plan.summary.append("línea base de prompts migrada")
     return plan
 
 
