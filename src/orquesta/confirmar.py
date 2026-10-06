@@ -11,6 +11,8 @@ class SinTTY(Exception):
 
 
 def pedir_confirmacion(texto_esperado: str, comando: str, *, leer_tty=None) -> bool:
+    if not texto_esperado.strip():
+        raise ValueError("pedir_confirmacion necesita un texto no vacío: si no, Enter confirmaría")
     prompt = f"Para confirmar, escribí «{texto_esperado}»: "
     if leer_tty is not None:
         linea = leer_tty(prompt)

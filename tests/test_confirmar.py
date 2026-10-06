@@ -71,3 +71,8 @@ def test_modulo_no_lee_variables_de_entorno():
     source = inspect.getsource(confirmar)
     assert "environ" not in source
     assert "getenv" not in source
+
+
+def test_texto_esperado_vacio_no_se_acepta():
+    with pytest.raises(ValueError):
+        confirmar.pedir_confirmacion("  ", "orquesta merge x --confirm", leer_tty=lambda _p: "")

@@ -587,8 +587,9 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
               f"una línea exacta `Veredicto: APROBAR`, `Veredicto: APROBAR CON CAMBIOS` o `Veredicto: "
               f"RECHAZAR`, y después RESULTADO y CONFIANZA.")
     r = _speak(store, cid, project, reviewer, executor, prompt=prompt, meta={"rol": "review", "branch": branch})
-    m = re.search(r"Veredicto:\s*(APROBAR CON CAMBIOS|APROBAR|RECHAZAR)", r.text or "", re.I)
-    verdict = m.group(1).upper() if m else None
+    # "APROBAR" a secas solo si no sigue "CON ...": "APROBAR  CON CAMBIOS" o "APROBAR con reservas" no habilitan el merge.
+    m = re.search(r"Veredicto:\s*(APROBAR(?:\s+CON\s+CAMBIOS)?|RECHAZAR)\b(?!\s+CON\b)", r.text or "", re.I)
+    verdict = " ".join(m.group(1).upper().split()) if m else None
 
     def save(c):
         w = next((x for x in c["worktrees"] if x["branch"] == branch), None)

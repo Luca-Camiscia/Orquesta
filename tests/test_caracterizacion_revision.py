@@ -47,8 +47,10 @@ def revision(store, proyecto, env):
     ("Veredicto: INCONCLUSO", None),
     # La regex toma la primera coincidencia, incluso dentro de otra línea.
     ("Resumen: Veredicto: RECHAZAR\nVeredicto: APROBAR", "RECHAZAR"),
-    # Comportamiento actual: dos espacios rompen la alternativa más larga.
-    ("Veredicto: APROBAR  CON CAMBIOS", "APROBAR"),
+    # Espacios de más no convierten "APROBAR CON CAMBIOS" en "APROBAR".
+    ("Veredicto: APROBAR  CON CAMBIOS", "APROBAR CON CAMBIOS"),
+    ("Veredicto: APROBAR con reservas", None),
+    ("Veredicto: APROBARLO", None),
 ])
 def test_auto_review_parsea_y_persiste_el_veredicto_actual(revision, store, proyecto, texto, esperado):
     cid, wt = revision(texto=texto)
