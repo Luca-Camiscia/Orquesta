@@ -101,6 +101,29 @@ def cmd_run(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
+def cmd_migrar(args: argparse.Namespace, *, run=None, leer_tty=None) -> int:
+    """Migra el deploy con runner y confirmación inyectables, y salida JSON versionada."""
+    from filelock import Timeout
+    from orquesta import cli_json, migracion_cmd, runner
+
+    paths = default_paths()
+    comando = f"migrar {args.subcomando}"
+    try:
+        off = runner.find_orquesta_off(Path.cwd()) or runner.find_orquesta_off(paths.home)
+        if off:
+            raise ValueError(f"orquesta está desactivada por {off}; sacá .orquesta-off para migrar")
+        run = run or migracion_cmd.run_claude
+        if args.subcomando == "estado":
+            estado, datos = cli_json.OK, migracion_cmd.migrar_estado(paths, run)
+        else:
+            funcion = getattr(migracion_cmd, f"migrar_{args.subcomando}")
+            estado, datos = funcion(paths, run, args.confirm, leer_tty=leer_tty)
+        errores = [datos["motivo"]] if estado == cli_json.ERROR and "motivo" in datos else []
+        return cli_json.emit(cli_json.sobre(comando, estado, datos=datos, errores=errores))
+    except (OSError, ValueError, Timeout) as exc:
+        return cli_json.emit(cli_json.sobre(comando, cli_json.ERROR, errores=[str(exc)]))
+
+
 def cmd_reunion(args: argparse.Namespace) -> int:
     from orquesta import chat, cli_json, runner
 
@@ -627,6 +650,15 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--confirm", action="append", metavar="AGENTE",
                    help="confirmación EXPLÍCITA del usuario para un cambio protegido/escalada")
     g.set_defaults(func=cmd_generate)
+
+    m = sub.add_parser("migrar", help="transicionar entre el deploy legacy y el plugin local")
+    msub = m.add_subparsers(dest="subcomando", required=True)
+    for nombre in ("estado", "corte", "rollback"):
+        accion = msub.add_parser(nombre)
+        accion.add_argument("--json", action="store_true", help="salida JSON (default)")
+        if nombre != "estado":
+            accion.add_argument("--confirm", action="store_true", help="pedir confirmación humana por TTY")
+        accion.set_defaults(func=cmd_migrar)
 
     r = sub.add_parser("run", help="delegar en el backend de un agente (lee el pedido de stdin)")
     r.add_argument("agent")
