@@ -92,6 +92,10 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
     async def _conflict(_, exc):
         return JSONResponse({"detail": str(exc)}, status_code=409)
 
+    @app.exception_handler(mf.ManifestError)
+    async def _manifest(_, exc):
+        return JSONResponse({"errors": [f"{exc}; corré `orquesta doctor`"]}, status_code=500)
+
     @app.exception_handler(editing.NeedsConfirmation)
     async def _confirm(_, exc):
         return JSONResponse({"detail": str(exc), "needs_confirmation": True}, status_code=409)

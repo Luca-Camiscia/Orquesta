@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from helpers import REPO, backends_dict, dump_yaml, git, load_yaml
-from orquesta import runner
+from orquesta import migracion, runner
 from orquesta.generate import apply_plan, build_plan
 from orquesta.schema import parse_backends
 
@@ -39,6 +39,25 @@ def proyecto(tmp_path) -> Path:
 
 def correr(env, agente, prompt, cwd, **kw) -> runner.RunResult:
     return runner.run(runner.RunRequest(agent=agente, cwd=cwd, prompt=prompt, **kw), env)
+
+
+@pytest.mark.parametrize("fase", ["plugin", "legacy"])
+def test_runner_manifest_error_no_ejecuta_backend(env, proyecto, monkeypatch, fase):
+    deploy(env)
+    if fase == "legacy":
+        env.manifest.write_text("invalid", encoding="utf-8")
+    migracion.set_fase(env, fase)
+
+    def backend_prohibido(*args, **kwargs):
+        pytest.fail("se ejecutó el backend con un manifiesto ausente o corrupto")
+
+    monkeypatch.setattr(runner, "_execute", backend_prohibido)
+    result = correr(env, "codex-critico", "hola", proyecto)
+    assert result.status == "ERROR"
+    assert result.exit_code == runner.EXIT_CODES["ERROR"]
+    salida = runner.format_result(result)  # los wrappers leen la línea ESTADO: mismo formato que el resto
+    assert salida.startswith("ESTADO: ERROR — ")
+    assert f"manifiesto de la fase {fase}" in salida and "orquesta doctor" in salida
 
 
 BACKENDS = parse_backends(backends_dict()).backends

@@ -59,6 +59,22 @@ class Paths:
         return self.agents_dir / ".orquesta-manifest.json"
 
     @property
+    def legacy_manifest(self) -> Path:
+        return self.manifest
+
+    @property
+    def plugin_root(self) -> Path:
+        return self.home / "plugin"
+
+    @property
+    def plugin_dir(self) -> Path:
+        return self.plugin_root / "orquesta"
+
+    @property
+    def plugin_manifest(self) -> Path:
+        return self.plugin_root / ".orquesta-manifest.json"
+
+    @property
     def claude_md(self) -> Path:
         return self.claude_dir / "CLAUDE.md"
 

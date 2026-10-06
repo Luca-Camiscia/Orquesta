@@ -403,7 +403,10 @@ def default_executor(paths: Paths, project: dict, participant: str, prompt: str)
     cwd = project["dir"]
     if participant == ORCHESTRATOR:
         return _record_claude(paths, participant, _claude(["--model", "opus"], prompt, cwd))
-    entry = mf.deployed_agent(mf.load(paths), participant)
+    try:
+        entry = mf.deployed_agent(mf.load(paths), participant)
+    except mf.ManifestError as exc:
+        return Reply("", error=f"ESTADO: ERROR — {exc}; corré `orquesta doctor`")
     if entry is None:
         return Reply("", error=f"ESTADO: ERROR — {participant} no está desplegado")
     if entry.backend == "claude":

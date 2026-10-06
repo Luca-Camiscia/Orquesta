@@ -206,8 +206,15 @@ def _sync(ctx: _Ctx) -> list[Check]:
         return [Check("agentes", "Agentes desplegados", "warn", msg, "Arreglá el registro primero."),
                 Check("claude-md", "Bloque de CLAUDE.md", "warn", msg, "Arreglá el registro primero.")]
     paths = ctx.paths
+    try:
+        manifest = mf.load(paths)
+    except mf.ManifestError as exc:
+        message = str(exc)  # no releer la fase: puede ser justo lo que está roto
+        return [Check(cid, name, "fail", message,
+                      "Regeneralo con `orquesta generate` o revisá `state/migracion/`.")
+                for cid, name in (("agentes", "Agentes desplegados"),
+                                  ("claude-md", "Bloque de CLAUDE.md"))]
     plan = ctx.plan = build_plan(paths)
-    manifest = mf.load(paths)
     registry_text = paths.registry.read_text(encoding="utf-8")
     unapplied = manifest is None or manifest.get("registry_sha256") != mf.sha256(registry_text)
 
@@ -414,7 +421,11 @@ def _claude_live(ctx: _Ctx) -> list[Check]:
         return [Check("claude-agentes", "Claude Code carga los agentes", "warn", msg,
                       "Revisá que `claude -p` funcione.", cached)]
     loaded = set(init.get("agents") or [])
-    deployed = sorted(((mf.load(ctx.paths) or {}).get("agents") or {}).keys())
+    try:
+        deployed = sorted(((mf.load(ctx.paths) or {}).get("agents") or {}).keys())
+    except mf.ManifestError as exc:
+        return [Check("claude-agentes", "Claude Code carga los agentes", "fail", str(exc),
+                      "Regeneralo con `orquesta generate` o revisá `state/migracion/`.")]
     missing = [a for a in deployed if a not in loaded]
     if missing:
         agentes = Check("claude-agentes", "Claude Code carga los agentes", "fail",
