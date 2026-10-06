@@ -185,6 +185,171 @@ def cmd_wt(args: argparse.Namespace) -> int:
     return 0
 
 
+def _emit_tarea(comando: str, estado: str, datos=None, motivo: str | None = None) -> int:
+    from orquesta import cli_json
+    return cli_json.emit(cli_json.sobre(comando, estado, datos=datos,
+                                       errores=[motivo] if motivo else []), stream=sys.stdout)
+
+
+def _comando_confirmado(args: argparse.Namespace, repo: Path) -> str:
+    import shlex
+    partes = ["orquesta", args.cmd, args.branch, "--repo", str(repo.resolve()), "--confirm"]
+    if getattr(args, "forzar", False):
+        partes.append("--forzar")
+    return shlex.join(partes)
+
+
+def _confirmar_tarea(args: argparse.Namespace, repo: Path, *, leer_tty=None) -> int | None:
+    from orquesta import cli_json, confirmar
+    comando = _comando_confirmado(args, repo)
+    if not args.confirm:
+        return _emit_tarea(args.cmd, cli_json.NECESITO_CONFIRMACION, {"comando": comando})
+    try:
+        coincide = confirmar.pedir_confirmacion(texto_esperado=args.branch, comando=comando,
+                                                 **({"leer_tty": leer_tty} if leer_tty is not None else {}))
+    except confirmar.SinTTY:
+        return _emit_tarea(args.cmd, cli_json.NECESITO_CONFIRMACION, {"comando": comando})
+    if not coincide:
+        return _emit_tarea(args.cmd, cli_json.ERROR, motivo="confirmación cancelada")
+    return None
+
+
+def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
+    from orquesta import chat, cli_json, revision, tareas, worktrees
+
+    paths = default_paths()
+    try:
+        wt = worktrees._find(paths, args.branch, args.repo)
+        pid = worktrees.project_id(wt.repo)
+        registro = tareas.obtener(pid, wt.branch, str(wt.repo), paths=paths)
+        if registro is None:
+            destino = worktrees._git(wt.repo, "symbolic-ref", "--short", "HEAD")
+            registro = tareas.registrar(pid, {
+                "repo": str(wt.repo), "rama": wt.branch, "agente": wt.agent, "destino": destino,
+                "base_sha": worktrees._git(wt.repo, "merge-base", wt.branch, destino),
+            }, paths=paths)
+        if registro["status"] != "abierto":
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO, motivo="la tarea no está abierta")
+        sha = worktrees._branch_tip(wt.repo, wt.branch)
+        if worktrees._git(wt.path, "rev-parse", "HEAD") != sha or worktrees._git(wt.path, "status", "--porcelain"):
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO, motivo="el worktree debe estar limpio y en la rama de la tarea")
+        # Invalidar la evidencia anterior incluso si falla el executor o no devuelve un veredicto.
+        tareas.actualizar(pid, wt.branch, {"sha_revisado": None, "tests_sha": None,
+                          "tests_ok": None, "veredicto": None, "revisor": None}, str(wt.repo), paths=paths)
+        revisor = revision.elegir_revisor(chat.mf.load(paths) or {}, wt.agent)
+        if revisor is None:
+            return _emit_tarea(args.cmd, cli_json.ERROR, motivo="no hay un revisor de otra familia disponible")
+        tests = worktrees.run_tests(wt, registro.get("tests_cmd"))
+        tests_sha = worktrees._git(wt.path, "rev-parse", "HEAD") if tests is not None else None
+        evidencia = (f"Resultado de los tests del proyecto: {'PASARON' if tests['ok'] else 'FALLARON'} "
+                     f"(`{tests['cmd']}`).\n```\n{tests['salida']}\n```" if tests is not None else
+                     "No hay comando de tests configurado para el proyecto (.orquesta/proyecto.toml).")
+        diff = worktrees._git(wt.repo, "diff", f"{registro['base_sha']}..{sha}")[:chat.REVIEW_DIFF_CHARS]
+        project = {"name": wt.repo.name, "dir": str(wt.path)}
+        prompt = revision.prompt_review(project["name"], project["dir"], diff, evidencia)
+        reply = (executor or chat.default_executor)(paths, project, revisor, prompt)
+        veredicto = revision.parsear_veredicto(reply.text) if not reply.error else None
+        veredicto = {"APROBAR": "ACEPTAR", "APROBAR CON CAMBIOS": "REVISAR"}.get(veredicto, veredicto)
+        registro = tareas.actualizar(pid, wt.branch, {
+            "sha_revisado": sha if not reply.error else None, "tests_sha": tests_sha,
+            "tests_ok": tests["ok"] if tests is not None else None,
+            "tests_cmd": tests["cmd"] if tests is not None else registro.get("tests_cmd"),
+            "veredicto": veredicto, "revisor": revisor,
+            "confianza_autor": registro.get("confianza_autor"),
+        }, str(wt.repo), paths=paths)
+        if reply.error or veredicto is None:
+            return _emit_tarea(args.cmd, cli_json.ERROR, registro,
+                               reply.error or "la review no devolvió un veredicto válido")
+        return _emit_tarea(args.cmd, cli_json.OK, registro)
+    except (worktrees.WorktreeError, OSError, ValueError) as exc:
+        return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
+
+
+def cmd_merge(args: argparse.Namespace, *, leer_tty=None) -> int:
+    from orquesta import cli_json, revision, tareas, worktrees
+
+    paths = default_paths()
+    try:
+        wt = worktrees._find(paths, args.branch, args.repo)
+        pid = worktrees.project_id(wt.repo)
+        registro = tareas.obtener(pid, wt.branch, str(wt.repo), paths=paths)
+        if not args.confirm:
+            return _confirmar_tarea(args, wt.repo, leer_tty=leer_tty)
+        if registro is None:
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO,
+                               motivo=f"no hay review registrada: corré `orquesta review {wt.branch}`")
+        if registro["status"] != "abierto":
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO, motivo="la tarea no está abierta")
+        sha = worktrees._branch_tip(wt.repo, wt.branch)
+        if sha != registro.get("sha_revisado") or sha != registro.get("tests_sha"):
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO,
+                               motivo=f"review vieja: corré `orquesta review {wt.branch}`")
+        razones = revision.razones_bloqueo(registro)
+        if razones and not args.forzar:
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO, {"razones": razones}, "\n".join(razones))
+        resultado = _confirmar_tarea(args, wt.repo, leer_tty=leer_tty)
+        if resultado is not None:
+            return resultado
+        try:
+            if not worktrees._is_merged(wt.repo, registro["base_sha"]):
+                raise worktrees.WorktreeError("el SHA base ya no es ancestro del destino")
+            datos = worktrees.merge_sha(paths, wt.branch, sha, registro["destino"], repo=wt.repo)
+        except worktrees.WorktreeError as exc:
+            return _emit_tarea(args.cmd, cli_json.BLOQUEADO, motivo=str(exc))
+        tareas.actualizar(pid, wt.branch, {"status": "mergeado"}, str(wt.repo), paths=paths)
+        return _emit_tarea(args.cmd, cli_json.OK, datos)
+    except (worktrees.WorktreeError, OSError, ValueError) as exc:
+        return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
+
+
+def cmd_descartar(args: argparse.Namespace, *, leer_tty=None) -> int:
+    from orquesta import cli_json, tareas, worktrees
+
+    paths = default_paths()
+    try:
+        wt = worktrees._find(paths, args.branch, args.repo)
+        pid = worktrees.project_id(wt.repo)
+        registro = tareas.obtener(pid, wt.branch, str(wt.repo), paths=paths)
+        resultado = _confirmar_tarea(args, wt.repo, leer_tty=leer_tty)
+        if resultado is not None:
+            return resultado
+        worktrees.discard(paths, wt.branch, repo=wt.repo)
+        if registro is None:
+            tareas.registrar(pid, {"repo": str(wt.repo), "rama": wt.branch, "agente": wt.agent,
+                                  "base_sha": wt.base_sha, "status": "descartado"}, paths=paths)
+        else:
+            tareas.actualizar(pid, wt.branch, {"status": "descartado"}, str(wt.repo), paths=paths)
+        return _emit_tarea(args.cmd, cli_json.OK, {"rama": wt.branch, "status": "descartado"})
+    except (worktrees.WorktreeError, OSError, ValueError) as exc:
+        return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
+
+
+def cmd_tareas(args: argparse.Namespace) -> int:
+    from orquesta import cli_json, revision, tareas, worktrees
+
+    paths = default_paths()
+    try:
+        repo = worktrees.git_toplevel(Path.cwd())
+        if repo is None:
+            raise worktrees.WorktreeError("el directorio actual no es un repo git")
+        items = worktrees.list_worktrees(paths)
+        repo = next((w.repo for w in items if w.path.resolve() == repo.resolve()), repo)
+        registros = tareas.listar(worktrees.project_id(repo), "abierto", paths=paths)
+        if args.linea:
+            reviews = sum(r.get("veredicto") is not None for r in registros)
+            bloqueadas = sum(bool(revision.razones_bloqueo(r)) for r in registros)
+            print(f"{len(registros)} tareas abiertas ({reviews} en review, {bloqueadas} bloqueadas)")
+            return 0
+        return _emit_tarea(args.cmd, cli_json.OK, {
+            "tareas": registros, "worktrees": [w.to_json() for w in items if w.repo.resolve() == repo.resolve()],
+        })
+    except (worktrees.WorktreeError, OSError, ValueError) as exc:
+        if args.linea:
+            print("Error: " + str(exc).replace("\n", " "))
+            return 1
+        return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="orquesta", description="Ecosistema multi-modelo para Claude Code.")
     sub = p.add_subparsers(dest="cmd")
@@ -241,6 +406,20 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--force", action="store_true", help="descartar aunque no esté mergeada")
     wsub.add_parser("prune", help="sacar del registro los worktrees que ya no existen")
     w.set_defaults(func=cmd_wt)
+    for nombre, funcion in (("review", cmd_review), ("merge", cmd_merge), ("descartar", cmd_descartar)):
+        comando = sub.add_parser(nombre, help=f"{nombre} una tarea registrada")
+        comando.add_argument("branch", metavar="RAMA")
+        comando.add_argument("--repo", help="repo de la tarea (desambigua ramas repetidas)")
+        if nombre != "review":
+            comando.add_argument("--confirm", action="store_true", help="pedir confirmación humana por TTY")
+        if nombre == "merge":
+            comando.add_argument("--forzar", action="store_true", help="ignorar bloqueadores de tests y veredicto")
+        comando.set_defaults(func=funcion)
+    t = sub.add_parser("tareas", help="listar tareas abiertas del proyecto actual")
+    formato = t.add_mutually_exclusive_group()
+    formato.add_argument("--json", action="store_true", help="salida JSON (default)")
+    formato.add_argument("--linea", action="store_true", help="resumen en una sola línea de texto")
+    t.set_defaults(func=cmd_tareas)
     return p
 
 

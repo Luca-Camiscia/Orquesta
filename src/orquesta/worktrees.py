@@ -174,13 +174,13 @@ def prepare(paths: Paths, wt: Worktree) -> dict | None:
     return cfg
 
 
-def run_tests(wt: Worktree) -> dict | None:
+def run_tests(wt: Worktree, tests_cmd: str | None = None) -> dict | None:
     """Corre el comando `tests` del proyecto en el worktree: evidencia ejecutable antes de mergear."""
     try:
         cfg = project_config(wt.repo) or {}
     except WorktreeError:
         return None
-    cmd = cfg.get("tests")
+    cmd = tests_cmd or cfg.get("tests")
     if not cmd or not wt.path.exists():
         return None
     try:
@@ -245,12 +245,10 @@ def orphans(paths: Paths, now: datetime | None = None) -> list[Orphan]:
     return out
 
 
-def clean(paths: Paths, branch: str, force: bool = False) -> None:
+def clean(paths: Paths, branch: str, force: bool = False, repo: str | Path | None = None) -> None:
     with _lock(paths):
         items = _load(paths)
-        wt = next((w for w in items if w.branch == branch), None)
-        if wt is None:
-            raise WorktreeError(f"no hay ningún worktree registrado con la rama {branch}")
+        wt = _find(paths, branch, repo)
         if wt.repo.exists():
             tip = _branch_tip(wt.repo, branch)
             if tip and tip != wt.base_sha and not _is_merged(wt.repo, branch) and not force:
@@ -265,11 +263,19 @@ def clean(paths: Paths, branch: str, force: bool = False) -> None:
                 _git(wt.repo, "branch", "-D" if force else "-d", branch)
         else:
             shutil.rmtree(wt.path, ignore_errors=True)
-        _save(paths, [w for w in items if w is not wt])
+        _save(paths, [w for w in items if w != wt])
 
 
-def _find(paths: Paths, branch: str) -> Worktree:
-    wt = next((w for w in _load(paths) if w.branch == branch), None)
+def _find(paths: Paths, branch: str, repo: str | Path | None = None) -> Worktree:
+    resolved = Path(repo).resolve() if repo is not None else None
+    matches = [w for w in _load(paths) if w.branch == branch
+               and (resolved is None or w.repo.resolve() == resolved)]
+    repos = sorted({str(w.repo.resolve()) for w in matches})
+    if resolved is None and len(repos) > 1:
+        lista = "\n".join(repos)
+        raise WorktreeError(f"la rama '{branch}' existe en varios repos registrados:\n{lista}\n"
+                            "Pasá `--repo <ruta>` para desambiguar")
+    wt = matches[0] if matches else None
     if wt is None:
         raise WorktreeError(f"no hay ningún worktree registrado con la rama {branch}")
     return wt
@@ -280,9 +286,9 @@ def changed_files(wt: Worktree) -> set[str]:
     return {f for f in out.splitlines() if f}
 
 
-def conflicts(paths: Paths, branch: str) -> dict:
+def conflicts(paths: Paths, branch: str, repo: str | Path | None = None) -> dict:
     """¿El merge con la rama actual del repo da conflicto? ¿Qué otras ramas abiertas tocan los mismos archivos?"""
-    wt = _find(paths, branch)
+    wt = _find(paths, branch, repo)
     proc = subprocess.run(["git", "merge-tree", "--write-tree", "HEAD", branch], cwd=wt.repo,
                           capture_output=True, text=True)
     mine = changed_files(wt)
@@ -292,14 +298,39 @@ def conflicts(paths: Paths, branch: str) -> dict:
     return {"merge_conflict": proc.returncode == 1, "overlaps": overlaps}
 
 
-def merge(paths: Paths, branch: str) -> None:
+def merge(paths: Paths, branch: str, repo: str | Path | None = None) -> None:
     """Mergea la rama en el repo original (aborta si hay conflicto) y limpia el worktree."""
-    wt = _find(paths, branch)
+    wt = _find(paths, branch, repo)
     proc = subprocess.run(["git", "merge", "--no-edit", branch], cwd=wt.repo, capture_output=True, text=True)
     if proc.returncode != 0:
         subprocess.run(["git", "merge", "--abort"], cwd=wt.repo, capture_output=True)
         raise WorktreeError(f"el merge falló y se abortó: {(proc.stderr or proc.stdout).strip()[:300]}")
-    clean(paths, branch)
+    clean(paths, branch, repo=wt.repo)
+
+
+def merge_sha(paths: Paths, branch: str, sha: str, destino: str,
+              repo: str | Path | None = None) -> dict:
+    """Mergea el tip revisado; la base debe seguir siendo ancestro del destino."""
+    wt = _find(paths, branch, repo)
+    actual = _git(wt.repo, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+    if actual != destino:
+        raise WorktreeError(f"el repo debe estar en la rama destino '{destino}' (actual: {actual or 'HEAD separado'})")
+    if _git(wt.repo, "status", "--porcelain") or _git(wt.path, "status", "--porcelain"):
+        raise WorktreeError("el repo y el worktree deben tener el árbol limpio antes de mergear")
+    if _branch_tip(wt.repo, branch) != sha:
+        raise WorktreeError(f"review vieja: corré `orquesta review {branch}`")
+    if not _is_merged(wt.repo, wt.base_sha):
+        raise WorktreeError("el SHA base ya no es ancestro del destino")
+    try:
+        _git(wt.repo, "merge", "--no-edit", sha)
+    except WorktreeError:
+        _git(wt.repo, "merge", "--abort", check=False)
+        raise
+    return {"status": "ok", "sha_merged": sha, "destino": destino}
+
+
+def discard(paths: Paths, branch: str, repo: str | Path | None = None) -> None:
+    clean(paths, branch, force=True, repo=repo)
 
 
 def prune(paths: Paths) -> list[str]:

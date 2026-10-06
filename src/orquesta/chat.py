@@ -838,13 +838,15 @@ def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> 
         if razones:
             raise NeedsForce(razones[0])
     try:
-        worktrees.merge(store.paths, branch)
+        worktrees.merge(store.paths, branch, repo=wt.get("repo") or store.project_of(conv)["dir"])
     except worktrees.WorktreeError as exc:
         raise ChatError(str(exc)) from None
     store.update(cid, lambda c: _wt(c, branch).update(status="mergeado"))
 
 
 def discard_worktree(store: Store, cid: str, branch: str) -> None:
-    _wt(store.get_conversation(cid), branch)
-    worktrees.clean(store.paths, branch, force=True)
+    conv = store.get_conversation(cid)
+    wt = _wt(conv, branch)
+    worktrees.clean(store.paths, branch, force=True,
+                    repo=wt.get("repo") or store.project_of(conv)["dir"])
     store.update(cid, lambda c: _wt(c, branch).update(status="descartado"))

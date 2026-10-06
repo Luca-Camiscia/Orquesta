@@ -83,7 +83,7 @@ def _conversaciones(paths: Paths) -> list[dict]:
     return out
 
 
-def _reviews(conversaciones: list[dict]) -> list[tuple[str, str]]:
+def _reviews(conversaciones: list[dict], paths: Paths | None = None) -> list[tuple[str, str]]:
     """Reviews recibidas por el autor del worktree, sin duplicar su mensaje.
 
     Para reviews sin worktree se usa meta.reviewed_agent, o el autor del mensaje
@@ -112,6 +112,14 @@ def _reviews(conversaciones: list[dict]) -> list[tuple[str, str]]:
             who = meta.get("reviewed_agent") or branches.get(meta.get("branch")) or msg.get("author")
             if verdict and who:
                 out.append((who, verdict.upper()))
+    if paths is not None:
+        from orquesta import tareas
+        for archivo in sorted(paths.state_dir.glob("*/tareas.json")):
+            for tarea in tareas.listar(archivo.parent.name, paths=paths):
+                if tarea.get("veredicto") and tarea.get("agente"):
+                    verdict = tarea["veredicto"].upper()
+                    out.append((tarea["agente"], {"ACEPTAR": "APROBAR", "REVISAR": "APROBAR CON CAMBIOS"}
+                                .get(verdict, verdict)))
     return out
 
 
@@ -136,7 +144,7 @@ def evaluar(paths: Paths | None, *, registry: Registry | None = None,
         conversaciones = _conversaciones(paths)
     if calibracion is None:
         calibracion = _jsonl(paths.state_dir / "calibracion.jsonl")
-    reviews = _reviews(conversaciones)
+    reviews = _reviews(conversaciones, paths)
     agents = {a.name: a for a in registry.agents}
     names = set(agents) | {r["agent"] for r in usos + calibracion if r.get("agent")}
     names |= {name for name, _ in reviews}

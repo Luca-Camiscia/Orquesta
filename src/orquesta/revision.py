@@ -37,6 +37,16 @@ def parsear_veredicto(texto: str | None) -> str | None:
 
 
 def razones_bloqueo(registro: dict) -> list[str]:
+    if "rama" in registro:
+        conf = registro.get("confianza_autor")
+        registro = {
+            "branch": registro["rama"],
+            "tests": ({"ok": registro["tests_ok"], "cmd": registro.get("tests_cmd")}
+                      if registro.get("tests_ok") is not None else None),
+            "confianza_autor": conf * 100 if conf is not None else None,
+            "review": {"veredicto": {"ACEPTAR": "APROBAR", "REVISAR": "APROBAR CON CAMBIOS"}
+                       .get(registro.get("veredicto"), registro.get("veredicto"))},
+        }
     razones = []
     branch = registro.get("branch", "")
     tests = registro.get("tests")

@@ -1,0 +1,93 @@
+"""Registro de tareas por proyecto; identidad = repo absoluto + rama."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from filelock import FileLock
+
+from orquesta.paths import Paths, default_paths
+
+DEFAULTS = {
+    "agente": None, "base_sha": None, "destino": None, "sha_revisado": None,
+    "tests_sha": None, "tests_ok": None, "tests_cmd": None, "confianza_autor": None,
+    "veredicto": None, "revisor": None, "status": "abierto",
+}
+
+
+def _archivo(project_id: str, paths: Paths | None) -> Path:
+    if not project_id or Path(project_id).name != project_id or project_id in (".", ".."):
+        raise ValueError("id de proyecto inválido")
+    return (paths or default_paths()).state_dir / project_id / "tareas.json"
+
+
+def _lock(archivo: Path) -> FileLock:
+    archivo.parent.mkdir(parents=True, exist_ok=True)
+    return FileLock(str(archivo.with_suffix(".lock")), timeout=30)
+
+
+def _leer(archivo: Path) -> list[dict]:
+    try:
+        return json.loads(archivo.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+
+
+def _guardar(archivo: Path, registros: list[dict]) -> None:
+    temporal = archivo.with_suffix(".tmp")
+    temporal.write_text(json.dumps(registros, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporal.replace(archivo)
+
+
+def _buscar(registros: list[dict], rama: str, repo: str | None) -> dict | None:
+    resolved = str(Path(repo).resolve()) if repo is not None else None
+    encontrados = [r for r in registros if r["rama"] == rama
+                   and (resolved is None or r["repo"] == resolved)]
+    if len(encontrados) > 1:
+        repos = "\n".join(sorted(r["repo"] for r in encontrados))
+        raise ValueError(f"la rama '{rama}' existe en varios repos registrados:\n{repos}\n"
+                         "Pasá `--repo <ruta>` para desambiguar")
+    return encontrados[0] if encontrados else None
+
+
+def registrar(project_id: str, tareas: dict, *, paths: Paths | None = None) -> dict:
+    archivo = _archivo(project_id, paths)
+    datos = {**tareas, "repo": str(Path(tareas["repo"]).resolve())}
+    with _lock(archivo):
+        registros = _leer(archivo)
+        registro = _buscar(registros, datos["rama"], datos["repo"])
+        if registro is None:
+            registro = dict(DEFAULTS)
+            registros.append(registro)
+        registro.update(datos)
+        _guardar(archivo, registros)
+        return dict(registro)
+
+
+def obtener(project_id: str, rama: str, repo: str | None = None, *,
+            paths: Paths | None = None) -> dict | None:
+    archivo = _archivo(project_id, paths)
+    with _lock(archivo):
+        return _buscar(_leer(archivo), rama, repo)
+
+
+def actualizar(project_id: str, rama: str, campos: dict, repo: str | None = None, *,
+               paths: Paths | None = None) -> dict:
+    archivo = _archivo(project_id, paths)
+    with _lock(archivo):
+        registros = _leer(archivo)
+        registro = _buscar(registros, rama, repo)
+        if registro is None:
+            raise ValueError(f"no hay ninguna tarea registrada con la rama {rama}")
+        if "repo" in campos or "rama" in campos:
+            raise ValueError("la identidad de la tarea no se puede actualizar")
+        registro.update(campos)
+        _guardar(archivo, registros)
+        return dict(registro)
+
+
+def listar(project_id: str, filtro_status: str | None = None, *,
+           paths: Paths | None = None) -> list[dict]:
+    archivo = _archivo(project_id, paths)
+    with _lock(archivo):
+        return [r for r in _leer(archivo) if filtro_status is None or r["status"] == filtro_status]
