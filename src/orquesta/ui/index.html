@@ -338,7 +338,8 @@ fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
 .chequeo .nombre { font-weight: 700; }
 .semaforo { display: flex; align-items: center; gap: 12px; font-size: 1.05rem; }
 .semaforo .luz { width: 16px; height: 16px; border-radius: 50%; }
-code.cmd { display: block; padding: 12px 14px; border-radius: 8px; background: var(--papel); border: 1px solid var(--pauta); font-family: var(--mono); font-size: .84rem; white-space: pre-wrap; word-break: break-all; }
+code.cmd { display: block; padding: 12px 14px; border-radius: 8px; background: var(--papel); border: 1px solid var(--pauta); font-family: var(--mono); font-size: .84rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.paso { margin: 8px 0 4px; font-size: .78rem; font-weight: 700; color: var(--tinta-suave); text-transform: uppercase; letter-spacing: .04em; }
 
 /* historial */
 .historia { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
@@ -1066,12 +1067,12 @@ function panelTareas() {
     <p class="rol">${esc(w.task)} <span class="ayuda">en ${esc(w.repo)}</span></p>${w.diffstat ? `<pre class="prueba">${esc(w.diffstat)}</pre>` : '<p class="ayuda">Sin cambios todavía.</p>'}
     ${w.huerfano ? `<p class="estado pendiente">${esc(w.huerfano)}</p>` : ""}${w.conflictos && w.conflictos.merge_conflict ? '<p class="estado pendiente">Conflicto con la rama actual del repo.</p>' : ""}
     ${w.conflictos && w.conflictos.overlaps.length ? `<p class="estado pendiente">Toca los mismos archivos que ${esc(w.conflictos.overlaps.join(", "))}.</p>` : ""}
-    <footer>${["review", "merge"].map((accion) => {
+    <footer>${[["review", "Paso 1 · Review de otra familia"], ["merge", "Paso 2 · Merge (te pide escribir la rama)"]].map(([accion, paso]) => {
       const cmd = `orquesta ${accion} ${citarShell(w.branch)} --repo ${citarShell(w.repo)}${accion === "merge" ? " --confirm" : ""}`;
-      return `<div><code class="cmd">${esc(cmd)}</code><button class="btn chico" data-action="t-copiar" data-command="${esc(cmd)}">Copiar comando</button></div>`;
+      return `<div><p class="paso">${paso}</p><code class="cmd">${esc(cmd)}</code><button class="btn chico" data-action="t-copiar" data-command="${esc(cmd)}" aria-label="Copiar el comando de ${accion} de ${esc(w.branch)}">Copiar comando</button></div>`;
     }).join("")}</footer></article>`;
   return `<div class="barra"><div><h2>Tareas</h2><p class="ayuda">Todos los worktrees abiertos de los agentes de escritura, de todos los proyectos. Copiá los comandos y corré primero la review y después el merge en la terminal.</p></div><button class="btn" data-action="t-recargar">Actualizar</button></div>
-    ${st.tareas.length ? Object.entries(cols).filter(([, xs]) => xs.length).map(([titulo, xs]) => `<section class="seccion"><h3 class="seccion-titulo">${titulo}<span class="cuenta">${xs.length}</span></h3><div class="grilla">${xs.map(tarjetaWt).join("")}</div></section>`).join("") : '<div class="panel"><p>No hay tareas abiertas. Cuando un agente de escritura trabaje en un worktree, aparece acá.</p></div>'}`;
+    ${st.tareas.length ? Object.entries(cols).filter(([, xs]) => xs.length).map(([titulo, xs]) => `<section class="seccion"><h3 class="seccion-titulo">${titulo}<span class="cuenta">${xs.length}</span></h3><div class="grilla">${xs.map(tarjetaWt).join("")}</div></section>`).join("") : '<div class="panel"><p>No hay tareas abiertas.</p><p class="ayuda">Cuando un agente de escritura (por ejemplo el forjador) trabaja en un worktree, la tarea aparece acá con los comandos para revisarla y mergearla desde la terminal.</p></div>'}`;
 }
 
 /* ---------- eventos ---------- */
@@ -1132,7 +1133,23 @@ document.addEventListener("click", async (ev) => {
         const r = await api("POST", "/api/plugins/uninstall", {id: n, confirm: n});
         st.aviso = `Desinstalado ${n}. ${r.note}`; st.plugins = null; await cargar(); break;
       }
-      case "t-copiar": await navigator.clipboard.writeText(t.dataset.command); toast("Comando copiado. Pegalo en la terminal."); break;
+      case "t-copiar": {
+        const cmd = t.dataset.command;
+        let ok = false;
+        try { await navigator.clipboard.writeText(cmd); ok = true; } catch (_) {
+          // Fallback sin la API de portapapeles: seleccionar el texto y usar execCommand.
+          const area = document.createElement("textarea");
+          area.value = cmd; area.setAttribute("readonly", ""); area.style.position = "fixed"; area.style.opacity = "0";
+          document.body.appendChild(area); area.select();
+          try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+          area.remove();
+        }
+        const antes = t.textContent;
+        t.textContent = ok ? "¡Copiado!" : "Copialo a mano";
+        setTimeout(() => { t.textContent = antes; }, 2000);
+        toast(ok ? "Comando copiado. Pegalo en tu terminal." : "No pude copiar: seleccioná el comando y copialo a mano.");
+        break;
+      }
       case "t-recargar": st.tareas = null; renderPanel(); break;
       case "dry-run": await correrDryRun(); break;
       case "aplicar": await aplicar(); break;
