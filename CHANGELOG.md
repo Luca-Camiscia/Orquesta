@@ -2,6 +2,10 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-06 01:08 — Generar el plugin de Claude Code (fase legacy: también se escribe el plugin, sin instalarlo)
+
+- plugin (~/orquesta/plugin): 26 archivos (26 creados, 0 modificados, 0 borrados)
+
 ## 2026-10-06 00:27 — Línea base de escaladas (tools, isolation, frontmatter, role)
 
 - manifiesto de deploy actualizado
