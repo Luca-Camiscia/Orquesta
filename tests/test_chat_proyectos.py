@@ -171,36 +171,13 @@ def test_proyecto_sistema_permite_agentes_write(store):
 
 
 # 3. Endpoints API
-def test_api_proyectos_y_sin_proyecto(env, proyecto):
+def test_api_proyectos_solo_lectura(env, proyecto):
     apply_plan(build_plan(env), "deploy", run_tests=None)
-    fake = FakeExec()
-    app = create_app(env, port=8787, token="t", run_tests=None, chat_executor=fake)
-    c = TestClient(app, base_url="http://127.0.0.1:8787", headers={"X-Orquesta-Token": "t"})
-
-    # GET /api/chat/projects devuelve orquesta primero con sistema=True
+    c = TestClient(create_app(env, port=8787, token="t", run_tests=None),
+                   base_url="http://127.0.0.1:8787", headers={"X-Orquesta-Token": "t"})
     r = c.get("/api/chat/projects").json()
-    assert r["projects"][0]["id"] == "orquesta"
-    assert r["projects"][0]["sistema"] is True
+    assert r["projects"][0]["id"] == "orquesta" and r["projects"][0]["sistema"] is True
+    assert c.delete("/api/chat/projects/orquesta").status_code in (404, 405)
+    assert c.post("/api/chat/conversations", json={"project_id": None}).status_code in (404, 405)
 
-    # DELETE /api/chat/projects/orquesta es rechazado
-    del_r = c.delete("/api/chat/projects/orquesta")
-    assert del_r.status_code == 422
 
-    # POST /api/chat/conversations con project_id=None (o "sin-proyecto")
-    r_conv = c.post("/api/chat/conversations", json={
-        "project_id": None, "title": "Sin proy", "kind": "individual", "participants": ["codex-critico"]
-    })
-    assert r_conv.status_code == 200
-    cid = r_conv.json()["id"]
-    assert r_conv.json()["project_id"] is None
-
-    # Rechazo de agente write sin proyecto por API
-    r_fail = c.post("/api/chat/conversations", json={
-        "project_id": "sin-proyecto", "title": "Fail", "kind": "individual", "participants": ["codex-forja"]
-    })
-    assert r_fail.status_code == 422
-    assert "escritura" in r_fail.json()["errors"][0]
-
-    # Filtrar conversaciones por project=sin-proyecto
-    list_r = c.get("/api/chat/conversations?project=sin-proyecto").json()
-    assert any(x["id"] == cid for x in list_r["conversations"])
