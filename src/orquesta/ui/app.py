@@ -509,7 +509,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
             pid = None
         return store.create_conversation(pid, body.get("title", ""),
                                          body.get("kind", "individual"), body.get("participants") or [],
-                                         body.get("mode", "rondas"))
+                                         body.get("mode", "rondas"), origen="ui")
 
     @app.get("/api/chat/search")
     def chat_search(q: str = ""):
