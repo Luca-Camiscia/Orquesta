@@ -5,6 +5,7 @@
     orquesta run AGENTE [--cwd DIR] [--task SLUG] [--prompt-file F | stdin] [--ping]
     orquesta doctor [--json] [--no-cache] [--skip-live] [--only ID]
     orquesta wt list | new | clean RAMA [--force] | prune
+    orquesta rrhh triage | evaluar | catalogo | sugerir | reclutador | validar | memoria | nota | abrir
 
 Códigos de salida de `generate`: 0 ok/sin cambios, 1 errores, 3 requiere confirmación.
 `run` usa los códigos de runner.EXIT_CODES.
@@ -464,6 +465,117 @@ def cmd_hook(args: argparse.Namespace) -> int:
     return hooks.run(args.evento, paths)
 
 
+def argv_rrhh(nueva: bool) -> list[str]:
+    argv = ["claude", "--agent", "orquesta:rrhh", "-n", "orquesta-rrhh",
+            "--allowedTools", "Bash(orquesta rrhh *)", "--disallowedTools", "Edit", "Write",
+            "NotebookEdit", "--permission-mode", "dontAsk"]
+    return argv if nueva else [*argv, "--continue"]
+
+
+def cmd_rrhh_abrir(args: argparse.Namespace) -> int:
+    import subprocess
+
+    try:
+        cwd = default_paths().state_dir / "rrhh"
+        cwd.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(argv_rrhh(args.nueva), cwd=cwd)
+        if result.returncode != 0 and not args.nueva:
+            result = subprocess.run(argv_rrhh(True), cwd=cwd)
+        return result.returncode
+    except FileNotFoundError:
+        print("No se encontró el binario 'claude'; instalá Claude Code y agregalo al PATH.", file=sys.stderr)
+    except OSError as exc:
+        print(f"No se pudo abrir la sesión de RR. HH.: {exc}", file=sys.stderr)
+    return 1
+
+
+def cmd_rrhh(args: argparse.Namespace) -> int:
+    import json
+    from dataclasses import asdict
+    from datetime import datetime
+
+    from filelock import FileLock, Timeout
+
+    from orquesta import chat, cli_json, generate, guard, modelos, reclutador, rrhh
+    from orquesta.config import load_backends, load_registry, parse_yaml_text, read_manual
+    from orquesta.schema import ConfigError, check_registry, parse_registry
+
+    comando = args.rrhh_cmd
+    datos = {"errores": [], "violaciones": [], "comando_sugerido": None} if comando == "validar" else {}
+    errores = []
+    estado = cli_json.OK
+    try:
+        paths = default_paths()
+        if comando in ("triage", "evaluar", "reclutador"):
+            pedido = json.load(sys.stdin)
+            if not isinstance(pedido, dict):
+                raise ValueError("el pedido JSON debe ser un objeto")
+            if comando == "evaluar":
+                campos = {"usos", "conversaciones", "calibracion"}
+                if pedido.keys() - campos:
+                    raise ValueError("campos desconocidos: " + ", ".join(sorted(pedido.keys() - campos)))
+                if any(v is not None and (not isinstance(v, list) or
+                       any(not isinstance(r, dict) for r in v)) for v in pedido.values()):
+                    raise ValueError("usos, conversaciones y calibracion deben ser listas de objetos")
+                datos = {"agentes": rrhh.evaluar(paths, **pedido)}
+            else:
+                texto = pedido.get("texto")
+                if not isinstance(texto, str) or not texto.strip():
+                    raise ValueError("texto debe ser una cadena no vacía")
+                locales = modelos.ModelDiscovery().local_models()
+                if comando == "triage":
+                    datos = rrhh.triage(texto.strip(), load_registry(paths), locales)
+                else:
+                    datos = reclutador.consultar(texto, paths, locales)
+                    if datos.get("error"):
+                        errores = [datos["error"]]
+                        estado = datos["estado"] if datos["estado"] in cli_json.ESTADOS_VALIDOS else cli_json.ERROR
+        elif comando == "catalogo":
+            datos = rrhh.catalogar(load_registry(paths))
+        elif comando == "sugerir":
+            conv = (chat.Store(paths).get_conversation(args.reunion) if args.reunion else
+                    {"participants": [p.strip() for p in args.participantes.split(",") if p.strip()]})
+            datos = rrhh.sugerir_participantes(conv, load_registry(paths))
+        elif comando == "validar":
+            reg = parse_registry(parse_yaml_text(sys.stdin.read(), "orquesta.yaml candidato"))
+            errores = check_registry(reg, load_backends(paths))
+            manuales = {a.name: text for a in reg.agents if a.manual
+                        if (text := read_manual(paths, a.name)) is not None}
+            violaciones = [asdict(v) for v in guard.check(generate._baseline(paths, manuales), reg, manuales)]
+            datos["violaciones"] = [{"agente": v["agent"], "tipo": v["kind"], "detalle": v["detail"]}
+                                    for v in violaciones]
+            if violaciones:
+                datos["comando_sugerido"] = "orquesta generate" + "".join(
+                    f" --confirm {nombre}" for nombre in sorted({v["agent"] for v in violaciones}))
+            if errores:
+                estado = cli_json.ERROR
+        elif comando in ("memoria", "nota"):
+            archivo = paths.state_dir / "rrhh" / "memoria.md"
+            if comando == "memoria":
+                datos = {"texto": archivo.read_text(encoding="utf-8") if archivo.exists() else ""}
+            else:
+                texto = sys.stdin.read()
+                if len(texto) > 20000:
+                    raise ValueError("la nota supera el tope de 20000 caracteres")
+                fecha = datetime.now().isoformat(timespec="seconds")
+                entrada = f"\n## {fecha}\n\n{texto}\n"
+                archivo.parent.mkdir(parents=True, exist_ok=True)
+                with FileLock(str(archivo) + ".lock", timeout=30):
+                    actual = archivo.read_text(encoding="utf-8") if archivo.exists() else ""
+                    if len(actual) + len(entrada) > 200000:
+                        raise ValueError("la memoria supera el tope total de 200000 caracteres")
+                    with archivo.open("a", encoding="utf-8") as fh:
+                        fh.write(entrada)
+                datos = {"fecha": fecha}
+    except ConfigError as exc:
+        errores, estado = exc.errors, cli_json.ERROR
+    except (ValueError, OSError, Timeout, chat.ChatError, mf.ManifestError) as exc:
+        errores, estado = [str(exc)], cli_json.ERROR
+    if comando == "validar":
+        datos["errores"] = errores
+    return cli_json.emit(cli_json.sobre(f"rrhh {comando}", estado, datos=datos, errores=errores))
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="orquesta", description="Ecosistema multi-modelo para Claude Code.")
     sub = p.add_subparsers(dest="cmd")
@@ -545,6 +657,18 @@ def build_parser() -> argparse.ArgumentParser:
     h = sub.add_parser("hook", help="hooks del plugin de Claude Code (leen el evento por stdin)")
     h.add_argument("evento", choices=["session-start", "pre-bash"])
     h.set_defaults(func=cmd_hook)
+    rh = sub.add_parser("rrhh", help="evaluar el plantel y consultar Recursos Humanos")
+    rhsub = rh.add_subparsers(dest="rrhh_cmd", required=True)
+    for nombre in ("triage", "evaluar", "catalogo", "reclutador", "validar", "memoria", "nota"):
+        rhsub.add_parser(nombre).set_defaults(func=cmd_rrhh)
+    sugerir = rhsub.add_parser("sugerir", help="sugerir participantes para una reunión")
+    equipo = sugerir.add_mutually_exclusive_group(required=True)
+    equipo.add_argument("--participantes", help="slugs de agentes separados por comas")
+    equipo.add_argument("--reunion", metavar="ID", help="id de una conversación existente")
+    sugerir.set_defaults(func=cmd_rrhh)
+    abrir = rhsub.add_parser("abrir", help="abrir la sesión interactiva de RR. HH.")
+    abrir.add_argument("--nueva", action="store_true", help="iniciar una sesión sin retomar la anterior")
+    abrir.set_defaults(func=cmd_rrhh_abrir)
     return p
 
 
