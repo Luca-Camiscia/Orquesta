@@ -35,7 +35,10 @@ def fase(paths: Paths) -> str:
 
 
 def set_fase(paths: Paths, nueva_fase: str) -> None:
-    """Valida y persiste la fase con lock exclusivo y tmp + rename atómico.
+    """Llamala con `generate.get_lock(paths)` tomado (lo hace `orquesta migrar`): así no cambia la fase
+    en medio de un generate.
+
+    Valida y persiste la fase con lock exclusivo y tmp + rename atómico.
 
     Raises:
         ValueError: si nueva_fase no es legacy o plugin.

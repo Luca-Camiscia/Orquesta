@@ -229,9 +229,18 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
     }
     plugin_manifest = {**deploy_manifest, "agents": plugin_deployed,
                        "claude_md_block_sha256": manifest.sha256(render_block_inner(reg, plugin_ctx))}
-    generacion = manifest.sha256(manifest.dumps(plugin_manifest))[:8]
+    # La generación identifica TODO el plugin (agentes, comandos, hooks, contexto con generacion vacía)
+    # y el manifiesto: cualquier cambio de contenido, también en las reglas del código, la cambia.
+    huella = "\n".join(f"{ruta}\0{files[ruta]}" for ruta in sorted(files))
+    generacion = manifest.sha256(huella + "\0" + manifest.dumps(plugin_manifest))[:8]
     plugin_manifest["generacion"] = generacion
+    primera = files
     files = render_plugin(reg, backends.model_dump(), {**context, "generacion": generacion})
+    contexto = "orquesta/context/orquestador.md"
+    if {r: c for r, c in files.items() if r != contexto} != {r: c for r, c in primera.items() if r != contexto}:
+        plan.errors.append("un archivo de entrada (manual/ o el registro) cambió mientras se armaba el plan; "
+                           "volvé a correr `orquesta generate --dry-run`")
+        return plan
     plan.plugin_files = {paths.plugin_root / relative: content for relative, content in files.items()}
     plan.plugin_files[paths.plugin_manifest] = manifest.dumps(plugin_manifest)
     desired.update(plan.plugin_files)
@@ -340,7 +349,8 @@ def apply_plan(plan: Plan, message: str, *,
     now = now or datetime.now()
     with get_lock(paths):
         _verify_fresh(plan)
-        backup = _backup(paths, now)
+        _recuperar_plugin(paths)
+        backup = _backup(paths, now, plan.fase)
         old_changelog = _read(paths.changelog)
         tests_output = ""
         try:
@@ -441,14 +451,32 @@ def _write_plugin(plan: Plan) -> None:
         shutil.rmtree(old)
 
 
-def _backup(paths: Paths, now: datetime) -> Path:
+def _recuperar_plugin(paths: Paths) -> None:
+    """Deja el plugin en un estado consistente si una corrida anterior se cortó a mitad del reemplazo.
+
+    Si falta plugin_root pero quedó una `.plugin.old-*`, esa vuelve a su lugar (era el deploy anterior);
+    las `.plugin.tmp-*` son escrituras a medias y se borran. Corre bajo el lock de generate.
+    """
+    root = paths.plugin_root
+    if root.is_symlink():
+        raise GenerateError(f"{paths.pretty(root)} es un enlace simbólico: orquesta solo reemplaza una "
+                            "carpeta real. Sacá el enlace y volvé a correr generate.")
+    viejas = sorted(root.parent.glob(".plugin.old-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not root.exists() and viejas:
+        os.replace(viejas.pop(0), root)
+    for resto in [*viejas, *root.parent.glob(".plugin.tmp-*")]:
+        shutil.rmtree(resto, ignore_errors=True)
+
+
+def _backup(paths: Paths, now: datetime, fase: str | None = None) -> Path:
     base = paths.backups_dir / now.strftime("%Y%m%d-%H%M%S-%f")
     dest, n = base, 1
     while dest.exists():
         n += 1
         dest = base.with_name(f"{base.name}-{n}")
     dest.mkdir(parents=True)
-    legacy = migracion.fase(paths) == "legacy"
+    # La fase es la del plan (ya validada por _verify_fresh bajo el lock), no una relectura.
+    legacy = (fase or migracion.fase(paths)) == "legacy"
     meta = {"fase": "legacy" if legacy else "plugin",
             "agents_dir_existed": legacy and paths.agents_dir.is_dir(),
             "claude_md_existed": legacy and paths.claude_md.is_file(),

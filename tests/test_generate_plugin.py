@@ -58,7 +58,7 @@ def test_legacy_conserva_snapshot_y_agrega_plugin_con_generacion(env):
     assert digest == "b3f059d60e82ffb25a3a27513ac2e4dacfa4b7b922834ff7a70126dd5702dbd9"
     plugin = json.loads(env.plugin_manifest.read_text())
     generation = plugin.pop("generacion")
-    assert generation == hashlib.sha256(manifest.dumps(plugin).encode()).hexdigest()[:8]
+    assert len(generation) == 8
     assert (env.plugin_dir / "context/orquestador.md").read_text().startswith(f"Generación: {generation}\n")
     assert (env.plugin_root / ".claude-plugin/marketplace.json").is_file()
     assert "`orquesta:codex-forja`" in (env.plugin_dir / "context/orquestador.md").read_text()
@@ -258,3 +258,36 @@ def test_apply_mantiene_lock_compartido_durante_escritura_y_tests(env):
     # Después de apply queda disponible para migración u otro generate.
     with generate.get_lock(env).acquire(timeout=0):
         assert env.plugin_manifest.is_file()
+
+
+def test_recupera_el_plugin_si_una_corrida_se_corto_entre_renames(env):
+    aplicar_legacy = generate.apply_plan(generate.build_plan(env), "deploy", run_tests=None)
+    assert aplicar_legacy.applied
+    viejo = env.plugin_root.with_name(".plugin.old-999")
+    os.replace(env.plugin_root, viejo)
+    env.plugin_root.with_name(".plugin.tmp-999").mkdir()
+    editar = load_yaml(env.registry)
+    editar["agents"][0]["route_when"] = ["algo nuevo"]
+    dump_yaml(editar, env.registry)
+    plan = generate.build_plan(env)
+    assert generate.apply_plan(plan, "otra", run_tests=None).applied
+    assert (env.plugin_root / "orquesta" / "context" / "orquestador.md").is_file()
+    assert not list(env.plugin_root.parent.glob(".plugin.old-*"))
+    assert not list(env.plugin_root.parent.glob(".plugin.tmp-*"))
+
+
+def test_plugin_root_symlink_se_rechaza(env, tmp_path):
+    destino = tmp_path / "otro"
+    destino.mkdir()
+    env.plugin_root.symlink_to(destino)
+    with pytest.raises(generate.GenerateError, match="enlace simbólico"):
+        generate.apply_plan(generate.build_plan(env), "deploy", run_tests=None)
+
+
+def test_generacion_cambia_con_el_contenido_del_plugin(env, monkeypatch):
+    from orquesta import plugin_render
+    antes = generate.build_plan(env)
+    monkeypatch.setattr(plugin_render, "_RULES", plugin_render._RULES + "\n- Regla nueva.\n")
+    despues = generate.build_plan(env)
+    gen = lambda plan: json.loads(plan.plugin_files[env.plugin_manifest])["generacion"]
+    assert gen(antes) != gen(despues)
