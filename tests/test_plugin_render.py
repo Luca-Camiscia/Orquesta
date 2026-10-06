@@ -45,17 +45,15 @@ def test_estructura_completa(reg, ctx):
     assert all(isinstance(content, str) for content in files.values())
 
 
-def test_manifiestos_json_y_version_del_registro(ctx):
-    data = registry_dict()
-    data["version"] = "2.3.4"
-    files = plugin_render.render_plugin(parse_registry(data), backends_dict(), ctx)
+def test_manifiestos_json_validos(ctx):
+    files = plugin_render.render_plugin(parse_registry(registry_dict()), backends_dict(), ctx)
     marketplace = json.loads(files[".claude-plugin/marketplace.json"])
     assert marketplace["name"] == "orquesta-local"
     assert marketplace["plugins"] == [{"name": "orquesta", "source": "./orquesta"}]
     assert marketplace["owner"]["name"]
     manifest = json.loads(files["orquesta/.claude-plugin/plugin.json"])
     assert manifest["name"] == "orquesta"
-    assert manifest["version"] == "2.3.4"
+    assert manifest["version"] == plugin_render.PLUGIN_VERSION
     assert manifest["description"]
 
 
@@ -184,3 +182,10 @@ def test_claude_plugin_validate_json(reg, ctx, tmp_path):
                                 capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result.stdout + result.stderr
         assert json.loads(result.stdout)["success"] is True
+
+
+def test_comandos_usan_argumentos_y_rrhh_abre_la_sesion_aparte(ctx):
+    files = plugin_render.render_plugin(parse_registry(registry_dict()), backends_dict(), ctx)
+    for nombre in ("plan", "reunion", "mood"):
+        assert "$ARGUMENTS" in files[f"orquesta/commands/{nombre}.md"]
+    assert "orquesta rrhh abrir" in files["orquesta/commands/rrhh.md"]

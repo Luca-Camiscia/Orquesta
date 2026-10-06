@@ -125,7 +125,6 @@ class Agent(_Strict):
 
 
 class Registry(_Strict):
-    version: str = "0.1.0"
     orchestrator: Orchestrator
     limits: Limits = Field(default_factory=Limits)
     agents: list[Agent] = Field(default_factory=list)

@@ -9,21 +9,27 @@ from orquesta import render
 from orquesta.schema import Registry, parse_backends
 
 
+PLUGIN_VERSION = "0.1.0"  # la versión del plugin no es parte del registro
+
 _COMMANDS = {
     "plan": (
         "Armar o retomar el plan del proyecto",
-        "Usá orquesta:claude-interrogador y orquesta:claude-arquitecto para crear o retomar "
-        "el plan. Escribilo en `.orquesta/plan.md` y pedí un único OK antes de ejecutar.",
+        "Objetivo del usuario: $ARGUMENTS\n\n"
+        "Si el pedido es ambiguo, usá orquesta:claude-interrogador y hacé sus preguntas con el selector; "
+        "después orquesta:claude-arquitecto arma el plan. Escribilo en `.orquesta/plan.md` y pedí un "
+        "único OK antes de ejecutar.",
     ),
     "reunion": (
         "Consultar varias perspectivas",
-        "Armá el brief y corré `orquesta reunion` con `run_in_background`. "
-        "Evitá un juez si participan las tres familias; verificá el resultado.",
+        "Tema: $ARGUMENTS\n\n"
+        "Armá el brief y corré `orquesta reunion --modo <modo> --participantes <a,b>` con la pregunta "
+        "por stdin y `run_in_background`. Evitá un juez si participan las tres familias; verificá el resultado.",
     ),
     "rrhh": (
-        "Consultar Recursos Humanos",
-        "Consultá en silencio `orquesta rrhh triage --json` y usá el sobre JSON "
-        "para decidir el siguiente paso. Las confirmaciones las corre el usuario.",
+        "Hablar con Recursos Humanos",
+        "El usuario quiere conversar con RR. HH. (proponer, cambiar o dar de baja agentes). Esa conversación "
+        "vive en una sesión aparte con memoria: decile que corra `orquesta rrhh abrir` en su terminal. "
+        "No la simules acá. (Para armar equipos en silencio usá `orquesta rrhh triage --json`.)",
     ),
     "tareas": (
         "Consultar el estado de las tareas",
@@ -32,6 +38,7 @@ _COMMANDS = {
     ),
     "mood": (
         "Cambiar el mood actual",
+        "Mood pedido: $ARGUMENTS\n\n"
         "Aplicá el mood pedido: silencioso, ejecutivo, transparente, debate o docente. "
         "Cambia solo la presentación; mantené la verificación y los frenos.",
     ),
@@ -124,7 +131,7 @@ def render_plugin(reg: Registry, backends: dict[str, dict], ctx: dict[str, Any])
             "plugins": [{"name": "orquesta", "source": "./orquesta"}],
         }),
         "orquesta/.claude-plugin/plugin.json": _json({
-            "name": "orquesta", "version": reg.version,
+            "name": "orquesta", "version": PLUGIN_VERSION,
             "description": "Orquesta: ecosistema multi-modelo integrado",
         }),
         "orquesta/skills/orquesta-cli/SKILL.md": _SKILL,
