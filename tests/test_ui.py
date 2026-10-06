@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import json
+import shlex
+import shutil
 import subprocess
 
 import pytest
 from fastapi.testclient import TestClient
 
 from helpers import dump_yaml, git, load_yaml
-from orquesta import doctor, migracion
+from orquesta import chat, doctor, migracion
 from orquesta.generate import apply_plan, build_plan
-from orquesta.ui.app import create_app
+from orquesta.ui.app import INDEX, create_app
 
 TOKEN = "token-de-prueba"
 BASE = "http://127.0.0.1:8787"
@@ -367,3 +369,113 @@ def test_reordenar_las_mismas_tools_no_cambia_el_yaml(client, app_env):
     a["tools"] = sorted(a["tools"])  # mismo conjunto, otro orden (como lo manda un formulario)
     assert guardar(client, a, confirm="mantenedor").status_code == 200
     assert app_env.registry.read_text() == antes
+
+
+# --- tareas y conversaciones de solo lectura -------------------------------------------------
+
+@pytest.mark.parametrize("method", ["POST", "DELETE", "PATCH", "PUT"])
+@pytest.mark.parametrize("path", [
+    "/api/chat/projects", "/api/chat/projects/orquesta",
+    "/api/projects", "/api/projects/orquesta",
+    "/api/chat/conversations", "/api/chat/conversations/vieja",
+    "/api/chat/conversations/vieja/participants", "/api/chat/conversations/vieja/messages",
+    "/api/chat/conversations/vieja/cancel", "/api/chat/conversations/vieja/export.md",
+    "/api/chat/conversations/vieja/worktrees/merge",
+    "/api/chat/conversations/vieja/worktrees/discard",
+    "/api/worktrees/merge", "/api/worktrees/discard",
+])
+def test_endpoints_de_escritura_eliminados(client, method, path):
+    r = client.request(method, path, json={"confirm": True})
+    assert r.status_code in (404, 405), r.text
+
+
+@pytest.mark.parametrize("path", [
+    "/api/chat/participants", "/api/chat/search?q=vieja", "/api/chat/conversations/vieja",
+])
+def test_get_exclusivo_del_chat_eliminado(client, path):
+    assert client.get(path).status_code == 404
+
+
+def test_listados_y_export_de_conversaciones_viejas(client, app_env):
+    store = chat.Store(app_env)
+    pr = store.create_project("Proyecto viejo", str(app_env.home))
+    conv = store.create_conversation(pr["id"], "Charla vieja", "individual", ["codex-critico"], origen="ui")
+    sin_proyecto = store.create_conversation(None, "Sin proyecto", "individual", ["codex-critico"])
+    store.update(conv["id"], lambda v: v["messages"].append(
+        {"author": "usuario", "text": "Mensaje guardado", "meta": {}}))
+    projects = client.get("/api/chat/projects")
+    assert projects.status_code == 200
+    assert pr["id"] in {p["id"] for p in projects.json()["projects"]}
+    lista = client.get("/api/chat/conversations")
+    assert lista.status_code == 200
+    assert {v["id"] for v in lista.json()["conversations"]} == {conv["id"], sin_proyecto["id"]}
+    filtrada = client.get("/api/chat/conversations", params={"project": pr["id"]})
+    assert [v["id"] for v in filtrada.json()["conversations"]] == [conv["id"]]
+    for filtro in ("sin-proyecto", "none", ""):
+        r = client.get("/api/chat/conversations", params={"project": filtro})
+        assert [v["id"] for v in r.json()["conversations"]] == [sin_proyecto["id"]]
+    export = client.get(f'/api/chat/conversations/{conv["id"]}/export.md')
+    assert export.status_code == 200
+    assert export.text.startswith("# Charla vieja") and "Mensaje guardado" in export.text
+    assert export.headers["content-type"].startswith("text/markdown")
+    assert 'attachment; filename="charla-vieja.md"' == export.headers["content-disposition"]
+    assert client.get("/api/chat/conversations/inexistente/export.md").status_code == 422
+
+
+def test_tareas_se_pueden_listar(client):
+    r = client.get("/api/worktrees")
+    assert r.status_code == 200 and r.json() == {"worktrees": []}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node no disponible para probar el JS")
+def test_tareas_default_comandos_y_copia_sin_escritura():
+    script = INDEX.read_text().split("<script>", 1)[1].split("</script>", 1)[0]
+    script = script.rsplit("cargar().then(", 1)[0]
+    setup = r'''
+const assert = require("node:assert/strict");
+const listeners = {}, nodes = {}, copiados = [];
+const document = {
+  documentElement: {removeAttribute() {}, setAttribute() {}, getAttribute() {return null;}},
+  querySelector: (key) => nodes[key] ||= {content: "test", innerHTML: "", value: "",
+    addEventListener() {}, classList: {add() {}, remove() {}}},
+  querySelectorAll: () => [],
+  addEventListener: (event, fn) => (listeners[event] ||= []).push(fn)
+};
+Object.defineProperty(globalThis, "navigator", {value: {clipboard: {
+  writeText: async (text) => copiados.push(text)
+}}});
+'''
+    probe = r'''
+(async () => {
+st.data = {agents: [{name: "forja", backend: "codex"}], pending: {changes: 0}};
+renderPestanas();
+assert.match(nodes["#pestanas"].innerHTML, /aria-selected="true" data-tab="tareas"/);
+assert.ok(!nodes["#pestanas"].innerHTML.includes("Conversaciones"));
+assert.ok(!comandosPaleta().some(c => /conversaci/i.test(c.etiqueta)));
+st.tareas = [{branch: "orquesta/forja/cambio", agent: "forja", task: "Cambio <viejo>",
+  repo: "/tmp/repo de Luca's $(echo sorpresa)", huerfano: null, diffstat: "1 file changed",
+  conflictos: {merge_conflict: false, overlaps: []}}];
+const html = panelTareas();
+assert.match(html, /Cambio &lt;viejo&gt;/);
+assert.ok(!html.includes('data-action="t-merge"'));
+assert.ok(!html.includes('data-action="t-descartar"'));
+const botones = [...html.matchAll(/<button[^>]*data-action="t-copiar"[^>]*data-command="([^"]+)"[^>]*>Copiar comando<\/button>/g)];
+assert.equal(botones.length, 2);
+const decode = s => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+api = async () => { throw new Error("Copiar no debe llamar al backend"); };
+toast = () => {};
+for (const [, encoded] of botones) {
+  const command = decode(encoded);
+  assert.ok(html.includes(`<code class="cmd">${encoded}</code>`));
+  await listeners.click[0]({target: {closest: () => ({dataset: {action: "t-copiar", command}})}});
+}
+st.tareas = []; assert.match(panelTareas(), /No hay tareas abiertas/);
+process.stdout.write(JSON.stringify(copiados));
+})().catch(e => {console.error(e); process.exitCode = 1;});
+'''
+    result = subprocess.run(["node", "-"], input=setup + script + probe, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert [shlex.split(c) for c in json.loads(result.stdout)] == [
+        ["orquesta", "review", "orquesta/forja/cambio", "--repo", "/tmp/repo de Luca's $(echo sorpresa)"],
+        ["orquesta", "merge", "orquesta/forja/cambio", "--repo", "/tmp/repo de Luca's $(echo sorpresa)", "--confirm"],
+    ]

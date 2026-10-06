@@ -153,26 +153,6 @@ def test_descartar_worktree(store, proyecto, env):
     assert git(proyecto, "branch", "--list", br) == ""
 
 
-def test_api_chat_flujo(env, proyecto):
-    apply_plan(build_plan(env), "deploy", run_tests=None)
-    fake = FakeExec()
-    app = create_app(env, port=8787, token="t", run_tests=None, chat_executor=fake)
-    c = TestClient(app, base_url="http://127.0.0.1:8787", headers={"X-Orquesta-Token": "t"})
-    assert "orquestador" in c.get("/api/chat/participants").json()["participants"]
-    pr = c.post("/api/chat/projects", json={"name": "P", "dir": str(proyecto)}).json()
-    conv = c.post("/api/chat/conversations", json={"project_id": pr["id"], "title": "t", "kind": "individual",
-                                                   "participants": ["codex-critico"]}).json()
-    assert c.post(f"/api/chat/conversations/{conv['id']}/messages", json={"text": "hola"}).status_code == 202
-    for _ in range(50):
-        msgs = c.get(f"/api/chat/conversations/{conv['id']}").json()["messages"]
-        if len(msgs) == 2 and msgs[1]["status"] == "done":
-            break
-        time.sleep(0.05)
-    assert msgs[1]["text"] == "respuesta de codex-critico"
-    lista = c.get(f"/api/chat/conversations?project={pr['id']}").json()["conversations"]
-    assert lista[0]["id"] == conv["id"]
-
-
 @pytest.mark.parametrize("crudo,limpio", [
     ("[mood: ejecutivo]\n\nEl riesgo es X.", "El riesgo es X."),
     ("  [mood: debate]\nHola", "Hola"),
@@ -237,14 +217,13 @@ def test_exportar_a_markdown(store, proyecto):
     assert "respuesta de codex-critico" in md
 
 
-def test_api_cancelar_y_exportar(env, proyecto):
+def test_export_de_conversacion_vieja_sigue_disponible(env, proyecto):
     apply_plan(build_plan(env), "deploy", run_tests=None)
-    app = create_app(env, port=8787, token="t", run_tests=None, chat_executor=FakeExec())
-    c = TestClient(app, base_url="http://127.0.0.1:8787", headers={"X-Orquesta-Token": "t"})
-    pr = c.post("/api/chat/projects", json={"name": "P", "dir": str(proyecto)}).json()
-    conv = c.post("/api/chat/conversations", json={"project_id": pr["id"], "title": "Exp", "kind": "individual",
-                                                   "participants": ["codex-critico"]}).json()
-    assert c.post(f"/api/chat/conversations/{conv['id']}/cancel").json()["ok"] is True
+    store = chat.Store(env)
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "Exp", "individual", ["codex-critico"])
+    c = TestClient(create_app(env, port=8787, token="t", run_tests=None),
+                   base_url="http://127.0.0.1:8787", headers={"X-Orquesta-Token": "t"})
     r = c.get(f"/api/chat/conversations/{conv['id']}/export.md")
     assert r.status_code == 200 and r.text.startswith("# Exp")
     assert "attachment" in r.headers["content-disposition"]

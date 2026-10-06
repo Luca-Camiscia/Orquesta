@@ -262,15 +262,12 @@ def test_origen_default_none(reunion_env):
     assert store.get_conversation(conv["id"])["origen"] is None
 
 
-def test_origen_ui_y_chats_viejos_conservan_formato(reunion_env):
+def test_chats_viejos_conservan_formato(reunion_env):
     env, proyecto = reunion_env
     store = chat.Store(env)
     pr = store.create_project("P", str(proyecto))
-    app = create_app(env, port=8787, token="t", run_tests=None, chat_executor=FakeExecutor())
-    client = TestClient(app, base_url="http://127.0.0.1:8787", headers={"X-Orquesta-Token": "t"})
-    conv = client.post("/api/chat/conversations", json={"project_id": pr["id"], "participants": ["codex-critico"]}).json()
-    assert conv["origen"] == "ui"
-    del conv["origen"]
+    conv = store.create_conversation(pr["id"], "vieja", "individual", ["codex-critico"])
+    del conv["origen"]  # formato anterior a `origen`
     store.save(conv)
     chat.run_turn(store, conv["id"], "hola", executor=FakeExecutor())
     assert "origen" not in store.get_conversation(conv["id"])

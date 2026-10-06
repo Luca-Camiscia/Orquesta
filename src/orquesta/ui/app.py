@@ -11,7 +11,6 @@ import secrets
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any
 
 from fastapi import Body, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -62,8 +61,7 @@ def _with_defaults(raw: dict) -> dict:
 
 
 def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | None = None,
-               run_tests=run_test_suite, doctor_deps: doctor.Env | None = None,
-               chat_executor=None) -> FastAPI:
+               run_tests=run_test_suite, doctor_deps: doctor.Env | None = None) -> FastAPI:
     paths = paths or default_paths()
     token = token or secrets.token_urlsafe(24)
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -444,10 +442,9 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
             return JSONResponse({"errors": [str(exc)]}, status_code=422)
         return {"ok": True, "note": RESTART_NOTE}
 
-    # --- chat --------------------------------------------------------------------------------
+    # --- conversaciones guardadas (solo lectura) ----------------------------------------------
 
     store = chat.Store(paths)
-    executor = chat_executor or chat.default_executor
 
     # --- recursos humanos (base local y opinión explícita opcional) --------------------------
 
@@ -479,73 +476,15 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
     def rrhh_sugerencias(cid: str):
         return rrhh.sugerir_participantes(store.get_conversation(cid), load_registry(paths))
 
-    @app.get("/api/chat/participants")
-    def chat_participants():
-        return {"participants": store.participants()}
-
     @app.get("/api/chat/projects")
     def chat_projects():
         return {"projects": store.list_projects()}
-
-    @app.post("/api/chat/projects")
-    def chat_new_project(body: dict = Body(...)):
-        return store.create_project(body.get("name", ""), body.get("dir", ""))
-
-    @app.delete("/api/chat/projects/{pid}")
-    def chat_delete_project(pid: str):
-        store.delete_project(pid)
-        return {"ok": True}
 
     @app.get("/api/chat/conversations")
     def chat_conversations(project: str | None = None):
         if project in ("sin-proyecto", "none", ""):
             return {"conversations": store.list_conversations(project_id=None)}
         return {"conversations": store.list_conversations(project) if project else store.list_conversations()}
-
-    @app.post("/api/chat/conversations")
-    def chat_new_conversation(body: dict = Body(...)):
-        pid = body.get("project_id")
-        if pid in ("", "sin-proyecto", "none"):
-            pid = None
-        return store.create_conversation(pid, body.get("title", ""),
-                                         body.get("kind", "individual"), body.get("participants") or [],
-                                         body.get("mode", "rondas"), origen="ui")
-
-    @app.get("/api/chat/search")
-    def chat_search(q: str = ""):
-        return {"results": chat.search(store, q)}
-
-    @app.get("/api/chat/conversations/{cid}")
-    def chat_conversation(cid: str):
-        conv = store.get_conversation(cid)
-        for w in conv.get("worktrees", []):
-            if w.get("status") == "abierto":
-                try:
-                    w["conflictos"] = worktrees_mod.conflicts(
-                        paths, w["branch"], repo=w.get("repo") or chat._repo_of(store.project_of(conv)))
-                except worktrees_mod.WorktreeError:
-                    w["conflictos"] = None
-        return conv
-
-    @app.post("/api/worktrees/merge")
-    def board_merge(body: dict = Body(...)):
-        if body.get("confirm") is not True:
-            return JSONResponse({"needs_confirmation": True, "detail": "Confirmá el merge."}, status_code=409)
-        try:
-            worktrees_mod.merge(paths, body.get("branch", ""), repo=body.get("repo"))
-        except worktrees_mod.WorktreeError as exc:
-            return JSONResponse({"errors": [str(exc)]}, status_code=422)
-        return {"ok": True}
-
-    @app.post("/api/worktrees/discard")
-    def board_discard(body: dict = Body(...)):
-        if body.get("confirm") is not True:
-            return JSONResponse({"needs_confirmation": True, "detail": "Confirmá el descarte."}, status_code=409)
-        try:
-            worktrees_mod.discard(paths, body.get("branch", ""), repo=body.get("repo"))
-        except worktrees_mod.WorktreeError as exc:
-            return JSONResponse({"errors": [str(exc)]}, status_code=422)
-        return {"ok": True}
 
     @app.get("/api/worktrees")
     def all_worktrees():
@@ -562,37 +501,6 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
             out.append(item)
         return {"worktrees": out}
 
-    @app.delete("/api/chat/conversations/{cid}")
-    def chat_delete(cid: str):
-        store.delete_conversation(cid)
-        return {"ok": True}
-
-    @app.post("/api/chat/conversations/{cid}/participants")
-    def chat_set_participants(cid: str, body: dict = Body(...)):
-        return store.set_participants(cid, body.get("participants") or [])
-
-    @app.post("/api/chat/conversations/{cid}/messages")
-    def chat_send(cid: str, body: dict = Body(...)):
-        import threading
-        text = (body.get("text") or "").strip()
-        if not text:
-            raise chat.ChatError("el mensaje está vacío")
-        claimed = {}
-
-        def claim(c):
-            if c.get("busy"):
-                raise chat.ChatError("la conversación todavía está respondiendo: esperá a que termine")
-            c["busy"] = True
-            claimed["ok"] = True
-        store.update(cid, claim)
-        threading.Thread(target=chat.run_turn, args=(store, cid, text, executor), daemon=True).start()
-        return JSONResponse({"ok": True}, status_code=202)
-
-    @app.post("/api/chat/conversations/{cid}/cancel")
-    def chat_cancel(cid: str):
-        store.get_conversation(cid)
-        return {"ok": True, "killed": chat.request_cancel(cid)}
-
     @app.get("/api/chat/conversations/{cid}/export.md")
     def chat_export(cid: str):
         from fastapi.responses import Response
@@ -600,18 +508,5 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         name = re.sub(r"[^a-z0-9-]+", "-", store.get_conversation(cid)["title"].lower()).strip("-") or "conversacion"
         return Response(md, media_type="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{name}.md"'})
-
-    @app.post("/api/chat/conversations/{cid}/worktrees/merge")
-    def chat_merge(cid: str, body: dict = Body(...)):
-        try:
-            chat.merge_worktree(store, cid, body.get("branch", ""), force=body.get("force") is True)
-        except chat.NeedsForce as exc:
-            return JSONResponse({"needs_confirmation": True, "detail": str(exc)}, status_code=409)
-        return {"ok": True}
-
-    @app.post("/api/chat/conversations/{cid}/worktrees/discard")
-    def chat_discard(cid: str, body: dict = Body(...)):
-        chat.discard_worktree(store, cid, body.get("branch", ""))
-        return {"ok": True}
 
     return app
