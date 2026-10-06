@@ -19,13 +19,18 @@ from pathlib import Path
 
 from orquesta.paths import Paths
 
-# Comandos de orquesta que confirman algo que el usuario tiene que ver.
-_CONFIRMA = re.compile(r"\borquesta\b[^\n]*?(?:^|\s)--(?:confirm|forzar)(?=\s|=|$)", re.M)
+# Comandos de orquesta que confirman algo que el usuario tiene que ver. El flag puede venir entre comillas,
+# pegado a `;`, `&&`, `|` o `)`, o abreviado (la CLI ya no acepta abreviaturas, pero el aviso no cuesta).
+_FLAG = r"(?<![\w-])--(?:conf(?:i(?:rm?)?)?|forz(?:ar?)?)(?![\w-])"
+_CONFIRMA = re.compile(
+    rf"\borquesta\b[^\n]*?{_FLAG}"
+    r"|\borquesta\b[^\n]*?\bplugins\s+(?:install|uninstall)\b[^\n]*?(?<![\w-])--yes(?![\w-])"
+    r"|\borquesta\b[^\n]*?\bwt\s+clean\b[^\n]*?(?<![\w-])--force(?![\w-])")
 # Formas de llamar a la lógica de confirmación sin pasar por el binario de siempre. Se buscan solo
 # junto a lo que confirma algo, para no frenar diagnósticos (`python -c "from orquesta import modelos"`).
 _ACCIONES = r"(?:merge|merge_sha|descartar|discard|cerrar_si_vigente|pedir_confirmacion|leer_tty|apply_plan|set_fase|migrar)"
 _EVASION = re.compile(
-    rf"(?:-m\s+orquesta\b|\b(?:from|import)\s+orquesta\b)[^\n]*\b{_ACCIONES}\b"
+    rf"(?:-m\s+orquesta\b|\b(?:from|import)\s+orquesta\b)[\s\S]*?\b{_ACCIONES}\b"  # cruza líneas (heredocs)
     r"|\.venv/bin/orquesta\s+(?:merge|descartar|migrar|generate|wt\s+clean)\b"
     r"|(?:^|[\s;&|(])(?:script|unbuffer|expect)\s[^\n]*\borquesta\b"
 )
@@ -66,6 +71,7 @@ def pre_bash(data: dict) -> dict | None:
     comando = (data.get("tool_input") or {}).get("command")
     if not isinstance(comando, str):
         return None
+    comando = comando.replace("\\\n", " ")  # continuaciones de línea con `\`
     if not (_CONFIRMA.search(comando) or _EVASION.search(comando)):
         return None
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",

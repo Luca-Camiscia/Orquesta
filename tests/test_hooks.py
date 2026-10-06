@@ -58,6 +58,18 @@ def test_stdin_invalido_sale_cero_sin_traceback(env, evento, stdin_text):
     ("python -c 'from orquesta import confirmar; confirmar.pedir_confirmacion(\"x\", \"y\")'", True),
     ("/home/luca/orquesta/.venv/bin/orquesta merge x", True),
     ("script -qc 'orquesta merge x' /dev/null", True),
+    ("bash -c 'orquesta merge x --confirm'", True),
+    ('orquesta merge x "--confirm"', True),
+    ("$(orquesta merge x --confirm)", True),
+    ("orquesta merge x --confirm;echo", True),
+    ("orquesta merge x \\\n  --confirm", True),
+    ("python3 <<'PY'\nfrom orquesta import worktrees\nworktrees.merge(p, 'x')\nPY", True),
+    ("orquesta merge x --conf", True),
+    ("orquesta plugins install a/b p@m --yes", True),
+    ("orquesta wt clean x --force", True),
+    ("orquesta wt clean x", False),
+    ("rg -- '--confirm' src", False),
+    ("git merge orquesta/codex-forjador/x", False),
     ("orquesta merge x", False),
     ("orquesta tareas --json", False),
     ("cd /home/luca/orquesta && uv run pytest -q", False),
@@ -80,3 +92,8 @@ def test_cli_hook_por_stdin(env, monkeypatch, capsys):
         {"tool_name": "Bash", "tool_input": {"command": "orquesta merge x --confirm"}})))
     assert cli.main(["hook", "pre-bash"]) == 0
     assert json.loads(capsys.readouterr().out)["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+def test_la_cli_no_acepta_abreviaturas():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["merge", "x", "--conf"])

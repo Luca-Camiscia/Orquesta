@@ -12,6 +12,7 @@ Códigos de salida de `generate`: 0 ok/sin cambios, 1 errores, 3 requiere confir
 from __future__ import annotations
 
 import argparse
+import shlex
 import os
 import sys
 from pathlib import Path
@@ -22,11 +23,32 @@ from orquesta import manifest as mf
 RESTART_NOTE = "Reiniciá la sesión de Claude Code para cargar los cambios."
 
 
+def _confirmar_humano(esperado: str, comando: str, detalle: str) -> bool:
+    """Confirmación por /dev/tty para comandos de texto (no JSON). False = no se confirmó (ya avisó)."""
+    from orquesta import confirmar
+    try:
+        if confirmar.pedir_confirmacion(texto_esperado=esperado, comando=comando, detalle=detalle):
+            return True
+        print("❌ Confirmación cancelada: no se aplicó nada.")
+    except confirmar.SinTTY as exc:
+        print(f"⛔ Necesito que lo confirmes vos: corré en tu terminal\n  {exc.comando_sugerido}")
+    return False
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
     from orquesta.generate import GenerateError, TestsFailed, apply_plan, build_plan
 
     paths = default_paths()
     plan = build_plan(paths, confirmations=args.confirm or [])
+    if args.confirm and not args.dry_run and not plan.errors and not plan.violations and not plan.empty:
+        # --confirm solo vale si lo confirma una persona en la terminal (docs/plugin-plan.md, decisión 3).
+        confirmadas = [v for v in build_plan(paths).violations if v.agent in set(args.confirm)]
+        if confirmadas and not _confirmar_humano(
+                " ".join(sorted({v.agent for v in confirmadas})),
+                "orquesta generate " + " ".join(f"--confirm {a}" for a in args.confirm)
+                + (f" -m {shlex.quote(args.message)}" if args.message else ""),
+                "Aplicar cambios que requieren confirmación:\n" + "\n".join(f"- {v}" for v in confirmadas)):
+            return 3
     if plan.errors:
         print("❌ Hay errores en el registro; no se aplicó nada:")
         print("\n".join(f"  - {e}" for e in plan.errors))
@@ -198,6 +220,14 @@ def cmd_plugins(args: argparse.Namespace) -> int:
         print("⛔ Instalar o desinstalar plugins toca la config global de Claude Code: agregá --yes "
               "para confirmar explícitamente.")
         return 2
+    if args.pl_cmd in ("install", "uninstall"):
+        objetivo = args.plugin_id
+        comando = shlex.join(["orquesta", "plugins", args.pl_cmd]
+                             + ([args.repo] if args.pl_cmd == "install" else []) + [objetivo, "--yes"])
+        if not _confirmar_humano(objetivo, comando,
+                                 f"{'Instalar' if args.pl_cmd == 'install' else 'Desinstalar'} el plugin {objetivo} "
+                                 "en la config global de Claude Code"):
+            return 3
     try:
         if args.pl_cmd == "install":
             info = plugins.install(paths, args.repo, args.plugin_id)
@@ -545,7 +575,17 @@ def build_parser() -> argparse.ArgumentParser:
     h = sub.add_parser("hook", help="hooks del plugin de Claude Code (leen el evento por stdin)")
     h.add_argument("evento", choices=["session-start", "pre-bash"])
     h.set_defaults(func=cmd_hook)
+    _sin_abreviaturas(p)
     return p
+
+
+def _sin_abreviaturas(parser: argparse.ArgumentParser) -> None:
+    """argparse acepta `--conf` como `--confirm`: en una CLI que confirma acciones eso confunde al hook."""
+    parser.allow_abbrev = False
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for sub in action.choices.values():
+                _sin_abreviaturas(sub)
 
 
 def main(argv: list[str] | None = None) -> int:

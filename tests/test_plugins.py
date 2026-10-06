@@ -154,6 +154,20 @@ def test_cli_install_exige_yes(env, monkeypatch, capsys):
     assert "--yes" in capsys.readouterr().out
 
 
+def test_cli_install_con_yes_igual_pide_confirmacion_humana(env, monkeypatch, capsys):
+    from orquesta import cli, confirmar
+    monkeypatch.setenv("ORQUESTA_HOME", str(env.home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(env.claude_dir))
+
+    def sin_tty(**kw):
+        raise confirmar.SinTTY(kw["comando"])
+
+    monkeypatch.setattr(confirmar, "pedir_confirmacion", sin_tty)
+    monkeypatch.setattr(plugins, "install", lambda *a, **k: pytest.fail("instaló sin confirmación humana"))
+    assert cli.main(["plugins", "install", "owner/repo", "algo@market", "--yes"]) == 3
+    assert "corré en tu terminal" in capsys.readouterr().out
+
+
 def test_cli_list(env, monkeypatch, capsys):
     from orquesta import cli
     instalar_fake(env)
