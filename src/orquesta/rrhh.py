@@ -256,19 +256,14 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
     """
     palabras = _palabras(texto)
     normal = _normalizar(texto)
-    verificacion = _palabras("verificar verifica verificó verificás verificá checar chequea chequear "
+    verificacion = _palabras("verificar verifica verificó verificás verificá checar chequea chequear chequealo "
                             "chequeá check checking comprobar comprobá confirmar confirmá validar "
                             "valida validación reproducir reproduce reproduzco")
-    indicios = palabras & (verificacion | _palabras("bug issue reporte error problema viejo antiguo "
-                                                   "anterior pasado puede podría quizás tal acaso"))
-    # «ya» y «si» son stopwords; «verificar si ... ya» también pide verificar primero.
-    indicios.update(re.findall(r"\bya\b", normal))
-    if palabras & verificacion and re.search(r"\bsi\b", normal):
-        indicios.add("si")
-    duda = re.search(r"\b(?:no estoy|estas)\s+(segur[oa])\b", normal)
-    if duda:
-        indicios.add(duda.group(1))
-    abstencion = len(indicios) >= 3
+    tiene_verbo_verificacion = bool(palabras & verificacion)
+    # «ya» y «si» son stopwords; buscar la duda en el texto normalizado.
+    marcadores_duda = re.search(r"\b(?:si|ya|puede que|podria|quizas|todavia|aun|acaso)\b", normal) or re.search(
+        r"\b(?:no estoy|estas)\s+segur[oa]\b", normal)
+    abstencion = tiene_verbo_verificacion and bool(marcadores_duda)
     razones = []
     dificultad = 1
     if len(texto) > 400:

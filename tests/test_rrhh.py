@@ -160,12 +160,19 @@ def test_triage_sin_revisor_cruzado_informa_el_hueco(plantel):
 
 @pytest.mark.parametrize("texto", [
     "Verificar si el login ya funciona correctamente",
-    "Puede que el bug ya esté arreglado, chequealo por favor",
+    "Puede que ya esté arreglado, chequealo por favor",
     "Validar y confirmar que el problema aún existe antes de implementar",
-    "Reporte viejo del 2023: checar si el issue todavía pasa en main",
-    "VERIFICÓ, verificás y comprobá el error",
-    "No estoy segura: quizás ya funciona",
-    "¿Estás seguro? Podría ya funcionar",
+    "checar si el issue todavía pasa",
+    "Verificar si funciona",
+    "Verificar ya funciona",
+    "Check: puede que funcione",
+    "Comprobá: quizás funciona",
+    "Confirmá: todavía pasa",
+    "Validación: acaso funciona",
+    "Reproduzco: podría funcionar",
+    "No estoy segura: verificar el login",
+    "¿Estás seguro? Comprobar el login",
+    "VERIFICÓ, verificás y comprobá si funciona",
 ])
 def test_triage_abstencion_verificar_primero(plantel, texto):
     t = rrhh.triage(texto, plantel, MODELOS)
@@ -180,9 +187,17 @@ def test_triage_abstencion_verificar_primero(plantel, texto):
     "Arreglar el bug de autenticación",
     "Crear una new feature para dashboards",
     "Verificar login",
-    "Verificar ya funciona",
     "Verificar verificar verificar login",
     "Implementar login seguro que ya puede funcionar",
+    "Corregir el bug del reporte: el error aparece en el login y el problema rompe la sesión",
+    "Arreglar el error 500 que ya reportaron, el problema está en el parser",
+    "Implementar el fix del issue 42, ya tenemos el bug reproducido",
+    "Validar el formato del input del formulario",
+    "Agregar tests que verifiquen el parser",
+    "VERIFICÓ, verificás y comprobá el error",
+    "No estoy segura: quizás ya funciona",
+    "¿Estás seguro? Podría ya funcionar",
+    "Validar y confirmar el problema antes de implementar",
 ])
 def test_triage_sin_abstencion_en_pedidos_normales(plantel, texto):
     t = rrhh.triage(texto, plantel, MODELOS)
@@ -207,7 +222,7 @@ def test_triage_abstencion_quita_solo_bonus_worktree_y_considera_lectura():
 
 
 def test_triage_abstencion_conserva_avisos_existentes(plantel):
-    t = rrhh.triage("Validar y confirmar el problema antes de implementar migración de auth y datos",
+    t = rrhh.triage("Validar y confirmar si el problema aún existe antes de implementar migración de auth y datos",
                     registry(plantel.agents[0]), MODELOS)
     assert len(t["avisos"]) == 2
     assert t["avisos"][0] == "No hay revisor habilitado de otra familia para esta tarea"
