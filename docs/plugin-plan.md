@@ -11,6 +11,7 @@ rondas de preguntas). Autor: `claude-arquitecto`; review adversarial: `codex-abo
 - Conversaciones viejas: solo en disco y export.
 - Sandbox de Bash de Claude Code (opción c): no en v1, solo documentado.
 - Escaladas que también exigen `--confirm` (E1.1b, decisión 2026-10-06): agregar tools de escritura (`Write`, `Edit`, `NotebookEdit`, `Bash`) o `"*"`, `isolation: worktree → none`, claves nuevas o cambiadas en `extra_frontmatter`, y cambios de `role`.
+- Hook pre-bash en auto mode (decisión 2026-10-06): se queda en `ask`. En auto mode ese `ask` lo resuelve el clasificador y no le pregunta al usuario (probado: `generate --confirm` corrió sin aviso); el usuario lo prefiere así. El freno real sigue siendo `/dev/tty`.
 - `!` no tiene TTY (probado por el usuario: `not a tty`): las confirmaciones se corren en una segunda terminal. Sin bandeja web.
 
 ## Modelo de amenaza

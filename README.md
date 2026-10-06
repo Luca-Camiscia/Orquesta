@@ -178,7 +178,8 @@ deliberada deje rastro. Controles en capas:
 
 1. **Hook PreToolUse (aviso).** Ante `--confirm`, `--forzar` y patrones de evasión (`python -c …orquesta`,
    `-m orquesta`, `.venv/bin/orquesta`, `script`, `unbuffer`, `pty`) devuelve `ask`. En sesiones
-   interactivas te pregunta; en `claude -p` (delegados headless) `ask` equivale a denegar.
+   interactivas te pregunta, salvo en auto mode, donde lo resuelve el clasificador sin preguntarte
+   (decisión deliberada); en `claude -p` (delegados headless) `ask` equivale a denegar.
 2. **Freno real por `/dev/tty`.** Las confirmaciones leen un texto exacto (rama, agente o «corte») de la
    terminal. Sin TTY no hay forma de confirmar: devuelve `NECESITO_CONFIRMACION` (exit 3). Sin variables
    de entorno que lo saltee.
