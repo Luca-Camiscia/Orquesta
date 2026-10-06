@@ -368,3 +368,36 @@ def test_tareas_json_malformado_es_error_sin_traceback(env, tarea, capsys):
     (env.state_dir / pid / "tareas.json").write_text('[{"rama": 1}]')
     assert cli.main(["tareas"]) == 1
     assert salida(capsys)["estado"] == "ERROR"
+
+
+def test_cerrar_si_vigente_no_actua_si_la_tarea_cambio(env, tarea):
+    wt, pid, sha = tarea
+    llamado = []
+    assert tareas.cerrar_si_vigente(pid, wt.branch, str(wt.repo), {"veredicto": "RECHAZAR"},
+                                    lambda: llamado.append(1), status="mergeado", paths=env) is None
+    assert llamado == [] and tareas.obtener(pid, wt.branch, paths=env)["status"] == "abierto"
+    assert tareas.cerrar_si_vigente(pid, wt.branch, str(wt.repo), {"veredicto": "APROBAR"},
+                                    lambda: "ok", status="mergeado", paths=env) == "ok"
+    assert tareas.obtener(pid, wt.branch, paths=env)["status"] == "mergeado"
+
+
+def test_merge_sin_tests_avisa(env, tarea, monkeypatch, capsys):
+    wt, pid, _ = tarea
+    tareas.actualizar(pid, wt.branch, {"tests_ok": None, "tests_sha": None}, paths=env)
+    tty(monkeypatch, wt.branch)
+    assert cli.main(["merge", wt.branch, "--confirm"]) == 0
+    assert "no tiene comando de tests" in salida(capsys)["avisos"][0]
+
+
+def test_wt_clean_force_pide_confirmacion_humana(tarea, monkeypatch, capsys):
+    wt, _, _ = tarea
+
+    def sin_tty(**kwargs):
+        raise confirmar.SinTTY(kwargs["comando"])
+
+    monkeypatch.setattr(confirmar, "pedir_confirmacion", sin_tty)
+    assert cli.main(["wt", "clean", wt.branch, "--force"]) == 3
+    assert wt.path.exists()
+    tty(monkeypatch, wt.branch)
+    assert cli.main(["wt", "clean", wt.branch, "--force"]) == 0
+    assert not wt.path.exists()
