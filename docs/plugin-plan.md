@@ -119,5 +119,6 @@ lo que pida; generate no atómico frente a `/reload-plugins`.
 
 ## Progreso
 
-- Hecho: E0, E1 (todas), E2.0-E2.4, E3.0, E3.1, E4.1 (2026-10-05/06). El plugin real se genera en `~/orquesta/plugin` (generación 50065423), valida con `claude plugin validate` y en la config aislada carga 15 agentes `orquesta:*`, 5 comandos y la skill; el modelo recibe el contexto. Propuesta de E2.6/E3.2 lista en la rama `orquesta/orquestador/e2-6-e3-2` (requiere confirmación del usuario).
+- Hecho (2026-10-06): E0, E1, E2.0-E2.5, E3.0, E3.1, E4.1, E5.1. E5.2 en sandbox: generate → corte → sesión real con el plugin instalado (15 agentes, 5 comandos, contexto con la generación correcta) → rollback idéntico, doctor sin fallas.
+- Pendiente para el usuario: (1) revisar y aplicar la rama `orquesta/orquestador/e2-6-e3-2` (agente rrhh, that-it-guy, regla de no mergear): `git merge orquesta/orquestador/e2-6-e3-2` y en su terminal `orquesta generate --confirm that-it-guy --confirm rrhh --confirm codex-forjador --confirm codex-tester --confirm codex-refactorista -m "…"`; (2) corte real en su terminal: `orquesta migrar corte --confirm` y `orquesta doctor`; (3) borrar la rama abandonada `orquesta/codex-forjador/e5-1-migrar` con `orquesta wt clean orquesta/codex-forjador/e5-1-migrar --force`. Sin verificar en vivo (se agotó la cuota): la denegación del hook pre-bash en una sesión con el plugin instalado (cubierta por tests y por el spike).
 - [x] E0 · [x] E1 · [ ] E2 · [ ] E3 · [ ] E4 · [ ] E5
