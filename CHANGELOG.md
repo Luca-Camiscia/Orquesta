@@ -2,6 +2,10 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-06 08:59 — Aplicar cambios del registro
+
+- plugin (~/orquesta/plugin): 3 archivos (0 creados, 3 modificados, 0 borrados)
+
 ## 2026-10-06 08:55 — rrhh y reglas de no mergear
 
 - plugin (~/orquesta/plugin): 7 archivos (1 creados, 6 modificados, 0 borrados)
