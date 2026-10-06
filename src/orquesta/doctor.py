@@ -23,7 +23,7 @@ from typing import Callable
 
 from ruamel.yaml import YAML
 
-from orquesta import catalog, manifest as mf, worktrees
+from orquesta import catalog, manifest as mf, migracion, worktrees
 from orquesta.claude_md import extract_inner, MarkerError
 from orquesta.config import load_all, load_backends
 from orquesta.generate import build_plan
@@ -125,6 +125,32 @@ class Env:
             if d.get("type") == "system" and d.get("subtype") == "init":
                 return {"agents": d.get("agents", []), "tools": d.get("tools", [])}
         return None
+
+    def claude_plugin_list(self, claude_config_dir: Path) -> dict | None:
+        cmd = ["env", f"CLAUDE_CONFIG_DIR={claude_config_dir}", "claude", "plugin", "list"]
+        code, out, _ = self.run([*cmd, "--json"], timeout=30,
+                                cwd=Path(tempfile.gettempdir()))
+        if code == 0:
+            try:
+                data = json.loads(out)
+            except ValueError:
+                return None
+            if isinstance(data, dict):
+                data = data.get("plugins")
+            return {"plugins": data} if isinstance(data, list) and all(isinstance(p, dict) for p in data) else None
+        code, out, _ = self.run(cmd, timeout=30, cwd=Path(tempfile.gettempdir()))
+        if code != 0:
+            return None
+        out = re.sub(r"\x1b\[[0-9;]*m", "", out)
+        plugins = []
+        for match in re.finditer(r"(?m)^\s*(?:[❯>]\s*)?([\w-]+@[\w.-]+)\s*$", out):
+            end = re.search(r"(?m)^\s*(?:[❯>]\s*)?[\w-]+@[\w.-]+\s*$", out[match.end():])
+            block = out[match.end():match.end() + end.start()] if end else out[match.end():]
+            source = re.search(r"(?m)^\s*Read from:\s*(.+)$", block)
+            plugins.append({"id": match.group(1),
+                            "enabled": bool(re.search(r"Status:\s*(?:[✔✓]\s*)?enabled\b", block)),
+                            "readFromFolder": source.group(1).strip() if source else ""})
+        return {"plugins": plugins}
 
     def ping_backend(self, paths: Paths, backend: str):
         from orquesta.runner import ping_backend
@@ -423,6 +449,8 @@ def _claude_live(ctx: _Ctx) -> list[Check]:
     loaded = set(init.get("agents") or [])
     try:
         deployed = sorted(((mf.load(ctx.paths) or {}).get("agents") or {}).keys())
+        if migracion.fase(ctx.paths) == "plugin":
+            deployed = [f"orquesta:{a}" for a in deployed]
     except mf.ManifestError as exc:
         return [Check("claude-agentes", "Claude Code carga los agentes", "fail", str(exc),
                       "Regeneralo con `orquesta generate` o revisá `state/migracion/`.")]
@@ -490,6 +518,106 @@ def _audits(paths: Paths) -> list[dict]:
             if isinstance(data, dict) and data.get("plugin"):
                 out.append({**data, "commit": str(data.get("commit", "")), "file": f.name})
     return out
+
+
+def _plugin_generado(ctx: _Ctx) -> list[Check]:
+    title = "Plugin generado"
+    try:
+        fase = migracion.fase(ctx.paths)
+    except ValueError as exc:
+        return [Check("plugin-generado", title, "fail", str(exc), "Revisá `state/migracion/`.")]
+    plan = ctx.plan or build_plan(ctx.paths)
+    status = "fail" if fase == "plugin" else "warn"
+    if plan.errors:
+        return [Check("plugin-generado", title, status, "; ".join(plan.errors), GENERATE_HINT)]
+    missing, changed = [], []
+    for path, content in sorted(plan.plugin_files.items()):
+        name = str(path.relative_to(ctx.paths.plugin_root))
+        try:
+            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        except FileNotFoundError:
+            missing.append(name)
+            continue
+        expected = mf.sha256(content)
+        if actual != expected:
+            changed.append(f"{name} (esperado {expected[:8]} ≠ encontrado {actual[:8]})")
+    extra = [str(p.relative_to(ctx.paths.plugin_root)) for p in sorted(ctx.paths.plugin_root.rglob("*"))
+             if p.is_file() and p not in plan.plugin_files]
+    parts = (["faltan: " + ", ".join(missing)] if missing else [])
+    parts += ["desincronizados: " + ", ".join(changed)] if changed else []
+    parts += ["sobran: " + ", ".join(extra)] if extra else []
+    if parts:
+        return [Check("plugin-generado", title, status, "; ".join(parts), GENERATE_HINT)]
+    return [Check("plugin-generado", title, "ok", "sincronizado (hash ok)")]
+
+
+def _plugin_instalado(ctx: _Ctx) -> list[Check]:
+    title = "Plugin instalado"
+    hint = "Corré `orquesta migrar corte`."
+    try:
+        fase = migracion.fase(ctx.paths)
+    except ValueError as exc:
+        return [Check("plugin-instalado", title, "fail", str(exc), "Revisá `state/migracion/`.")]
+    result = ctx.deps.claude_plugin_list(ctx.paths.claude_dir)
+    entries = result.get("plugins", []) if result is not None else []
+    entry = next((p for p in entries if p.get("id", p.get("name")) == "orquesta@orquesta-local"), None)
+    status = "fail" if fase == "plugin" else "warn"
+    if result is None:
+        msg = "no pude consultar `claude plugin list`"
+        hint = "Revisá `claude plugin list`; después corré `orquesta migrar corte`."
+    elif entry is None:
+        if fase == "legacy":
+            return [Check("plugin-instalado", title, "ok",
+                          "todavía no instalado: se instala con `orquesta migrar corte`", hint)]
+        msg = "orquesta@orquesta-local no instalado"
+    elif entry.get("enabled") is not True:
+        msg = "orquesta@orquesta-local deshabilitado"
+        hint = "Corré `claude plugin enable orquesta@orquesta-local` o `orquesta migrar corte`."
+    else:
+        source = entry.get("readFromFolder") or ""
+        if not source or Path(source).expanduser().resolve() != ctx.paths.plugin_dir.resolve():
+            msg = f"Read from: {source or 'desconocido'}; se esperaba {ctx.paths.plugin_dir}"
+        else:
+            return [Check("plugin-instalado", title, "ok",
+                          f"orquesta@orquesta-local instalado y habilitado (Read from: {source})")]
+    return [Check("plugin-instalado", title, status, msg, hint)]
+
+
+def _deploy_viejo(ctx: _Ctx) -> list[Check]:
+    title = "Deploy viejo"
+    try:
+        fase = migracion.fase(ctx.paths)
+    except ValueError as exc:
+        return [Check("deploy-viejo", title, "fail", str(exc), "Revisá `state/migracion/`.")]
+    if fase == "legacy":
+        return [Check("deploy-viejo", title, "ok", "fase legacy: el deploy viejo sigue activo")]
+    restos = [p.name for p in sorted(ctx.paths.agents_dir.glob("*.md"))]
+    try:
+        text = ctx.paths.claude_md.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        text = ""
+    try:
+        block = extract_inner(text) is not None
+    except MarkerError:
+        block = True
+    if block:
+        restos.append("bloque de orquesta en CLAUDE.md")
+    if restos:
+        return [Check("deploy-viejo", title, "fail",
+                      "restos del deploy viejo: `orquesta migrar corte` los retira (" + ", ".join(restos) + ")",
+                      "Corré `orquesta migrar corte`.")]
+    return [Check("deploy-viejo", title, "ok", "sin restos del deploy viejo")]
+
+
+def _manifiesto_fase(ctx: _Ctx) -> list[Check]:
+    message = "Fase de deploy"
+    try:
+        message = f"Fase: {migracion.fase(ctx.paths)}"
+        mf.load(ctx.paths)
+    except (ValueError, mf.ManifestError) as exc:
+        return [Check("manifiesto-fase", "Manifiesto y fase", "fail", f"{message}: {exc}",
+                      "Regeneralo con `orquesta generate` o revisá `state/migracion/`.")]
+    return [Check("manifiesto-fase", "Manifiesto y fase", "ok", message)]
 
 
 def _plugins(ctx: _Ctx) -> list[Check]:
@@ -608,6 +736,10 @@ CHECKS: list[tuple[Callable[[_Ctx], list[Check]], bool, tuple[str, ...]]] = [
     (_agy_stdout, True, ("agy-stdout",)),
     (_claude_live, True, ("claude-agentes", "catalogo-tools")),
     (_sandbox, False, ("sandbox",)),
+    (_plugin_generado, False, ("plugin-generado",)),
+    (_plugin_instalado, True, ("plugin-instalado",)),
+    (_deploy_viejo, False, ("deploy-viejo",)),
+    (_manifiesto_fase, False, ("manifiesto-fase",)),
     (_plugins, False, ("plugin",)),
     (_orquesta_path, False, ("orquesta-path",)),
     (_git, False, ("git",)),
