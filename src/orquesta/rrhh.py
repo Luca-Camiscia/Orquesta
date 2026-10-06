@@ -256,6 +256,19 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
     """
     palabras = _palabras(texto)
     normal = _normalizar(texto)
+    verificacion = _palabras("verificar verifica verificó verificás verificá checar chequea chequear "
+                            "chequeá check checking comprobar comprobá confirmar confirmá validar "
+                            "valida validación reproducir reproduce reproduzco")
+    indicios = palabras & (verificacion | _palabras("bug issue reporte error problema viejo antiguo "
+                                                   "anterior pasado puede podría quizás tal acaso"))
+    # «ya» y «si» son stopwords; «verificar si ... ya» también pide verificar primero.
+    indicios.update(re.findall(r"\bya\b", normal))
+    if palabras & verificacion and re.search(r"\bsi\b", normal):
+        indicios.add("si")
+    duda = re.search(r"\b(?:no estoy|estas)\s+(segur[oa])\b", normal)
+    if duda:
+        indicios.add(duda.group(1))
+    abstencion = len(indicios) >= 3
     razones = []
     dificultad = 1
     if len(texto) > 400:
@@ -308,7 +321,7 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
                 if produccion and _categoria(a) == "Revisión/Calidad":
                     score += 10
                     motivos.append("Puede aportar tests/calidad; la implementación requiere otro agente")
-                else:
+                elif not abstencion:
                     score += 45
                     motivos.append("Puede implementar en un worktree aislado")
             elif a.mode == "read-only":
@@ -332,8 +345,12 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
             revisor = {**candidatos[0], "motivos": ["Review de otra familia para escritura no trivial"]}
         else:
             avisos.append("No hay revisor habilitado de otra familia para esta tarea")
-    return {"dificultad": dificultad, "razones": razones, "recomendados": ranked[:3],
-            "revisor": revisor, "avisos": avisos}
+    resultado = {"dificultad": dificultad, "razones": razones, "recomendados": ranked[:3],
+                 "revisor": revisor, "avisos": avisos}
+    if abstencion:
+        avisos.append("Sugerencia: verificar primero si el problema aún existe antes de implementar cambios")
+        resultado["abstencion"] = "Verificar primero y no escribir código si el problema no se reproduce"
+    return resultado
 
 
 def sugerir_participantes(conv: dict, registry: Registry) -> dict:

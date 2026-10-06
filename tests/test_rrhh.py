@@ -158,6 +158,62 @@ def test_triage_sin_revisor_cruzado_informa_el_hueco(plantel):
     assert t["revisor"] is None and t["avisos"]
 
 
+@pytest.mark.parametrize("texto", [
+    "Verificar si el login ya funciona correctamente",
+    "Puede que el bug ya esté arreglado, chequealo por favor",
+    "Validar y confirmar que el problema aún existe antes de implementar",
+    "Reporte viejo del 2023: checar si el issue todavía pasa en main",
+    "VERIFICÓ, verificás y comprobá el error",
+    "No estoy segura: quizás ya funciona",
+    "¿Estás seguro? Podría ya funcionar",
+])
+def test_triage_abstencion_verificar_primero(plantel, texto):
+    t = rrhh.triage(texto, plantel, MODELOS)
+    assert t["abstencion"] == "Verificar primero y no escribir código si el problema no se reproduce"
+    assert "Sugerencia: verificar primero si el problema aún existe antes de implementar cambios" in t["avisos"]
+
+
+@pytest.mark.parametrize("texto", [
+    "Implementar login con autenticación OAuth",
+    "Corregir typo en README.md",
+    "Agregar tests para la nueva función de búsqueda",
+    "Arreglar el bug de autenticación",
+    "Crear una new feature para dashboards",
+    "Verificar login",
+    "Verificar ya funciona",
+    "Verificar verificar verificar login",
+    "Implementar login seguro que ya puede funcionar",
+])
+def test_triage_sin_abstencion_en_pedidos_normales(plantel, texto):
+    t = rrhh.triage(texto, plantel, MODELOS)
+    assert "abstencion" not in t
+    assert set(t) == {"dificultad", "razones", "recomendados", "revisor", "avisos"}
+    assert not any("verificar primero" in a for a in t["avisos"])
+
+
+def test_triage_abstencion_quita_solo_bonus_worktree_y_considera_lectura():
+    reg = registry(
+        Agent(name="escritor", backend="codex", mode="write", role="Implementación",
+              route_when=["implementar login"]),
+        Agent(name="lector", backend="agy", role="Login", route_when=["implementar login"]))
+    normal = rrhh.triage("Implementar login", reg, MODELOS)
+    abstencion = rrhh.triage("Verificar si ya funciona antes de implementar login", reg, MODELOS)
+    assert [a["name"] for a in normal["recomendados"]] == ["escritor", "lector"]
+    assert [a["puntaje"] for a in normal["recomendados"]] == [85, 45]
+    assert [a["name"] for a in abstencion["recomendados"]] == ["lector", "escritor"]
+    assert [a["puntaje"] for a in abstencion["recomendados"]] == [45, 40]
+    assert all("Puede implementar en un worktree aislado" not in a["motivos"]
+               for a in abstencion["recomendados"])
+
+
+def test_triage_abstencion_conserva_avisos_existentes(plantel):
+    t = rrhh.triage("Validar y confirmar el problema antes de implementar migración de auth y datos",
+                    registry(plantel.agents[0]), MODELOS)
+    assert len(t["avisos"]) == 2
+    assert t["avisos"][0] == "No hay revisor habilitado de otra familia para esta tarea"
+    assert "verificar primero" in t["avisos"][1]
+
+
 def test_migracion_auth_es_alta_aunque_descripcion_breve(plantel):
     assert rrhh.triage("Migrar auth", plantel, MODELOS)["dificultad"] >= 4
 
