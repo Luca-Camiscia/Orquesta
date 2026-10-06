@@ -119,5 +119,5 @@ lo que pida; generate no atómico frente a `/reload-plugins`.
 
 ## Progreso
 
-- Hecho: E0.1, E0.2, E1.1 y E1.1b (aplicados), E1.2 y E1.2b (TTY en merge, descartar, wt clean --force, generate --confirm y plugins --yes), E1.3, E1.4, E1.5, E2.0, E2.1, E2.2, E2.4, E3.0, E3.1 (2026-10-05/06).
+- Hecho: E0, E1 (todas), E2.0-E2.4, E3.0, E3.1, E4.1 (2026-10-05/06). El plugin real se genera en `~/orquesta/plugin` (generación 50065423), valida con `claude plugin validate` y en la config aislada carga 15 agentes `orquesta:*`, 5 comandos y la skill; el modelo recibe el contexto. Propuesta de E2.6/E3.2 lista en la rama `orquesta/orquestador/e2-6-e3-2` (requiere confirmación del usuario).
 - [x] E0 · [x] E1 · [ ] E2 · [ ] E3 · [ ] E4 · [ ] E5
