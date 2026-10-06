@@ -13,6 +13,7 @@ Las conversaciones se guardan en ~/orquesta/conversaciones/ (fuera de git).
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import time
@@ -39,6 +40,7 @@ STANCES = ("a favor", "en contra", "neutral")
 DEFAULT_ASPECTS = ("corrección", "seguridad", "performance", "mantenibilidad", "tests")
 HISTORY_CHARS = 24000
 CLAUDE_TIMEOUT = 540
+CLAUDE_SLOT_WAIT_S = 60.0
 CANCELLED = "ESTADO: CANCELADO — lo cortaste vos"
 _ctx = __import__("threading").local()  # clave de cancelación del turno en curso
 _ALL = object()
@@ -131,6 +133,19 @@ class Store:
             items.append(pr)
             self._projects_file().write_text(json.dumps(items, indent=2, ensure_ascii=False))
         return pr
+
+    def project_for_dir(self, directory: str) -> dict:
+        """Reusa el proyecto del directorio, o lo crea y persiste sin duplicarlo."""
+        with self.lock:
+            pr = next((p for p in self.list_projects() if p["dir"] == directory), None)
+            if pr is not None:
+                return pr
+            pr = {"id": _id(), "name": os.path.basename(directory.rstrip("/")),
+                  "dir": directory, "directory": directory, "created": _now()}
+            items = self._user_projects()
+            items.append(pr)
+            self._projects_file().write_text(json.dumps(items, indent=2, ensure_ascii=False))
+            return pr
 
     def get_conversation_dir(self, cid: str) -> Path:
         d = self.paths.home / "sandbox" / "sin-proyecto" / cid
@@ -231,8 +246,9 @@ class Store:
             raise ChatError("id de conversación inválido")
         return self.root / "conv" / f"{cid}.json"
 
-    def create_conversation(self, project_id: str | None, title: str, kind: str, participants: list[str],
-                            mode: str = "rondas") -> dict:
+    def create_conversation(self, project_id: str | None, title: str | None, kind: str, participants: list[str],
+                            mode: str = "rondas", origen: str | None = None,
+                            aspectos: list[str] | None = None) -> dict:
         if project_id in ("", "sin-proyecto", "none"):
             project_id = None
         if project_id is not None:
@@ -256,10 +272,12 @@ class Store:
         cid = _id()
         if project_id is None:
             self.get_conversation_dir(cid)
-        conv = {"id": cid, "project_id": project_id, "title": title.strip() or "Sin título",
+        conv = {"id": cid, "project_id": project_id, "title": (title or "").strip() or "Sin título",
                 "kind": kind, "mode": mode if kind == "reunion" else "rondas",
                 "participants": list(dict.fromkeys(participants)), "messages": [], "worktrees": [],
-                "busy": False, "created": _now(), "updated": _now()}
+                "busy": False, "created": _now(), "updated": _now(), "origen": origen}
+        if aspectos is not None:
+            conv["aspectos"] = aspectos
         self.save(conv)
         return conv
 
@@ -401,16 +419,21 @@ def _record_claude(paths: Paths, who: str, r: Reply) -> Reply:
 
 def default_executor(paths: Paths, project: dict, participant: str, prompt: str) -> Reply:
     cwd = project["dir"]
-    if participant == ORCHESTRATOR:
-        return _record_claude(paths, participant, _claude(["--model", "opus"], prompt, cwd))
     try:
-        entry = mf.deployed_agent(mf.load(paths), participant)
+        manifest = mf.load(paths)
+        entry = mf.deployed_agent(manifest, participant)
     except mf.ManifestError as exc:
         return Reply("", error=f"ESTADO: ERROR — {exc}; corré `orquesta doctor`")
-    if entry is None:
+    if participant != ORCHESTRATOR and entry is None:
         return Reply("", error=f"ESTADO: ERROR — {participant} no está desplegado")
-    if entry.backend == "claude":
-        return _record_claude(paths, participant, _claude(["--agent", participant], prompt, cwd))
+    if participant == ORCHESTRATOR or entry.backend == "claude":
+        limit = mf.max_parallel(manifest, "claude")
+        with runner.acquire_slot(paths, "claude", limit, CLAUDE_SLOT_WAIT_S) as slot:
+            if slot is None:
+                return Reply("", error=f"ESTADO: OCUPADO — los {limit} lugares de claude están ocupados "
+                                       "(max_parallel): esperá y volvé a intentar")
+            args = ["--model", "opus"] if participant == ORCHESTRATOR else ["--agent", participant]
+            return _record_claude(paths, participant, _claude(args, prompt, cwd))
     task = None
     if entry.mode == "write":
         if entry.isolation != "worktree":
@@ -483,6 +506,8 @@ def _agent_prompt(conv: dict, project: dict, who: str, question: str | None) -> 
     kind = "una reunión" if anon else "una conversación individual"
     ask = (f"El moderador te pregunta: {question}" if question
            else "Respondé al último mensaje del usuario, teniendo en cuenta lo que dijeron los demás.")
+    if anon:
+        ask = _redact_map(ask, _labels(conv))
     return (f"Estás en {kind} de orquesta, proyecto «{project['name']}» (directorio {project['dir']}). "
             f"Sos {who}. Otros participantes: {others}.\n\nHistorial:\n{_history(conv, who, anon)}\n\n---\n{ask} "
             f"Respondé en castellano, directo y conciso.")
@@ -684,14 +709,20 @@ def _parallel(store: Store, cid: str, project: dict, executor: Executor,
               jobs: list[tuple[str, str, dict]]) -> dict[str, Reply]:
     import threading
     out: dict[str, Reply] = {}
+    errors: list[Exception] = []
 
     def work(who: str, prompt: str, meta: dict) -> None:
-        out[who] = _speak(store, cid, project, who, executor, prompt=prompt, meta=meta)
+        try:
+            out[who] = _speak(store, cid, project, who, executor, prompt=prompt, meta=meta)
+        except Exception as exc:
+            errors.append(exc)
     threads = [threading.Thread(target=work, args=job) for job in jobs]
     for th in threads:
         th.start()
     for th in threads:
         th.join()
+    if errors:
+        raise errors[0]
     return out
 
 
@@ -771,7 +802,7 @@ def _mode_critica(store: Store, cid: str, project: dict, executor: Executor) -> 
     for w in who_all:
         others = [_redact(r0[o].text, who_all) for o in who_all if o != w and o in r0]
         labeled = "\n\n".join(f"Respuesta {chr(65 + i)}:\n{txt}" for i, txt in enumerate(others))
-        instr = (f"TU respuesta de la ronda 0:\n{r0[w].text if w in r0 else '(sin respuesta)'}\n\n"
+        instr = (f"TU respuesta de la ronda 0:\n{_redact(r0[w].text, who_all) if w in r0 else '(sin respuesta)'}\n\n"
                  f"Respuestas de los demás (anónimas):\n{labeled}\n\n"
                  f"Criticá al menos un punto ajeno con evidencia y revisá la tuya. Decí explícitamente si "
                  f"CAMBIASTE de postura y por qué; no cambies sin evidencia nueva.")
@@ -804,7 +835,8 @@ def _mode_seccionado(store: Store, cid: str, project: dict, executor: Executor, 
     conv = store.get_conversation(cid)
     who_all = _agents_of(conv)
     m = re.search(r"aspectos?\s*:\s*(.+)$", text, re.I | re.S)
-    aspects = [a.strip() for a in re.split(r"[;,\n]", m.group(1)) if a.strip()] if m else list(DEFAULT_ASPECTS)
+    aspects = conv.get("aspectos") or (
+        [a.strip() for a in re.split(r"[;,\n]", m.group(1)) if a.strip()] if m else list(DEFAULT_ASPECTS))
     hist = _history_until_user(conv)
     jobs = [(w, _frame(project, w, hist, f"Tu aspecto: {aspects[i % len(aspects)]}. Cubrí SOLO ese aspecto, "
                                          f"en profundidad; los otros los cubre otro participante."),
