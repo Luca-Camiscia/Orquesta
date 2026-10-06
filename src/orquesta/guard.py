@@ -2,6 +2,7 @@
 
 - Agentes `protected`: cualquier cambio, borrado o renombre requiere confirmación explícita.
 - Escaladas: read-only → write, o permissionMode elevado, requieren confirmación.
+- Altas, bajas y cambios de prompt requieren confirmación.
 - Secretos: nada que parezca un token o una clave se escribe en archivos generados.
 
 La línea base es lo que está desplegado (manifiesto), así que commitear a mano no saltea el guard.
@@ -25,12 +26,14 @@ class Baseline:
     protected: bool
     permission_mode: str | None
     plugins: tuple = ()
+    enabled: bool = True
+    prompt_sha256: str | None = None
 
 
 @dataclass(frozen=True)
 class Violation:
     agent: str
-    kind: str  # protected | escalation | permission_mode
+    kind: str  # protected | escalation | permission_mode | plugins | alta | baja | prompt
     detail: str
 
     def __str__(self) -> str:
@@ -59,11 +62,20 @@ def _permission_mode(agent: Agent) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def prompt_hash(agent: Agent, manual_text: str | None = None) -> str:
+    text = agent.prompt
+    if agent.manual:
+        # Separar los componentes evita ocultar cambios moviendo texto de uno al otro.
+        text = json.dumps([agent.prompt, manual_text or ""], ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def baseline_from_registry(reg: Registry,
                            manual_texts: dict[str, str] | None = None) -> dict[str, Baseline]:
     manual_texts = manual_texts or {}
     return {a.name: Baseline(entry_hash(a, manual_texts.get(a.name)), a.mode, a.protected,
-                             _permission_mode(a), tuple(a.plugins))
+                             _permission_mode(a), tuple(a.plugins), a.enabled,
+                             prompt_hash(a, manual_texts.get(a.name)))
             for a in reg.agents}
 
 
@@ -71,29 +83,43 @@ def baseline_from_manifest(manifest: dict) -> dict[str, Baseline]:
     # "guard" incluye TODOS los agentes del registro aplicado (también los deshabilitados).
     out = {}
     for name, e in (manifest.get("guard") or manifest.get("agents") or {}).items():
+        # Los manifiestos anteriores solo desplegaban .md para agentes habilitados.
+        enabled = e.get("enabled", name in manifest["agents"] if "agents" in manifest else True)
         out[name] = Baseline(e.get("entry_sha256", ""), e.get("mode", "read-only"),
                              bool(e.get("protected")), e.get("permission_mode"),
-                             tuple(e.get("plugins") or ()))
+                             tuple(e.get("plugins") or ()),
+                             enabled,
+                             e.get("prompt_sha256"))
     return out
 
 
 def check(baseline: dict[str, Baseline] | None, new: Registry,
           manual_texts: dict[str, str] | None = None) -> list[Violation]:
-    if not baseline:
+    if baseline is None:
         return []
     manual_texts = manual_texts or {}
     new_by_name = {a.name: a for a in new.agents}
     out: list[Violation] = []
     for name, base in baseline.items():
-        if not base.protected:
-            continue
         agent = new_by_name.get(name)
+        if not base.protected:
+            if agent is None or (base.enabled and not agent.enabled):
+                out.append(Violation(name, "baja", "se elimina o se deshabilita un agente"))
+            continue
         if agent is None:
             out.append(Violation(name, "protected", "se elimina o se renombra un agente protegido"))
         elif entry_hash(agent, manual_texts.get(name)) != base.entry_sha256:
             out.append(Violation(name, "protected", "cambia la definición de un agente protegido"))
     for agent in new.agents:
         base = baseline.get(agent.name)
+        if base is None or (not base.enabled and agent.enabled):
+            out.append(Violation(agent.name, "alta", "se agrega o se habilita un agente"))
+        if base and not base.protected:
+            if base.prompt_sha256 is not None:
+                if prompt_hash(agent, manual_texts.get(agent.name)) != base.prompt_sha256:
+                    out.append(Violation(agent.name, "prompt", "cambia el prompt de un agente"))
+            elif base.entry_sha256 and entry_hash(agent, manual_texts.get(agent.name)) != base.entry_sha256:
+                out.append(Violation(agent.name, "prompt", "cambia la definición con línea base ausente"))
         if base and base.mode == "read-only" and agent.mode == "write":
             out.append(Violation(agent.name, "escalation", "pasa de read-only a write"))
         if base:

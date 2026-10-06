@@ -262,8 +262,8 @@ def test_dry_run_y_aplicar(client, app_env):
     a["enabled"] = False
     guardar(client, a)
     d = client.post("/api/apply/dry-run", json={}).json()
-    assert not d["empty"] and "codex-critico.md" in d["diff"] and d["violations"] == []
-    r = client.post("/api/apply", json={"message": "Deshabilito el crítico"})
+    assert not d["empty"] and "codex-critico.md" in d["diff"] and [v["kind"] for v in d["violations"]] == ["baja"]
+    r = client.post("/api/apply", json={"message": "Deshabilito el crítico", "confirm": ["codex-critico"]})
     assert r.status_code == 200 and r.json()["applied"] is True
     assert "Reiniciá la sesión de Claude Code" in r.json()["note"]
     assert not (app_env.agents_dir / "codex-critico.md").exists()

@@ -71,7 +71,7 @@ def test_agregar_un_plugin_requiere_confirmacion_y_sacarlo_no(env):
     editar(env, lambda d: d["agents"][2].update(plugins=[]))  # sin cambio real
     editar(env, lambda d: d["agents"].append({"name": "claude-ayudante", "backend": "claude", "role": "r",
                                               "tools": ["Read"], "prompt": "p"}))
-    apply_plan(build_plan(env), "nuevo", run_tests=None)
+    apply_plan(build_plan(env, confirmations={"claude-ayudante"}), "nuevo", run_tests=None)
     editar(env, lambda d: d["agents"][4].update(plugins=["codex@openai-codex"]))
     plan = build_plan(env)
     assert [(v.agent, v.kind) for v in plan.violations] == [("claude-ayudante", "plugins")]

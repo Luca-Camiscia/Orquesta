@@ -22,7 +22,7 @@ from filelock import FileLock
 
 from orquesta import guard, manifest
 from orquesta.claude_md import MarkerError, apply_block, find_block
-from orquesta.config import load_all, read_manual, registry_at_head
+from orquesta.config import load_all, read_manual
 from orquesta.paths import Paths
 from orquesta.render import RenderContext, render_agent_md, render_block_inner
 from orquesta.schema import ConfigError
@@ -109,12 +109,11 @@ def _read(path: Path) -> str | None:
         return None
 
 
-def _baseline(paths: Paths, manual_texts: dict[str, str]) -> dict[str, guard.Baseline] | None:
+def _baseline(paths: Paths) -> dict[str, guard.Baseline] | None:
     deployed = manifest.load(paths)
-    if deployed is not None:
+    if deployed is not None and ("guard" in deployed or "agents" in deployed):
         return guard.baseline_from_manifest(deployed)
-    head = registry_at_head(paths)
-    return guard.baseline_from_registry(head, manual_texts) if head else None
+    return None
 
 
 def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
@@ -136,7 +135,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         elif a.enabled:
             plan.errors.append(f"agente {a.name!r}: es manual pero no existe manual/{a.name}.md")
 
-    plan.violations = guard.pending(guard.check(_baseline(paths, manual_texts), reg, manual_texts),
+    baseline = _baseline(paths)
+    plan.violations = guard.pending(guard.check(baseline, reg, manual_texts),
                                     confirmations)
 
     desired: dict[Path, str] = {}
@@ -176,6 +176,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         "registry_sha256": manifest.sha256(_read(paths.registry) or ""),
         "agents": deployed,
         "guard": {a.name: {"entry_sha256": guard.entry_hash(a, manual_texts.get(a.name)),
+                           "prompt_sha256": guard.prompt_hash(a, manual_texts.get(a.name)),
+                           "enabled": a.enabled,
                            "mode": a.mode, "protected": a.protected,
                            "permission_mode": a.extra_frontmatter.get("permissionMode"),
                            "plugins": list(a.plugins)}
@@ -203,6 +205,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
     plan.changes.sort(key=lambda c: str(c.path))
     plan.errors = list(dict.fromkeys(plan.errors))
     plan.summary = _summary(plan, deployed, old_claude)
+    if baseline is None or any(b.prompt_sha256 is None for b in baseline.values()):
+        plan.summary.append("línea base de prompts migrada")
     return plan
 
 

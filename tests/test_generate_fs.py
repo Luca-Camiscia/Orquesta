@@ -6,6 +6,7 @@ import json
 import pytest
 
 from helpers import dump_yaml, git, load_yaml, snapshot
+from orquesta import cli
 from orquesta.claude_md import START, extract_inner
 from orquesta.generate import GenerateError, GuardError, TestsFailed, apply_plan, build_plan
 
@@ -61,7 +62,7 @@ def test_deshabilitar_borra_su_md_y_deja_el_resto_igual(env):
     aplicar(env)
     antes = snapshot(env.agents_dir)
     editar_registro(env, lambda d: d["agents"][2].update(enabled=False))
-    aplicar(env)
+    aplicar(env, confirm={"codex-critico"})
     despues = snapshot(env.agents_dir)
     assert "codex-critico.md" not in despues
     for nombre in ("codex-forja.md", "gemini-lector.md", "mantenedor.md"):
@@ -71,7 +72,7 @@ def test_deshabilitar_borra_su_md_y_deja_el_resto_igual(env):
 def test_eliminar_agente_borra_su_md(env):
     aplicar(env)
     editar_registro(env, lambda d: d["agents"].pop(1))
-    aplicar(env)
+    aplicar(env, confirm={"codex-forja"})
     assert not (env.agents_dir / "codex-forja.md").exists()
 
 
@@ -97,7 +98,7 @@ def test_manual_deshabilitado_se_retira_pero_queda_en_manual(env):
     editar_registro(env, lambda d: d["agents"][2].update(manual=True))
     aplicar(env)
     editar_registro(env, lambda d: d["agents"][2].update(enabled=False))
-    aplicar(env)
+    aplicar(env, confirm={"codex-critico"})
     assert not (env.agents_dir / "codex-critico.md").exists()
     assert (env.manual_dir / "codex-critico.md").exists()
 
@@ -224,3 +225,92 @@ def test_un_plan_obsoleto_no_se_aplica(env):
     (env.claude_dir / "CLAUDE.md").write_text("lo cambió otro proceso\n")
     with pytest.raises(GenerateError, match="cambió"):
         apply_plan(plan, "x", run_tests=ok_tests)
+
+
+@pytest.mark.parametrize("case,kind", [
+    ("nuevo", "alta"), ("eliminar", "baja"), ("deshabilitar", "baja"),
+    ("habilitar", "alta"), ("prompt", "prompt"), ("manual", "prompt"),
+    ("sin_hash", "prompt"),
+])
+def test_nuevas_reglas_salen_con_3_y_confirmadas_se_aplican(env, monkeypatch, capsys, case, kind):
+    if case == "habilitar":
+        editar_registro(env, lambda d: d["agents"][1].update(enabled=False))
+    if case == "manual":
+        editar_registro(env, lambda d: d["agents"][1].update(manual=True))
+        (env.manual_dir / "codex-forja.md").write_text("versión A\n")
+    aplicar(env)
+    if case == "nuevo":
+        editar_registro(env, lambda d: d["agents"].append(
+            {"name": "nuevo", "backend": "codex", "role": "Nuevo", "tools": ["Bash"]}))
+    elif case == "eliminar":
+        editar_registro(env, lambda d: d["agents"].pop(1))
+    elif case in ("habilitar", "deshabilitar"):
+        editar_registro(env, lambda d: d["agents"][1].update(enabled=case == "habilitar"))
+    elif case == "manual":
+        (env.manual_dir / "codex-forja.md").write_text("versión B\n")
+    elif case == "sin_hash":
+        m = json.loads(env.manifest.read_text())
+        m["guard"]["codex-forja"].pop("prompt_sha256", None)
+        env.manifest.write_text(json.dumps(m))
+        editar_registro(env, lambda d: d["agents"][1].update(role="Otro rol"))
+    else:
+        editar_registro(env, lambda d: d["agents"][1].update(prompt="nuevo prompt"))
+    name = "nuevo" if case == "nuevo" else "codex-forja"
+    assert [(v.agent, v.kind) for v in build_plan(env).violations] == [(name, kind)]
+    monkeypatch.setenv("ORQUESTA_HOME", str(env.home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(env.claude_dir))
+    # El apply real conserva escrituras y rollback; evitar recursión al correr tests desde CLI.
+    real_apply = apply_plan
+    monkeypatch.setattr("orquesta.generate.apply_plan",
+                        lambda plan, message: real_apply(plan, message, run_tests=ok_tests))
+    before = snapshot(env.claude_dir)
+    assert cli.main(["generate", "-m", "cambio"]) == 3
+    assert f"--confirm {name}" in capsys.readouterr().out
+    assert snapshot(env.claude_dir) == before
+    assert cli.main(["generate", "-m", "confirmado", "--confirm", name]) == 0
+    assert "Aplicado" in capsys.readouterr().out
+    assert build_plan(env).empty and build_plan(env).violations == []
+    md = env.agents_dir / f"{name}.md"
+    assert md.exists() == (case not in ("eliminar", "deshabilitar"))
+    if case == "manual":
+        assert md.read_text() == "versión B\n"
+    elif case == "prompt":
+        assert json.loads(env.manifest.read_text())["agents"][name]["backend_prompt"] == "nuevo prompt"
+
+
+def test_primer_deploy_sin_manifest_no_exige_confirmacion(env):
+    editar_registro(env, lambda d: d["agents"][3].update(prompt="nuevo prompt"))
+    plan = build_plan(env)
+    assert plan.violations == []
+    assert "línea base de prompts migrada" in plan.summary
+    aplicar(env)
+
+
+def test_migra_prompts_de_manifest_anterior_y_reporta_una_sola_vez(env):
+    import hashlib
+    editar_registro(env, lambda d: d["agents"][2].update(enabled=False))
+    aplicar(env)
+    m = json.loads(env.manifest.read_text())
+    for entry in m["guard"].values():
+        entry.pop("prompt_sha256", None)
+        entry.pop("enabled", None)
+    env.manifest.write_text(json.dumps(m))
+    plan = build_plan(env)
+    assert plan.violations == []
+    assert "línea base de prompts migrada" in plan.summary
+    result = apply_plan(plan, "migración", run_tests=ok_tests)
+    assert "línea base de prompts migrada" in result.summary
+    m = json.loads(env.manifest.read_text())
+    for a in load_yaml(env.registry)["agents"]:
+        entry = m["guard"][a["name"]]
+        assert entry["prompt_sha256"] == hashlib.sha256(a["prompt"].encode("utf-8")).hexdigest()
+    assert m["guard"]["codex-critico"]["enabled"] is False
+    assert build_plan(env).empty
+    assert "línea base de prompts migrada" not in build_plan(env).summary
+
+
+def test_cambiar_solo_route_when_no_pide_confirmacion(env):
+    aplicar(env)
+    editar_registro(env, lambda d: d["agents"][1].update(route_when=["otro caso"]))
+    assert build_plan(env).violations == []
+    aplicar(env)
