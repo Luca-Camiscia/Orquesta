@@ -119,7 +119,7 @@ def test_campos_nuevos_en_default_no_cambian_el_hash():
 
 @pytest.mark.parametrize("field,value", [
     ("route_when", ["otro caso"]), ("avoid_when", ["otro caso"]),
-    ("role", "Otro rol"), ("backend_model", "otro-modelo"),
+    ("backend_model", "otro-modelo"),
 ])
 def test_campos_ajenos_al_prompt_no_generan_violacion(field, value):
     assert check(BASE, reg(lambda d: d["agents"][1].update({field: value}))) == []
@@ -197,3 +197,101 @@ def test_agente_nuevo_deshabilitado_no_pide_alta_hasta_habilitarlo():
         return mod
     assert [x.kind for x in check(BASE, reg(nuevo(False)))] == []
     assert [(x.agent, x.kind) for x in check(BASE, reg(nuevo(True)))] == [("codex-nuevo", "alta")]
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit", "NotebookEdit", "MultiEdit", "Bash", "*"])
+@pytest.mark.parametrize("old_tools", [["Read"], []])
+def test_agregar_tools_de_escritura_es_escalada(tool, old_tools):
+    # [] en una línea base efectiva significa ninguna tool, no un dato ausente.
+    from dataclasses import replace
+    base = {**BASE, "codex-forja": replace(BASE["codex-forja"], tools_effective=old_tools)}
+    new = reg(lambda d: d["agents"][1].update(tools=["Read", tool]))
+    v = check(base, new)
+    assert [(x.kind, x.title) for x in v] == [("escalation", "tools")]
+    assert tool in v[0].detail
+    assert pending(v, {"codex-forja"}) == []
+
+
+def test_tools_se_comparan_individualmente_aunque_ya_tenga_bash():
+    v = check(BASE, reg(lambda d: d["agents"][1].update(tools=["Bash", "Write"])))
+    assert [(x.kind, x.title) for x in v] == [("escalation", "tools")]
+
+
+@pytest.mark.parametrize("old,new", [(["*"], ["Read"]), (["Write"], ["Read"]),
+                                      (["Read"], ["Read", "WebSearch"])])
+def test_reducir_tools_o_agregar_lectura_no_es_escalada(old, new):
+    base = baseline_from_registry(reg(lambda d: d["agents"][1].update(tools=old)))
+    assert check(base, reg(lambda d: d["agents"][1].update(tools=new))) == []
+
+
+def test_tools_de_extra_frontmatter_pisan_las_del_agente():
+    old = reg(lambda d: d["agents"][1].update(extra_frontmatter={"tools": ["Read"]}))
+    base = baseline_from_registry(old)
+    assert base["codex-forja"].tools_effective == ["Read"]
+    v = check(base, reg(lambda d: d["agents"][1].update(extra_frontmatter={"tools": "*"})))
+    assert {(x.kind, x.title) for x in v} == {
+        ("escalation", "tools"), ("escalation", "extra_frontmatter")}
+
+
+@pytest.mark.parametrize("tools", [None, [], "*", ["Read"], ["Agent(a,b)"]])
+def test_tools_effective_coincide_con_el_frontmatter(env, tools):
+    from helpers import backends_dict
+    from orquesta.render import RenderContext, _tools_value, render_agent_md
+    from orquesta.schema import parse_backends
+    from ruamel.yaml import YAML
+    registry = reg()
+    agent = registry.agent("codex-forja")
+    # Probar None y "*" en el normalizador sin ampliar el esquema de Agent.
+    if not tools or tools == "*":
+        assert _tools_value(tools) == "*"
+    agent.tools = [] if tools is None else [tools] if isinstance(tools, str) else tools
+    ctx = RenderContext(paths=env, backends=parse_backends(backends_dict()))
+    fm = YAML(typ="safe", pure=True).load(render_agent_md(agent, ctx).split("---")[1])
+    base = baseline_from_registry(registry)[agent.name]
+    assert base.tools_effective == fm["tools"]
+    if not tools or tools == "*":
+        assert base.tools_effective == "*"
+
+
+@pytest.mark.parametrize("mode,expected", [("write", True), ("read-only", False)])
+def test_quitar_worktree_solo_es_escalada_en_write(mode, expected):
+    old = reg(lambda d: d["agents"][1].update(mode=mode, isolation="worktree"))
+    new = reg(lambda d: d["agents"][1].update(mode=mode, isolation="none"))
+    v = check(baseline_from_registry(old), new)
+    assert [(x.kind, x.title) for x in v] == ([("escalation", "isolation")] if expected else [])
+    assert pending(v, {"codex-forja"}) == []
+
+
+@pytest.mark.parametrize("old,new", [({}, {"maxTurns": 10}),
+                                      ({"maxTurns": 10}, {"maxTurns": 20}),
+                                      ({"hooks": {"Stop": []}}, {"hooks": {"Stop": ["nuevo"]}})])
+def test_frontmatter_nuevo_o_cambiado_es_escalada(old, new):
+    base = baseline_from_registry(reg(lambda d: d["agents"][1].update(extra_frontmatter=old)))
+    v = check(base, reg(lambda d: d["agents"][1].update(extra_frontmatter=new)))
+    assert [(x.kind, x.title) for x in v] == [("escalation", "extra_frontmatter")]
+    assert pending(v, {"codex-forja"}) == []
+
+
+def test_role_no_protegido_es_escalada_de_prompt():
+    v = check(BASE, reg(lambda d: d["agents"][1].update(role="Otro rol")))
+    assert [(x.kind, x.title) for x in v] == [("escalation", "role")]
+    assert "prompt" in v[0].detail
+    assert pending(v, {"codex-forja"}) == []
+
+
+def test_role_protegido_solo_genera_protected():
+    v = check(BASE, reg(lambda d: d["agents"][3].update(role="Otro rol")))
+    assert [(x.agent, x.kind) for x in v] == [("mantenedor", "protected")]
+
+
+@pytest.mark.parametrize("change", [{"tools": ["Bash", "Write"]}, {"isolation": "none"},
+                                    {"extra_frontmatter": {"maxTurns": 10}}, {"role": "Otro rol"}])
+def test_manifest_legacy_sin_campos_nuevos_no_genera_escaladas(change):
+    from dataclasses import asdict
+    entries = {name: asdict(base) for name, base in BASE.items()}
+    for entry in entries.values():
+        for key in ("tools_effective", "isolation_effective", "extra_frontmatter_dict", "role_hash",
+                    "extra_frontmatter_sha256"):
+            entry.pop(key, None)
+    base = baseline_from_manifest({"guard": entries})
+    assert check(base, reg(lambda d: d["agents"][1].update(change))) == []

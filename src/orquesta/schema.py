@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -10,6 +11,23 @@ from orquesta import catalog
 
 Mode = Literal["read-only", "write"]
 Isolation = Literal["none", "worktree"]
+
+
+@dataclass(frozen=True)
+class Baseline:
+    entry_sha256: str
+    mode: str
+    protected: bool
+    permission_mode: str | None
+    plugins: tuple = ()
+    enabled: bool = True
+    prompt_sha256: str | None = None
+    tools_effective: str | list[str] | None = None
+    isolation_effective: str | None = None
+    extra_frontmatter_dict: dict[str, Any] | None = None
+    extra_frontmatter_sha256: str | None = None
+    role_hash: str | None = None
+
 
 _NAME_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _MOOD_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")

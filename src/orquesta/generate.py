@@ -13,7 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
@@ -189,13 +189,8 @@ def build_plan(paths: Paths, confirmations: Iterable[str] = ()) -> Plan:
         "generated_by": "orquesta",
         "registry_sha256": manifest.sha256(_read(paths.registry) or ""),
         "agents": deployed,
-        "guard": {a.name: {"entry_sha256": guard.entry_hash(a, manual_texts.get(a.name)),
-                           "prompt_sha256": guard.prompt_hash(a, manual_texts.get(a.name)),
-                           "enabled": a.enabled,
-                           "mode": a.mode, "protected": a.protected,
-                           "permission_mode": a.extra_frontmatter.get("permissionMode"),
-                           "plugins": list(a.plugins)}
-                  for a in reg.agents},
+        "guard": {name: asdict(base)
+                  for name, base in guard.baseline_from_registry(reg, manual_texts).items()},
         "limits": reg.limits.model_dump(),
         "claude_md_block_sha256": manifest.sha256(block),
     })

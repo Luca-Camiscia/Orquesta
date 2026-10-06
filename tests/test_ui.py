@@ -319,7 +319,9 @@ def test_historial_y_restaurar_version(client, app_env):
     a = agente(client, "codex-critico")
     a["role"] = "Cambio aplicado"
     guardar(client, a)
-    client.post("/api/apply", json={"message": "cambio"})
+    # Cambiar el role pide confirmación (va al .md del agente): en la UI la da el clic del usuario.
+    assert client.post("/api/apply", json={"message": "cambio"}).status_code == 409
+    assert client.post("/api/apply", json={"message": "cambio", "confirm": ["codex-critico"]}).json()["applied"]
     s = estado(client)
     r = client.post(f"/api/history/{viejo['sha']}/restore", json={"expected_hash": s["yaml_hash"]})
     assert r.status_code == 200 and "Cambio aplicado" in r.json()["diff"]

@@ -77,8 +77,18 @@ def render_frontmatter(fields: dict[str, Any]) -> str:
     return "---\n" + "".join(f"{k}: {_scalar(v)}\n" for k, v in fields.items()) + "---\n"
 
 
-def _tools_value(tools: list[str]) -> str | list[str]:
+def _tools_value(tools: str | list[str] | None) -> str | list[str]:
+    if not tools:
+        return "*"
+    if isinstance(tools, str):
+        return tools
     return tools if any("," in t for t in tools) else ", ".join(tools)
+
+
+def effective_tools(agent: Agent) -> str | list[str]:
+    """Valor de tools del frontmatter; extra_frontmatter tiene la última palabra."""
+    return (agent.extra_frontmatter["tools"] if "tools" in agent.extra_frontmatter
+            else _tools_value(agent.tools))
 
 
 def effective_description(agent: Agent, backend: Backend | None) -> str:
@@ -184,7 +194,7 @@ def render_agent_md(agent: Agent, ctx: RenderContext) -> str:
     fields: dict[str, Any] = {
         "name": agent.name,
         "description": ctx.reference_agents(effective_description(agent, backend)),
-        "tools": _tools_value(agent.tools),
+        "tools": effective_tools(agent),
         "model": agent.effective_wrapper_model,
     }
     for key in sorted(agent.extra_frontmatter):
@@ -202,6 +212,8 @@ def render_agent_md(agent: Agent, ctx: RenderContext) -> str:
         fields["tools"] = _tools_value(tools)
         if skills:
             fields["skills"] = skills
+    if "tools" in agent.extra_frontmatter:
+        fields["tools"] = agent.extra_frontmatter["tools"]
     if agent.is_external and backend is not None:
         body = _external_body(agent, backend, ctx)
     else:
