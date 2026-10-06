@@ -443,3 +443,5 @@ def test_marketplace_ajeno_frena_con_instrucciones_y_el_rollback_no_lo_borra(dep
     estado, datos = corte(deploy, run)
     assert estado == "ERROR" and "marketplace remove orquesta-local" in datos["motivo"]
     assert json.loads((deploy.plugins_dir / "known_marketplaces.json").read_text()) == ajeno
+    assert rollback(deploy, run)[0] == "OK"
+    assert json.loads((deploy.plugins_dir / "known_marketplaces.json").read_text()) == ajeno

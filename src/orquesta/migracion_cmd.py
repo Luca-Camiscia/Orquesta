@@ -223,6 +223,8 @@ def migrar_corte(paths: Paths, run: Runner, confirmar: bool, generacion: str | N
                 # después de que Claude Code completó la operación, no se repite.
                 agregado_ahora = False
                 if not _marketplace_presente(paths):
+                    diario["marketplace_agregando"] = time.time()  # intención: si se corta acá, es nuestro
+                    _guardar(paths, diario)
                     _ejecutar(paths, run, "marketplace", "add", str(paths.plugin_root))
                     agregado_ahora = True
                     diario["marketplace_agregado"] = time.time()  # solo si lo agregó orquesta
@@ -350,7 +352,8 @@ def migrar_rollback(paths: Paths, run: Runner, confirmar: bool, generacion: str 
                     _ejecutar(paths, run, "uninstall", PLUGIN, "-s", "user")
                 _marcar(paths, diario, "rollback_plugin_desinstalado")
             if "rollback_marketplace_retirado" not in pasos:
-                if diario.get("marketplace_agregado") and _marketplace_presente(paths):
+                if (diario.get("marketplace_agregado") or diario.get("marketplace_agregando")) \
+                        and _marketplace_presente(paths):
                     _ejecutar(paths, run, "marketplace", "remove", "orquesta-local")
                 _marcar(paths, diario, "rollback_marketplace_retirado")
             migracion.set_fase(paths, "legacy")
