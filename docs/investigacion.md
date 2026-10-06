@@ -21,6 +21,7 @@ central. Las citas que solo trajo uno y no se pudieron confirmar figuran abajo c
 | Multi-turno | Laban et al. 2025 ([2505.06120](https://arxiv.org/abs/2505.06120)) | 39% de caída en conversaciones de varios turnos | Contexto acotado: los últimos 8 mensajes y los veredictos |
 | Heterogeneidad | [2410.12853](https://arxiv.org/abs/2410.12853) | Equipo diverso 91% contra 82% de tres copias del mismo modelo | Se mantiene para revisar y criticar |
 | Agentes de código | Agentless ([2407.01489](https://arxiv.org/abs/2407.01489)) | Localizar → reparar → validar: 32% en SWE-bench Lite por US$0,70 | Las personas del forjador y el tester piden diff mínimo y tests reales |
+| Clarificación | Ambig-SWE, ICLR 2026 ([2502.13069](https://arxiv.org/abs/2502.13069)); Edwards y Schuster 2026 ([2603.26233](https://arxiv.org/abs/2603.26233)); SAGE-Agent ([2511.08798](https://arxiv.org/abs/2511.08798)); RegretBench ([2607.21143](https://arxiv.org/abs/2607.21143)) | Los modelos no distinguen bien un pedido ambiguo; preguntar mejora hasta 74%. Un detector separado del ejecutor rinde más y pregunta poco en tareas simples. Priorizar por valor de información usa 1,5–2,7× menos preguntas. Saber cuándo parar importa tanto como preguntar | `claude-interrogador`: lee el repo antes de preguntar, hasta 4 preguntas por ronda ordenadas por impacto, corta cuando nada cambia el plan y entrega un brief |
 
 ## Matices y desacuerdos entre las fuentes
 
@@ -31,11 +32,20 @@ central. Las citas que solo trajo uno y no se pudieron confirmar figuran abajo c
 - La mayor parte de la evidencia sobre debate viene de preguntas de QA y matemática, no de diseño de
   software. Los papers de 2026 son preprints.
 
+## Interfaces (2026-10-05)
+
+`gemini-investigador` relevó UIs de agentes (Conductor, Devin, OpenHands, Vibe Kanban, Cursor, Zed, Jules,
+Copilot agent). Patrón dominante: tres paneles (sesiones y tareas | conversación | diff o inspector).
+Respaldo verificado: Magentic-UI ([2507.22358](https://arxiv.org/abs/2507.22358)): co-planning, co-tasking y
+action guards; Vasconcelos et al. ([2402.01694](https://arxiv.org/abs/2402.01694)): un porcentaje de
+confianza suelto no calibra. El usuario prefiere explorar una interfaz de terminal (plugin de Claude
+Code) en vez de rediseñar la UI web.
+
 ## Citas dudosas (no usar sin verificar)
 
 Solo las trajo `gemini-investigador` y no se pudieron confirmar: `arXiv:2501.12345` (parece un número
 inventado), las cifras de "15-25% de sesgo de familia" y "58-72% de sesgo de posición", y los
-porcentajes atribuidos a HCP-MAD y a ConfidenceBench. Además atribuye "Debate or Vote" a autores
+porcentajes atribuidos a HCP-MAD y a ConfidenceBench. En la ronda de interfaces: "16 plataformas" (listó 11), un mood "preciso" inexistente y el paper de *cognitive forcing* atribuido a van Berkel (es de Buçinca et al. 2021). En la de modelos gratis: supuso GPU dedicada (la PC tiene una AMD Barcelo integrada) y citó modelos que Groq ya no lista. Además atribuye "Debate or Vote" a autores
 anónimos, cuando es de Choi, Zhu y Li. Es un buen ejemplo de por qué se contrasta entre familias.
 
 ## Pendiente (no implementado)
@@ -44,3 +54,10 @@ anónimos, cuando es de Choi, Zhu y Li. Es un buen ejemplo de por qué se contra
   pareadas importantes.
 - Testing diferencial al estilo PatchDiff ([2503.15223](https://arxiv.org/abs/2503.15223)).
 - Cascada por costo: tareas triviales a modelos baratos (RouteLLM, [2406.18665](https://arxiv.org/abs/2406.18665)).
+- Cuarta familia de modelos por API gratis (plan a futuro, decisión del usuario 2026-10-05): Groq con
+  `qwen/qwen3.8-27b` como juez o revisor de otra familia y para tareas triviales. Límites del free tier
+  verificados en [console.groq.com/docs/rate-limits](https://console.groq.com/docs/rate-limits): 30 RPM,
+  1K RPD, 8K TPM, 200K TPD (el TPM es corto para agentes que leen mucho contexto). Integración prevista:
+  un perfil de Codex CLI (`codex exec -p groq`, proveedor compatible con OpenAI) en `backends.yaml`, sin
+  CLI nuevo; la key en el llavero (`secret-tool`), nunca en archivos. Rompe el principio "sin API keys".
+  Descartados por ahora: modelos locales (sin GPU dedicada) y OpenRouter `:free` (50 pedidos por día).
