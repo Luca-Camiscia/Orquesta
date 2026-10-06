@@ -152,9 +152,10 @@ def test_dry_run_no_escribe_y_muestra_rutas_plugin(env):
 def test_diff_agrupa_muchos_archivos_plugin(env):
     migracion.set_fase(env, "plugin")
     data = load_yaml(env.registry)
-    data["agents"].extend({**data["agents"][0], "name": f"lector-{n}"} for n in range(30))
+    new_agents = [f"lector-{n}" for n in range(30)]
+    data["agents"].extend({**data["agents"][0], "name": name} for name in new_agents)
     dump_yaml(data, env.registry)
-    plan = generate.build_plan(env)
+    plan = generate.build_plan(env, confirmations=new_agents)
     assert not plan.errors and not plan.violations
     diff = plan.diff()
     assert env.pretty(env.plugin_root) in diff
