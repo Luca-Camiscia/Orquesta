@@ -23,7 +23,7 @@ from typing import Callable
 
 from ruamel.yaml import YAML
 
-from orquesta import catalog, manifest as mf, migracion, worktrees
+from orquesta import catalog, manifest as mf, worktrees
 from orquesta.claude_md import extract_inner, MarkerError
 from orquesta.config import load_all, load_backends
 from orquesta.generate import build_plan
@@ -208,10 +208,10 @@ def _sync(ctx: _Ctx) -> list[Check]:
     paths = ctx.paths
     try:
         manifest = mf.load(paths)
-    except mf.ManifestError:
-        message = f"manifiesto de la fase {migracion.fase(paths)} ausente o corrupto"
+    except mf.ManifestError as exc:
+        message = str(exc)  # no releer la fase: puede ser justo lo que está roto
         return [Check(cid, name, "fail", message,
-                      "Corré `orquesta doctor --fix` o revisá `state/migracion/`.")
+                      "Regeneralo con `orquesta generate` o revisá `state/migracion/`.")
                 for cid, name in (("agentes", "Agentes desplegados"),
                                   ("claude-md", "Bloque de CLAUDE.md"))]
     plan = ctx.plan = build_plan(paths)
@@ -423,10 +423,9 @@ def _claude_live(ctx: _Ctx) -> list[Check]:
     loaded = set(init.get("agents") or [])
     try:
         deployed = sorted(((mf.load(ctx.paths) or {}).get("agents") or {}).keys())
-    except mf.ManifestError:
-        return [Check("claude-agentes", "Claude Code carga los agentes", "fail",
-                      f"manifiesto de la fase {migracion.fase(ctx.paths)} ausente o corrupto",
-                      "Corré `orquesta doctor --fix` o revisá `state/migracion/`.")]
+    except mf.ManifestError as exc:
+        return [Check("claude-agentes", "Claude Code carga los agentes", "fail", str(exc),
+                      "Regeneralo con `orquesta generate` o revisá `state/migracion/`.")]
     missing = [a for a in deployed if a not in loaded]
     if missing:
         agentes = Check("claude-agentes", "Claude Code carga los agentes", "fail",

@@ -46,3 +46,10 @@ def test_archivo_de_fase_corrupto_es_manifest_error(env, contenido):
     archivo.write_text(contenido, encoding="utf-8")
     with pytest.raises(manifest.ManifestError, match="fase de deploy"):
         manifest.load(env)
+
+
+def test_agents_que_no_es_mapeo_es_manifest_error(env):
+    env.legacy_manifest.parent.mkdir(parents=True, exist_ok=True)
+    env.legacy_manifest.write_text('{"agents": []}', encoding="utf-8")
+    with pytest.raises(manifest.ManifestError):
+        manifest.load(env)

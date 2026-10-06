@@ -387,3 +387,10 @@ def test_busqueda_en_todas_las_conversaciones(store, proyecto):
     assert [r["conversation_id"] for r in res] == [a["id"]]
     assert "humita" in res[0]["snippet"].lower() and res[0]["title"] == "Ventas"
     assert chat.search(store, "  ") == []
+
+
+def test_default_executor_con_manifiesto_roto_devuelve_error(env, tmp_path):
+    from orquesta import migracion
+    migracion.set_fase(env, "plugin")  # sin manifiesto del plugin: ManifestError
+    r = chat.default_executor(env, {"dir": str(tmp_path)}, "codex-forja", "hola")
+    assert r.error and "manifiesto de la fase plugin" in r.error

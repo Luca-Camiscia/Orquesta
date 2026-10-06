@@ -105,8 +105,16 @@ def test_manifiesto_ausente_o_corrupto_es_fail(denv, fase, live, only):
     assert report.overall == "fail"
     c = next(c for c in report.checks if f"manifiesto de la fase {fase}" in c.message)
     assert c.status == "fail"
-    assert "orquesta doctor --fix" in c.suggestion
+    assert "orquesta generate" in c.suggestion
     assert "state/migracion/" in c.suggestion
+
+
+def test_archivo_de_fase_corrupto_es_fail_sin_traceback(denv):
+    migracion.set_fase(denv, "legacy")
+    next((denv.state_dir / "migracion").glob("*.json")).write_text("no es json", encoding="utf-8")
+    report = correr(denv)
+    assert report.overall == "fail"
+    assert any("fase de deploy" in c.message and c.status == "fail" for c in report.checks)
 
 
 def test_md_editado_a_mano_es_warn_y_sugiere_regenerar(denv):

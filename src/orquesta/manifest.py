@@ -63,7 +63,7 @@ def load(paths: Paths) -> dict | None:
         raise ManifestError(error) from exc
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ManifestError(error) from exc
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or not isinstance(data.get("agents", {}), dict):
         raise ManifestError(error)
     return data
 
