@@ -19,7 +19,7 @@ class FakeEnv(doctor.Env):
 
     platform = "linux"
 
-    def __init__(self, responses=None, which=None, init=None, ping=None, http=None):
+    def __init__(self, responses=None, which=None, init=None, ping=None, http=None, plugin=None):
         self.responses = {
             "claude --version": (0, "2.1.289 (Claude Code)", ""),
             "codex --version": (0, "codex-cli 0.160.0", ""),
@@ -43,13 +43,15 @@ class FakeEnv(doctor.Env):
             "https://endoflife.date/api/python.json": '[{"cycle": "3.13", "latest": "3.13.12"}]',
         }
         self.calls, self.pings, self.init_calls = [], [], 0
+        self.plugin = plugin if plugin is not None else {"plugins": []}
+        self.plugin_calls = []
 
     def run(self, cmd, timeout=60, cwd=None):
         self.calls.append(cmd)
         if cmd[0] == "git":  # git real: los chequeos de repo y worktrees lo necesitan
             return super().run(cmd, timeout, cwd)
         line = " ".join(cmd)
-        if "pytest" in line:
+        if "pytest" in cmd:
             return self.responses["pytest"]
         for prefix, resp in self.responses.items():
             if line.startswith(prefix):
@@ -65,6 +67,10 @@ class FakeEnv(doctor.Env):
     def claude_init(self):
         self.init_calls += 1
         return self.init
+
+    def claude_plugin_list(self, claude_config_dir):
+        self.plugin_calls.append(claude_config_dir)
+        return self.plugin
 
     def ping_backend(self, paths, backend):
         self.pings.append(backend)
@@ -181,8 +187,8 @@ def test_codex_por_snap_es_warn(denv):
 def test_skip_live_no_gasta_cuota(denv):
     fake = FakeEnv()
     r = correr(denv, fake, live=False)
-    assert fake.pings == [] and fake.init_calls == 0
-    assert not {"agy-stdout", "claude-agentes"} & {c.id for c in r.checks}
+    assert fake.pings == [] and fake.init_calls == 0 and fake.plugin_calls == []
+    assert not {"agy-stdout", "claude-agentes", "plugin-instalado"} & {c.id for c in r.checks}
 
 
 def test_bug_de_stdout_vacio_de_agy_es_fail(denv):
@@ -326,3 +332,184 @@ def test_cuota_en_riesgo_alto_es_warn(denv):
     usage.record(denv, backend="agy", agent="g", status="OK", tokens_in=95, ts=now - timedelta(minutes=5))
     c = check(correr(denv), "cuota")
     assert c.status == "warn" and "agy" in c.message
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+def test_plugin_generado_sincronizado(denv, fase):
+    migracion.set_fase(denv, fase)
+    c = check(correr(denv, only="plugin-generado"), "plugin-generado")
+    assert c.status == "ok" and c.message == "sincronizado (hash ok)"
+    assert c.suggestion == ""
+
+
+@pytest.mark.parametrize("fase,status", [("legacy", "warn"), ("plugin", "fail")])
+@pytest.mark.parametrize("problema", ["faltante", "modificado", "extra", "registro", "binario"])
+def test_plugin_generado_diferencias(denv, fase, status, problema):
+    migracion.set_fase(denv, fase)
+    path = denv.plugin_dir / "agents" / "codex-forja.md"
+    if problema == "faltante":
+        path.unlink()
+    elif problema == "modificado":
+        path.write_text("editado a mano")
+    elif problema == "binario":
+        path.write_bytes(b"\xff\x00")
+    elif problema == "extra":
+        path = denv.plugin_dir / "agents" / "extra.md"
+        path.write_text("sobra")
+    else:
+        data = load_yaml(denv.registry)
+        data["agents"][1]["prompt"] = "cambio sin aplicar"
+        dump_yaml(data, denv.registry)
+    c = check(correr(denv, only="plugin-generado"), "plugin-generado")
+    assert c.status == status and path.name in c.message
+    assert "orquesta generate" in c.suggestion
+
+
+@pytest.mark.parametrize("fase,status", [("legacy", "warn"), ("plugin", "fail")])
+def test_plugin_generado_sin_directorio(denv, fase, status):
+    migracion.set_fase(denv, fase)
+    shutil.rmtree(denv.plugin_root)
+    c = check(correr(denv, only="plugin-generado"), "plugin-generado")
+    assert c.status == status and "faltan:" in c.message
+    assert "orquesta generate" in c.suggestion
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+def test_plugin_instalado_ok(denv, fase):
+    migracion.set_fase(denv, fase)
+    fake = FakeEnv(plugin={"plugins": [{"id": "orquesta@orquesta-local", "enabled": True,
+                                         "readFromFolder": str(denv.plugin_dir)}]})
+    c = check(correr(denv, fake, only="plugin-instalado"), "plugin-instalado")
+    assert c.status == "ok" and "instalado y habilitado" in c.message
+    assert str(denv.plugin_dir) in c.message and c.suggestion == ""
+    assert fake.plugin_calls == [denv.claude_dir]
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+@pytest.mark.parametrize("problema", ["ausente", "deshabilitado", "otro-origen", "sin-respuesta"])
+def test_plugin_instalado_problemas(denv, fase, problema):
+    migracion.set_fase(denv, fase)
+    entry = {"id": "orquesta@orquesta-local", "enabled": problema != "deshabilitado",
+             "readFromFolder": "/otro/orquesta" if problema == "otro-origen" else str(denv.plugin_dir)}
+    fake = FakeEnv(plugin={"plugins": [] if problema == "ausente" else [entry]})
+    if problema == "sin-respuesta":
+        fake.plugin = None
+    c = check(correr(denv, fake, only="plugin-instalado"), "plugin-instalado")
+    status = "fail" if fase == "plugin" else "ok" if problema == "ausente" else "warn"
+    assert c.status == status
+    detail = {"ausente": "no instalado", "deshabilitado": "deshabilitado",
+              "otro-origen": "Read from", "sin-respuesta": "no pude consultar"}[problema]
+    assert detail in c.message
+    assert "orquesta migrar corte" in c.suggestion
+    if fase == "legacy" and problema == "ausente":
+        assert c.message == "todavía no instalado: se instala con `orquesta migrar corte`"
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+def test_deploy_viejo_ok(denv, fase):
+    migracion.set_fase(denv, fase)
+    if fase == "plugin":
+        shutil.rmtree(denv.agents_dir)
+        denv.claude_md.write_text("memoria personal\n")
+    c = check(correr(denv, only="deploy-viejo"), "deploy-viejo")
+    assert c.status == "ok" and c.suggestion == ""
+    assert ("legacy" if fase == "legacy" else "sin restos") in c.message
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+@pytest.mark.parametrize("resto", ["agentes", "bloque", "marcador-roto"])
+def test_deploy_viejo_restos(denv, fase, resto):
+    migracion.set_fase(denv, fase)
+    if resto == "agentes":
+        denv.claude_md.unlink()
+    else:
+        shutil.rmtree(denv.agents_dir)
+        if resto == "marcador-roto":
+            denv.claude_md.write_text("<!-- orquesta:start -->\nsin cierre\n")
+    c = check(correr(denv, only="deploy-viejo"), "deploy-viejo")
+    assert c.status == ("fail" if fase == "plugin" else "ok")
+    if fase == "plugin":
+        assert "restos del deploy viejo: `orquesta migrar corte` los retira" in c.message
+        assert "orquesta migrar corte" in c.suggestion
+        assert ("codex-forja.md" if resto == "agentes" else "CLAUDE.md") in c.message
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+def test_manifiesto_fase_ok(denv, fase):
+    migracion.set_fase(denv, fase)
+    c = check(correr(denv, only="manifiesto-fase"), "manifiesto-fase")
+    assert c.status == "ok" and c.message == f"Fase: {fase}" and c.suggestion == ""
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+def test_manifiesto_fase_corrupto(denv, fase):
+    migracion.set_fase(denv, fase)
+    path = denv.legacy_manifest if fase == "legacy" else denv.plugin_manifest
+    path.write_text("no es json")
+    c = check(correr(denv, only="manifiesto-fase"), "manifiesto-fase")
+    assert c.status == "fail" and f"Fase: {fase}" in c.message
+    assert f"manifiesto de la fase {fase} ausente o corrupto" in c.message
+    assert "orquesta generate" in c.suggestion and "state/migracion/" in c.suggestion
+
+
+def test_manifiesto_fase_legacy_por_default_sin_manifiesto(denv):
+    denv.manifest.unlink()
+    c = check(correr(denv, only="manifiesto-fase"), "manifiesto-fase")
+    assert c.status == "ok" and c.message == "Fase: legacy"
+
+
+def test_manifiesto_fase_plugin_ausente(denv):
+    migracion.set_fase(denv, "plugin")
+    denv.plugin_manifest.unlink()
+    c = check(correr(denv, only="manifiesto-fase"), "manifiesto-fase")
+    assert c.status == "fail" and "manifiesto de la fase plugin ausente" in c.message
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+@pytest.mark.parametrize("falta", [False, True])
+def test_claude_agentes_namespace_segun_fase(denv, fase, falta):
+    migracion.set_fase(denv, fase)
+    agentes = [f"orquesta:{a}" if fase == "plugin" else a for a in TODOS]
+    fake = FakeEnv(init={"agents": TODOS if fase == "plugin" and falta else agentes[:-1] if falta else agentes,
+                         "tools": sorted(catalog.BUILTIN_TOOLS)})
+    c = check(correr(denv, fake, only="claude-agentes"), "claude-agentes")
+    assert c.status == ("fail" if falta else "ok")
+    if falta:
+        assert agentes[-1] in c.message and "orquesta generate --dry-run" in c.suggestion
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_env_plugin_list_json_y_fallback(denv, json_output):
+    prefix = f"env CLAUDE_CONFIG_DIR={denv.claude_dir} claude plugin list"
+    entry = {"id": "orquesta@orquesta-local", "enabled": True, "readFromFolder": str(denv.plugin_dir)}
+    text = f"Installed plugins:\n  ❯ orquesta@orquesta-local\n    Status: ✔ enabled\n    Read from: {denv.plugin_dir}\n"
+    fake = FakeEnv(responses={
+        prefix + " --json": (0, json.dumps([entry]), "") if json_output else (1, "", "unknown option '--json'"),
+        prefix: (0, text, ""),
+    })
+    result = doctor.Env.claude_plugin_list(fake, denv.claude_dir)
+    assert result == {"plugins": [entry]}
+    assert fake.calls[0] == ["env", f"CLAUDE_CONFIG_DIR={denv.claude_dir}", "claude", "plugin", "list", "--json"]
+    assert len(fake.calls) == (1 if json_output else 2)
+
+
+def test_env_plugin_list_falla_sin_binarios_reales(denv):
+    fake = FakeEnv(responses={f"env CLAUDE_CONFIG_DIR={denv.claude_dir} claude plugin list": (127, "", "no existe")})
+    assert doctor.Env.claude_plugin_list(fake, denv.claude_dir) is None
+
+
+def test_orden_chequeos_plugin():
+    names = [fn.__name__ for fn, _, _ in doctor.CHECKS]
+    i = names.index("_plugins")
+    assert names[i - 4:i] == ["_plugin_generado", "_plugin_instalado", "_deploy_viejo", "_manifiesto_fase"]
+
+
+@pytest.mark.parametrize("read_from,status", [(True, "ok"), (False, "fail")])
+def test_plugin_instalado_verifica_read_from_no_install_path(denv, read_from, status):
+    migracion.set_fase(denv, "plugin")
+    entry = {"id": "orquesta@orquesta-local", "enabled": True,
+             "installPath": "/cache/orquesta" if read_from else str(denv.plugin_dir)}
+    if read_from:
+        entry["readFromFolder"] = str(denv.plugin_dir)
+    c = check(correr(denv, FakeEnv(plugin={"plugins": [entry]}), only="plugin-instalado"), "plugin-instalado")
+    assert c.status == status and "Read from" in c.message
