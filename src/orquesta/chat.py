@@ -467,6 +467,21 @@ def _labels(conv: dict) -> dict[str, str]:
     return {n: f"Participante {chr(65 + i)}" for i, n in enumerate(dict.fromkeys(names))}
 
 
+def _es_propuesta(m: dict) -> bool:
+    """Respuesta de un participante a la consigna: no cuenta el veredicto del juez ni la review automática."""
+    return (m["status"] == "done" and bool(m["text"].strip())
+            and (m.get("meta") or {}).get("rol") not in ("veredicto", "review"))
+
+
+_GANADORA = re.compile(r"^[\s>*_`\-]*Ganadora:\s*[*_`]*\s*([AB])\b", re.M | re.I)
+
+
+def _ganadora(texto: str) -> str | None:
+    """Letra elegida por el juez; tolera el Markdown que suelen agregar los modelos. Si nombra las dos, None."""
+    letras = {m.upper() for m in _GANADORA.findall(texto or "")}
+    return letras.pop() if len(letras) == 1 else None
+
+
 def _history(conv: dict, viewer: str | None = None, anon: bool = False, until_user: bool = False,
              reverse_proposals: tuple[str, ...] = ()) -> str:
     msgs = [m for m in conv["messages"] if m["status"] != "pending"]
@@ -477,8 +492,7 @@ def _history(conv: dict, viewer: str | None = None, anon: bool = False, until_us
         last_user = max((i for i, m in enumerate(msgs) if m["author"] == USER), default=-1)
         rounds: dict[int | None, list[int]] = {}
         for i, m in enumerate(msgs):
-            if (i > last_user and m["author"] in reverse_proposals and m["status"] == "done"
-                    and m["text"].strip() and (m.get("meta") or {}).get("rol") != "veredicto"):
+            if i > last_user and m["author"] in reverse_proposals and _es_propuesta(m):
                 rounds.setdefault((m.get("meta") or {}).get("ronda"), []).append(i)
         for indices in rounds.values():
             proposals = [msgs[i] for i in reversed(indices)]
@@ -769,12 +783,14 @@ def _judge(store: Store, cid: str, project: dict, executor: Executor, rubric: st
     judge = _judge_for(store, store.get_conversation(cid)["participants"])
     conv = store.get_conversation(cid)
     last_user = max((i for i, m in enumerate(conv["messages"]) if m["author"] == USER), default=-1)
-    proposals = tuple(dict.fromkeys(m["author"] for m in conv["messages"][last_user + 1:]
-                                   if m["author"] in conv["participants"] and m["status"] == "done"
-                                   and m["text"].strip() and (m.get("meta") or {}).get("rol") != "veredicto"))
+    turno = [m for m in conv["messages"][last_user + 1:] if m["author"] in conv["participants"] and _es_propuesta(m)]
+    proposals = tuple(dict.fromkeys(m["author"] for m in turno))
+    # Si las propuestas no entran enteras en el historial, cada orden recortaría una distinta y la divergencia
+    # no sería sensibilidad al orden: en ese caso se juzga una sola vez.
+    entran = sum(len(m["text"]) for m in turno) <= HISTORY_CHARS // 2
     histories = [_history(conv, judge, True)]
     decision_rule = ""
-    if simetrico and len(conv["participants"]) == len(proposals) == 2:
+    if simetrico and entran and len(conv["participants"]) == len(proposals) == 2:
         # Ambos prompts parten de la misma foto: etiquetas estables y sin el primer veredicto.
         histories.append(_history(conv, judge, True, reverse_proposals=proposals))
         labels = _labels(conv)
@@ -794,14 +810,15 @@ def _judge(store: Store, cid: str, project: dict, executor: Executor, rubric: st
                   f"quedan, qué verificar después, {decision_rule}y cerrá "
                   f"con RESULTADO y CONFIANZA (0-100).")
         reply = _speak(store, cid, project, judge, executor, prompt=prompt, meta={"rol": "veredicto"})
-        winners = re.findall(r"^Ganadora: ([AB])[ \t]*$", reply.text, re.M)
-        decisions.append(winners[0] if len(winners) == 1 and not reply.error else None)
+        decisions.append(_ganadora(reply.text) if not reply.error else None)
     if len(decisions) != 2 or procs.is_cancelled(cid):
         return
     if None in decisions:
         uncertainty = "INCIERTO: no se pudo verificar la sensibilidad al orden por falta de una decisión válida."
     elif decisions[0] != decisions[1]:
-        uncertainty = "INCIERTO por sensibilidad al orden: las dos evaluaciones eligieron propuestas distintas."
+        quien = {"A": a, "B": b}
+        uncertainty = ("INCIERTO por sensibilidad al orden: las dos evaluaciones eligieron propuestas distintas "
+                       f"(1.ª: {quien[decisions[0]]}; 2.ª, con el orden invertido: {quien[decisions[1]]}).")
     else:
         return
     store.update(cid, lambda c: c["messages"].append({"id": _id(), "author": judge, "text": uncertainty,
@@ -841,8 +858,7 @@ def _mode_critica(store: Store, cid: str, project: dict, executor: Executor) -> 
                    f"SOLO con `DESACUERDO: SI` o `DESACUERDO: NO`.")
     if re.search(r"DESACUERDO:\s*NO", det.text or "", re.I):
         return _judge(store, cid, project, executor,
-                      "Las respuestas independientes coinciden: confirmá la conclusión común y su evidencia.",
-                      simetrico=True)
+                      "Las respuestas independientes coinciden: confirmá la conclusión común y su evidencia.")
     jobs = []
     for w in who_all:
         others = [_redact(r0[o].text, who_all) for o in who_all if o != w and o in r0]

@@ -409,7 +409,7 @@ def test_moderada_dos_participantes_cierra_una_vez_sin_ganadora(store, proyecto)
     assert len(msgs) == 4 and msgs[-1]["text"] == "conclusión final"
 
 
-@pytest.mark.parametrize("desacuerdo", ["SI", "NO"])
+@pytest.mark.parametrize("desacuerdo", ["SI"])
 def test_critica_dos_participantes_juzga_simetrico_y_marca_divergencia(store, proyecto, desacuerdo):
     conv = _conv(store, proyecto, "critica")
     calls = []
@@ -435,6 +435,53 @@ def test_critica_dos_participantes_juzga_simetrico_y_marca_divergencia(store, pr
     assert veredictos[0]["text"].startswith("Ganadora: A")
     assert veredictos[1]["text"].startswith("Ganadora: B")
     assert "INCIERTO por sensibilidad al orden" in veredictos[2]["text"]
+
+
+def test_critica_con_consenso_juzga_una_sola_vez(store, proyecto):
+    conv = _conv(store, proyecto, "critica")
+    calls = []
+
+    def executor(paths, project, who, prompt):
+        calls.append((who, prompt))
+        if "SOLO con `DESACUERDO:" in prompt:
+            return chat.Reply("DESACUERDO: NO")
+        return chat.Reply(f"Solución de {who}\nRESULTADO: OK\nCONFIANZA: 60")
+
+    chat.run_turn(store, conv["id"], "Elegí la mejor solución", executor=executor)
+    juez = [prompt for who, prompt in calls if who == chat.ORCHESTRATOR and "SOLO con `DESACUERDO:" not in prompt]
+    assert len(juez) == 1 and "Ganadora:" not in juez[0]  # con consenso no hay ganadora que verificar
+
+
+@pytest.mark.parametrize("texto", ["Ganadora: A", "`Ganadora: A`", "**Ganadora: A**", "Ganadora: A.",
+                                   "- Ganadora: A", "> Ganadora: **A**", "ganadora: a", "Ganadora:  A (por tests)"])
+def test_ganadora_tolera_el_markdown_de_los_modelos(texto):
+    assert chat._ganadora(f"Decisión final.\n{texto}\nRESULTADO: OK") == "A"
+
+
+@pytest.mark.parametrize("texto", ["", "sin decisión", "Ganadora: C", "Ganadora: A\nGanadora: B"])
+def test_ganadora_ambigua_o_ausente_es_none(texto):
+    assert chat._ganadora(texto) is None
+
+
+def test_juez_propuestas_enormes_juzga_una_sola_vez(store, proyecto):
+    conv, pr = _propuestas(store, proyecto)
+    store.update(conv["id"], lambda c: [m.update(text="x" * (chat.HISTORY_CHARS // 2)) for m in c["messages"]
+                                        if m["author"] in c["participants"]])
+    fake = FakeJuezSimetrico(["Ganadora: A", "Ganadora: B"])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    # el recorte del historial haría que cada orden perdiera material distinto: no se compara
+    assert len(fake.calls) == 1
+    assert all("INCIERTO" not in m["text"] for m in store.get_conversation(conv["id"])["messages"])
+
+
+def test_la_review_automatica_no_cuenta_como_propuesta():
+    base = {"status": "done", "text": "texto", "author": "x"}
+    assert chat._es_propuesta({**base, "meta": {}})
+    assert chat._es_propuesta({**base, "meta": {"ronda": 1}})
+    assert not chat._es_propuesta({**base, "meta": {"rol": "veredicto"}})
+    assert not chat._es_propuesta({**base, "meta": {"rol": "review"}})
+    assert not chat._es_propuesta({**base, "text": "  ", "meta": {}})
+    assert not chat._es_propuesta({**base, "status": "pending", "meta": {}})
 
 
 def test_juez_dos_participantes_por_defecto_no_compara_ganadoras(store, proyecto):
