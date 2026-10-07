@@ -87,10 +87,12 @@ def por_agente(paths: list[Path], now: datetime | float | None = None, dias: int
                     tokens_in = row.get("tokens_in")
                     tokens_out = row.get("tokens_out")
                     latency = row.get("latency_s")
-                    if any(value is not None and (isinstance(value, bool)
-                                                  or not isinstance(value, (int, float))
-                                                  or not math.isfinite(value))
-                           for value in (tokens_in, tokens_out, latency)):
+                    if any(value is not None and (isinstance(value, bool) or not isinstance(value, int)
+                                                  or not 0 <= value <= 10**12)
+                           for value in (tokens_in, tokens_out)):
+                        continue  # los tokens son un conteo: enteros, no negativos y acotados
+                    if latency is not None and (isinstance(latency, bool) or not isinstance(latency, (int, float))
+                                                or not math.isfinite(latency) or not 0 <= latency <= 10**7):
                         continue  # NaN e Infinity pasan json.loads pero romperían el JSON de salida
                     if isinstance(stamp, str):
                         momento = datetime.fromisoformat(stamp)

@@ -65,5 +65,5 @@ versionado. Sale con código `0`; si no hay invocaciones en la ventana, devuelve
 
 La ventana incluye el límite inferior y excluye el instante actual:
 `now - N * 86400 <= timestamp < now`. Se acepta `timestamp` Unix o ISO y el campo `ts`
-ISO que escribe el registro actual. Los archivos ausentes y las líneas inválidas se omiten (JSON roto, `agent` o `backend` que no son texto, o tokens y latencia que no son números); una línea inválida se descarta entera. `--dias` tiene que estar entre 1 y 36500: fuera de ese rango el comando termina con error. Un timestamp ISO sin zona se interpreta como UTC, y `NaN`/`Infinity` en tokens o latencia invalidan la línea.
+ISO que escribe el registro actual. Los archivos ausentes y las líneas inválidas se omiten (JSON roto, `agent` o `backend` que no son texto, o tokens y latencia que no son números); una línea inválida se descarta entera. `--dias` tiene que estar entre 1 y 36500: fuera de ese rango el comando termina con error. Un timestamp ISO sin zona se interpreta como UTC, y `NaN`/`Infinity` en la latencia y tokens que no sean enteros invalidan la línea.
 No se agrega una línea base «directo»: el registro no contiene ese dato.

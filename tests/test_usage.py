@@ -212,3 +212,20 @@ def test_entero_gigante_omite_la_linea_sin_abortar(tmp_path, campo):
     assert "9" * 400 in mala
     path.write_text(mala + "\n" + json.dumps(row()) + "\n", encoding="utf-8")
     assert usage.por_agente([path], now=NOW)["forjador"]["llamadas"] == 1
+
+
+@pytest.mark.parametrize("campo", ["tokens_in", "tokens_out"])
+def test_tokens_decimales_invalidan_la_linea(tmp_path, campo):
+    path = tmp_path / "usage.jsonl"
+    mala = json.dumps(row()).replace(f'"{campo}": ' + str(row()[campo]), f'"{campo}": 1.5')
+    path.write_text(mala + "\n" + json.dumps(row()) + "\n", encoding="utf-8")
+    resultado = usage.por_agente([path], now=NOW)
+    assert resultado["forjador"]["llamadas"] == 1 and isinstance(resultado["forjador"]["tokens"], int)
+
+
+@pytest.mark.parametrize("campo,valor", [("tokens_in", -100), ("tokens_out", -1), ("latency_s", -5.0),
+                                         ("tokens_in", 10**13), ("latency_s", 10**8)])
+def test_negativos_y_fuera_de_rango_invalidan_la_linea(tmp_path, campo, valor):
+    path = tmp_path / "usage.jsonl"
+    path.write_text(json.dumps(row(**{campo: valor})) + "\n" + json.dumps(row()) + "\n", encoding="utf-8")
+    assert usage.por_agente([path], now=NOW)["forjador"]["llamadas"] == 1
