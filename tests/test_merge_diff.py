@@ -210,3 +210,20 @@ def test_archivo_de_tests_que_git_no_muestra_como_texto_se_marca():
     diff = "diff --git a/test_a.py b/test_a.py\nindex 1..2 100644\nBinary files a/test_a.py and b/test_a.py differ\n"
     assert revision.tests_debilitados(diff) == ["test_a.py: cambio en un test que Git no muestra como texto"]
     assert revision.tests_debilitados(diff.replace("test_a.py", "datos.bin")) == []
+
+
+def test_chat_no_mergea_una_punta_que_no_se_reviso(merge_diff, monkeypatch):
+    wt, preparar, mergear, store, cid, _ = merge_diff
+    sha = preparar(b"def test_algo():\n    assert g(2) == 4\n")
+    original = chat.razones_bloqueo
+
+    def commit_en_el_medio(registro):
+        razones = original(registro)
+        (wt.path / "test_algo.py").write_text("def test_algo():\n    pass\n")  # lo que la guardia no vio
+        worktrees.commit_all(wt, "después de la guardia")
+        return razones
+
+    monkeypatch.setattr(chat, "razones_bloqueo", commit_en_el_medio)
+    with pytest.raises(chat.ChatError, match="cambió después de revisarla"):
+        mergear("chat")
+    assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha and sha != git(wt.path, "rev-parse", "HEAD")

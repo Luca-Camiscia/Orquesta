@@ -310,10 +310,15 @@ def conflicts(paths: Paths, branch: str, repo: str | Path | None = None) -> dict
     return {"merge_conflict": proc.returncode == 1, "overlaps": overlaps}
 
 
-def merge(paths: Paths, branch: str, repo: str | Path | None = None) -> None:
-    """Mergea la rama en el repo original (aborta si hay conflicto) y limpia el worktree."""
+def merge(paths: Paths, branch: str, repo: str | Path | None = None, sha: str | None = None) -> None:
+    """Mergea la rama en el repo original (aborta si hay conflicto) y limpia el worktree.
+
+    Con `sha` solo mergea ese commit y falla si la rama avanzó: es el que se revisó.
+    """
     wt = _find(paths, branch, repo)
-    proc = subprocess.run(["git", "merge", "--no-edit", branch], cwd=wt.repo, capture_output=True, text=True)
+    if sha is not None and _branch_tip(wt.repo, branch) != sha:
+        raise WorktreeError(f"la rama {branch} cambió después de revisarla: volvé a revisarla antes de mergear")
+    proc = subprocess.run(["git", "merge", "--no-edit", sha or branch], cwd=wt.repo, capture_output=True, text=True)
     if proc.returncode != 0:
         subprocess.run(["git", "merge", "--abort"], cwd=wt.repo, capture_output=True)
         raise WorktreeError(f"el merge falló y se abortó: {(proc.stderr or proc.stdout).strip()[:300]}")
