@@ -473,7 +473,7 @@ def _es_propuesta(m: dict) -> bool:
             and (m.get("meta") or {}).get("rol") not in ("veredicto", "review"))
 
 
-_GANADORA = re.compile(r"^[\s>*_`\-]*Ganadora:\s*[*_`]*\s*([AB])\b", re.M | re.I)
+_GANADORA = re.compile(r"^[\s>*_`\-]*Ganadora:\s*[*_`]*\s*([XY])\b", re.M | re.I)
 
 
 def _ganadora(texto: str) -> str | None:
@@ -795,9 +795,9 @@ def _judge(store: Store, cid: str, project: dict, executor: Executor, rubric: st
         histories.append(_history(conv, judge, True, reverse_proposals=proposals))
         labels = _labels(conv)
         a, b = ("VOS" if who == judge else labels[who] for who in proposals)
-        decision_rule = (f"La propuesta A corresponde a {a} y la propuesta B a {b}, sin importar su "
-                         "posición en el historial. Incluí una única línea exacta `Ganadora: A` o "
-                         "`Ganadora: B` para identificar la propuesta ganadora, ")
+        decision_rule = (f"La propuesta X corresponde a {a} y la propuesta Y a {b}, sin importar su "
+                         "posición en el historial. Incluí una única línea exacta `Ganadora: X` o "
+                         "`Ganadora: Y` para identificar la propuesta ganadora, ")
     decisions = []
     for history in histories:
         if procs.is_cancelled(cid):
@@ -816,14 +816,14 @@ def _judge(store: Store, cid: str, project: dict, executor: Executor, rubric: st
     if None in decisions:
         uncertainty = "INCIERTO: no se pudo verificar la sensibilidad al orden por falta de una decisión válida."
     elif decisions[0] != decisions[1]:
-        quien = {"A": a, "B": b}
+        quien = dict(zip("XY", proposals))  # nombres reales: la CLI y la UI los anonimizan igual que el resto
         uncertainty = ("INCIERTO por sensibilidad al orden: las dos evaluaciones eligieron propuestas distintas "
                        f"(1.ª: {quien[decisions[0]]}; 2.ª, con el orden invertido: {quien[decisions[1]]}).")
     else:
         return
     store.update(cid, lambda c: c["messages"].append({"id": _id(), "author": judge, "text": uncertainty,
                                                     "status": "done", "ts": _now(),
-                                                    "meta": {"rol": "veredicto"}}))
+                                                    "meta": {"rol": "veredicto", "incierto": True}}))
 
 
 def _redact(text: str, names: list[str]) -> str:

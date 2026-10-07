@@ -98,7 +98,15 @@ def test_tres_familias_avisa_sin_fallar(reunion_env, monkeypatch, capsys):
 
 def test_juez_de_otra_familia_no_avisa(reunion_env, monkeypatch, capsys):
     _, proyecto = reunion_env
-    monkeypatch.setattr(chat, "default_executor", FakeExecutor())
+    base = FakeExecutor()
+
+    def executor(paths, project, who, prompt):
+        reply = base(paths, project, who, prompt)
+        if who == "orquestador" and "DESACUERDO:" not in prompt:
+            return chat.Reply(reply.text + "\nGanadora: X")  # el juez cumple el formato: sin incertidumbre
+        return reply
+
+    monkeypatch.setattr(chat, "default_executor", executor)
     _, sobre = invocar(proyecto, capsys)
     assert not sobre["datos"].get("aviso") and sobre["avisos"] == []
 
@@ -271,3 +279,23 @@ def test_chats_viejos_conservan_formato(reunion_env):
     store.save(conv)
     chat.run_turn(store, conv["id"], "hola", executor=FakeExecutor())
     assert "origen" not in store.get_conversation(conv["id"])
+
+def test_critica_con_jueces_divergentes_no_pierde_el_veredicto(reunion_env, monkeypatch, capsys):
+    env, proyecto = reunion_env
+    decisiones = iter(("X", "Y"))
+
+    def executor(paths, project, who, prompt):
+        if "DESACUERDO:" in prompt:
+            return chat.Reply("DESACUERDO: SI")
+        if who == "orquestador":
+            return chat.Reply(f"Decisión final del juez.\nGanadora: {next(decisiones)}\nRESULTADO: OK\nCONFIANZA: 80")
+        return chat.Reply(f"Respuesta de {who}.\nRESULTADO: OK\nCONFIANZA: 85")
+
+    monkeypatch.setattr(chat, "default_executor", executor)
+    code, sobre = invocar(proyecto, capsys, "critica")
+    datos = sobre["datos"]
+    assert code == 0
+    assert "Decisión final del juez" in datos["veredicto"]  # el aviso no reemplaza a la decisión
+    assert "INCIERTO por sensibilidad al orden" in datos["incierto"]
+    assert "gemini-lector" not in datos["incierto"] and "codex-critico" not in datos["incierto"]
+    assert any("no se pudo confirmar" in a for a in sobre["avisos"])

@@ -265,7 +265,7 @@ def _propuestas(store, proyecto, participants=("gemini-lector", "codex-critico")
     return conv, store.get_project_for_conversation(conv)
 
 
-@pytest.mark.parametrize("ganadora", ["A", "B"])
+@pytest.mark.parametrize("ganadora", ["X", "Y"])
 def test_juez_simetrico_coincide_y_preserva_anonimato(store, proyecto, ganadora):
     conv, pr = _propuestas(store, proyecto)
     fake = FakeJuezSimetrico([f"Ganadora: {ganadora}"] * 2)
@@ -275,7 +275,7 @@ def test_juez_simetrico_coincide_y_preserva_anonimato(store, proyecto, ganadora)
     assert normal.index("Solución 1") < normal.index("Solución 2")
     assert inverso.index("Solución 2") < inverso.index("Solución 1")
     assert normal.split("---\n")[1] == inverso.split("---\n")[1]  # A/B identifican la misma propuesta
-    assert "Ganadora: A" in normal and "Ganadora: B" in normal
+    assert "Ganadora: X" in normal and "Ganadora: Y" in normal
     assert "Evaluación 1" not in inverso  # el segundo juez no ve el primer veredicto
     assert all(who not in prompt for _, prompt in fake.calls for who in conv["participants"])
     msgs = store.get_conversation(conv["id"])["messages"]
@@ -284,7 +284,7 @@ def test_juez_simetrico_coincide_y_preserva_anonimato(store, proyecto, ganadora)
     assert msgs[-1]["meta"]["contrato"]["confianza"] == 80
 
 
-@pytest.mark.parametrize("decisiones", [("A", "B"), ("B", "A")])
+@pytest.mark.parametrize("decisiones", [("X", "Y"), ("Y", "X")])
 def test_juez_simetrico_diverge_y_reporta_sensibilidad_al_orden(store, proyecto, decisiones):
     conv, pr = _propuestas(store, proyecto)
     fake = FakeJuezSimetrico([f"Ganadora: {d}" for d in decisiones])
@@ -308,7 +308,7 @@ def test_juez_uno_o_tres_participantes_hace_una_sola_llamada(store, proyecto, pa
 
 def test_juez_simetrico_invierte_cada_ronda_sin_cambiar_sus_etiquetas(store, proyecto):
     conv, pr = _propuestas(store, proyecto, rondas=(0, 1))
-    fake = FakeJuezSimetrico(["Ganadora: A"] * 2)
+    fake = FakeJuezSimetrico(["Ganadora: X"] * 2)
     chat._judge(store, conv["id"], pr, fake, "Compará las rondas.", simetrico=True)
     assert len(fake.calls) == 2
     inverso = fake.calls[1][1]
@@ -340,10 +340,10 @@ def test_juez_tres_participantes_con_dos_respuestas_no_duplica_el_costo(store, p
     assert len(fake.calls) == 1
 
 
-@pytest.mark.parametrize("decision", ["Sin ganadora.", "Ganadora: C", "Ganadora: A\nGanadora: B"])
+@pytest.mark.parametrize("decision", ["Sin ganadora.", "Ganadora: C", "Ganadora: X\nGanadora: Y"])
 def test_juez_simetrico_sin_decision_valida_reporta_incertidumbre(store, proyecto, decision):
     conv, pr = _propuestas(store, proyecto)
-    fake = FakeJuezSimetrico(["Ganadora: A", decision])
+    fake = FakeJuezSimetrico(["Ganadora: X", decision])
     chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
     assert len(fake.calls) == 2
     final = store.get_conversation(conv["id"])["messages"][-1]
@@ -413,7 +413,7 @@ def test_moderada_dos_participantes_cierra_una_vez_sin_ganadora(store, proyecto)
 def test_critica_dos_participantes_juzga_simetrico_y_marca_divergencia(store, proyecto, desacuerdo):
     conv = _conv(store, proyecto, "critica")
     calls = []
-    decisiones = iter(("A", "B"))
+    decisiones = iter(("X", "Y"))
 
     def executor(paths, project, who, prompt):
         calls.append((who, prompt))
@@ -432,8 +432,8 @@ def test_critica_dos_participantes_juzga_simetrico_y_marca_divergencia(store, pr
     veredictos = [m for m in store.get_conversation(conv["id"])["messages"]
                   if m["meta"].get("rol") == "veredicto"]
     assert len(veredictos) == 3
-    assert veredictos[0]["text"].startswith("Ganadora: A")
-    assert veredictos[1]["text"].startswith("Ganadora: B")
+    assert veredictos[0]["text"].startswith("Ganadora: X")
+    assert veredictos[1]["text"].startswith("Ganadora: Y")
     assert "INCIERTO por sensibilidad al orden" in veredictos[2]["text"]
 
 
@@ -452,13 +452,13 @@ def test_critica_con_consenso_juzga_una_sola_vez(store, proyecto):
     assert len(juez) == 1 and "Ganadora:" not in juez[0]  # con consenso no hay ganadora que verificar
 
 
-@pytest.mark.parametrize("texto", ["Ganadora: A", "`Ganadora: A`", "**Ganadora: A**", "Ganadora: A.",
-                                   "- Ganadora: A", "> Ganadora: **A**", "ganadora: a", "Ganadora:  A (por tests)"])
+@pytest.mark.parametrize("texto", ["Ganadora: X", "`Ganadora: X`", "**Ganadora: X**", "Ganadora: X.",
+                                   "- Ganadora: X", "> Ganadora: **X**", "ganadora: x", "Ganadora:  X (por tests)"])
 def test_ganadora_tolera_el_markdown_de_los_modelos(texto):
-    assert chat._ganadora(f"Decisión final.\n{texto}\nRESULTADO: OK") == "A"
+    assert chat._ganadora(f"Decisión final.\n{texto}\nRESULTADO: OK") == "X"
 
 
-@pytest.mark.parametrize("texto", ["", "sin decisión", "Ganadora: C", "Ganadora: A\nGanadora: B"])
+@pytest.mark.parametrize("texto", ["", "sin decisión", "Ganadora: C", "Ganadora: X\nGanadora: Y"])
 def test_ganadora_ambigua_o_ausente_es_none(texto):
     assert chat._ganadora(texto) is None
 
@@ -467,7 +467,7 @@ def test_juez_propuestas_enormes_juzga_una_sola_vez(store, proyecto):
     conv, pr = _propuestas(store, proyecto)
     store.update(conv["id"], lambda c: [m.update(text="x" * (chat.HISTORY_CHARS // 2)) for m in c["messages"]
                                         if m["author"] in c["participants"]])
-    fake = FakeJuezSimetrico(["Ganadora: A", "Ganadora: B"])
+    fake = FakeJuezSimetrico(["Ganadora: X", "Ganadora: Y"])
     chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
     # el recorte del historial haría que cada orden perdiera material distinto: no se compara
     assert len(fake.calls) == 1
@@ -585,3 +585,20 @@ def test_default_executor_con_manifiesto_roto_devuelve_error(env, tmp_path):
     migracion.set_fase(env, "plugin")  # sin manifiesto del plugin: ManifestError
     r = chat.default_executor(env, {"dir": str(tmp_path)}, "codex-forja", "hola")
     assert r.error and "manifiesto de la fase plugin" in r.error
+
+
+def test_ganadora_ignora_las_letras_de_los_participantes():
+    # «Participante A» es una etiqueta anónima, no la propuesta: no puede leerse como decisión
+    assert chat._ganadora("Ganadora: A") is None and chat._ganadora("Ganadora: B") is None
+    assert chat._ganadora("Prefiero al Participante A.\nGanadora: Y") == "Y"
+
+
+def test_incierto_lleva_nombres_reales_y_se_marca_en_meta(store, proyecto):
+    conv, pr = _propuestas(store, proyecto)
+    fake = FakeJuezSimetrico(["Ganadora: X", "Ganadora: Y"])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    msgs = store.get_conversation(conv["id"])["messages"]
+    aviso = msgs[-1]
+    assert aviso["meta"] == {"rol": "veredicto", "incierto": True}
+    assert all(nombre in aviso["text"] for nombre in conv["participants"])
+    assert "Participante" not in aviso["text"]
