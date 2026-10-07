@@ -67,7 +67,7 @@ def por_agente(paths: list[Path], now: datetime | float | None = None, dias: int
     totals: dict[str, dict] = {}
     for path in paths:
         try:
-            fh = open(path, encoding="utf-8")
+            fh = open(path, encoding="utf-8", errors="replace")
         except FileNotFoundError:
             continue
         with fh:

@@ -162,3 +162,10 @@ def test_cli_usage_rechaza_dias_no_positivos(tmp_path, monkeypatch, capsys, dias
     captured = capsys.readouterr()
     assert "--dias debe ser > 0" in captured.err
     assert captured.out == ""
+
+
+def test_bytes_no_utf8_se_omiten_sin_abortar(tmp_path):
+    path = tmp_path / "usage.jsonl"
+    good = json.dumps(row()).encode("utf-8") + b"\n"
+    path.write_bytes(b'{"agent": "ni\xf1o"\xff}\n' + good)
+    assert usage.por_agente([path], now=NOW)["forjador"]["llamadas"] == 1
