@@ -42,13 +42,14 @@ def tests_debilitados(diff: str) -> list[str]:
     from pathlib import PurePosixPath
 
     test_def = re.compile(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(")
-    assertion = re.compile(r"^\s*assert\b")
+    assertion = re.compile(r"^\s*(?:assert\b|self\.assert\w+\(|(?:with\s+)?pytest\.raises\()")
     skip = re.compile(r"pytest\.skip\s*\(|pytest\.mark\.skip(?:if)?\b|unittest\.skip\b|"
                       r"\.skipTest\s*\(|@pytest\.mark\.xfail\b|\bskipif\s*=")
     trivial = re.compile(r"assert\s*\(?\s*(?:(?:True|1)|(\w+)\s*(?:==|is)\s*\1|.*\bor\s+True)\s*\)?\s*(?:,.*)?")
     # un assert vacío no reemplaza a uno real: True, 1, «x == x», «x is x» y «… or True»
     config_pytest = {"conftest.py", "pytest.ini", "setup.cfg", "pyproject.toml", "tox.ini"}
-    config_cambio = re.compile(r"collect_ignore|pytest_collection_modifyitems|addopts|--deselect|--ignore|\s-k\s")
+    config_cambio = re.compile(r"collect_ignore|pytest_collection_modifyitems|pytest_ignore_collect|pytest_runtest_setup|addopts|--deselect|"
+                              r"--ignore|\s-k\s|python_files|python_classes|python_functions|testpaths|norecursedirs")
     quotes = re.compile(r"'''|\"\"\"|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|#.*")
     delimiters = {"-": None, "+": None}
     current_test = {"-": None, "+": None}
@@ -99,6 +100,9 @@ def tests_debilitados(diff: str) -> list[str]:
             side = line[0]
             path = line[4:].split("\t", 1)[0]
             paths[side] = path[2:] if path.startswith(("a/", "b/")) else path
+            if path.startswith('"'):
+                # Git escapó el nombre (no debería, con core.quotePath=false): no se puede saber si es un test.
+                findings[(path, "ruta que Git entrecomilló y no se pudo analizar")] = None
         elif line.startswith("Binary files ") and line.endswith(" differ"):
             # Si Git no mostró el contenido de un archivo de tests no se puede comprobar: falla cerrada.
             nombre = line[len("Binary files "):-len(" differ")].split(" and ")[-1]

@@ -227,3 +227,38 @@ def test_chat_no_mergea_una_punta_que_no_se_reviso(merge_diff, monkeypatch):
     with pytest.raises(chat.ChatError, match="cambió después de revisarla"):
         mergear("chat")
     assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha and sha != git(wt.path, "rev-parse", "HEAD")
+
+
+def test_test_con_nombre_no_ascii_no_esconde_el_borrado(tmp_path):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    (repo / "test_señal.py").write_text("def test_senal():\n    assert f() == 1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    base = git(repo, "rev-parse", "HEAD")
+    (repo / "test_señal.py").write_text("def test_senal():\n    pass\n")
+    git(repo, "commit", "-qam", "debilita")
+    head = git(repo, "rev-parse", "HEAD")
+    # con la configuración por defecto, `git diff` escribe la ruta entre comillas y con escapes octales
+    assert '"a/test_se' in git(repo, "diff", f"{base}..{head}")
+    assert revision.tests_debilitados(worktrees.diff_completo(repo, base, head)) == ["test_señal.py: assert eliminado"]
+
+
+def test_ruta_entrecomillada_falla_cerrada():
+    diff = ('--- "a/tests/test_se\\303\\261al.py"\n+++ "b/tests/test_se\\303\\261al.py"\n@@ -1,2 +1,2 @@\n'
+            ' def test_a():\n-    assert f() == 1\n+    pass\n')
+    assert any("entrecomilló" in r for r in revision.tests_debilitados(diff))
+
+
+@pytest.mark.parametrize("linea", ["python_files = nada_*.py", "testpaths = otra_carpeta", "norecursedirs = tests",
+                                   "def pytest_ignore_collect(path): return True"])
+def test_mas_config_de_pytest_que_apaga_la_coleccion(linea):
+    diff = "--- a/pytest.ini\n+++ b/pytest.ini\n@@ -1,1 +1,2 @@\n [pytest]\n+" + linea + "\n"
+    assert revision.tests_debilitados(diff) == ["pytest.ini: configuración de pytest cambiada"]
+
+
+def test_borrar_un_assert_de_unittest_se_detecta():
+    diff = ("--- a/tests/test_a.py\n+++ b/tests/test_a.py\n@@ -1,3 +1,2 @@\n def test_a(self):\n"
+            "-    self.assertEqual(f(), 1)\n     pass\n")
+    assert revision.tests_debilitados(diff) == ["tests/test_a.py: assert eliminado"]
