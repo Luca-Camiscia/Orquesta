@@ -5,6 +5,7 @@
     orquesta run AGENTE [--cwd DIR] [--task SLUG] [--prompt-file F | stdin] [--ping]
     orquesta doctor [--json] [--no-cache] [--skip-live] [--only ID]
     orquesta wt list | new | clean RAMA [--force] | prune
+    orquesta review RAMA [--repo DIR] [--revisor NOMBRE]
     orquesta rrhh triage | evaluar | catalogo | sugerir | reclutador | validar | memoria | nota | abrir
 
 Códigos de salida de `generate`: 0 ok/sin cambios, 1 errores, 3 requiere confirmación.
@@ -358,6 +359,11 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
     paths = default_paths()
     try:
         wt = worktrees._find(paths, args.branch, args.repo)
+        revisor = args.revisor
+        if revisor is not None:
+            motivo = revision.validar_revisor(chat.mf.load(paths) or {}, wt.agent, revisor)
+            if motivo is not None:
+                return _emit_tarea(args.cmd, cli_json.ERROR, motivo=motivo)
         pid = worktrees.project_id(wt.repo)
         registro = tareas.obtener(pid, wt.branch, str(wt.repo), paths=paths)
         if registro is None:
@@ -374,7 +380,8 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
         # Invalidar la evidencia anterior incluso si falla el executor o no devuelve un veredicto.
         tareas.actualizar(pid, wt.branch, {"sha_revisado": None, "tests_sha": None,
                           "tests_ok": None, "veredicto": None, "revisor": None}, str(wt.repo), paths=paths)
-        revisor = revision.elegir_revisor(chat.mf.load(paths) or {}, wt.agent)
+        if revisor is None:
+            revisor = revision.elegir_revisor(chat.mf.load(paths) or {}, wt.agent)
         if revisor is None:
             return _emit_tarea(args.cmd, cli_json.ERROR, motivo="no hay un revisor de otra familia disponible")
         tests = worktrees.run_tests(wt)  # siempre el comando actual de .orquesta/proyecto.toml
@@ -712,6 +719,8 @@ def build_parser() -> argparse.ArgumentParser:
         comando = sub.add_parser(nombre, help=f"{nombre} una tarea registrada")
         comando.add_argument("branch", metavar="RAMA")
         comando.add_argument("--repo", help="repo de la tarea (desambigua ramas repetidas)")
+        if nombre == "review":
+            comando.add_argument("--revisor", metavar="NOMBRE", help="agente read-only de otra familia")
         if nombre != "review":
             comando.add_argument("--confirm", action="store_true", help="pedir confirmación humana por TTY")
         if nombre == "merge":

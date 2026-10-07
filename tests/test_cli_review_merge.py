@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from helpers import git
-from orquesta import chat, cli, confirmar, tareas, worktrees
+from orquesta import chat, cli, confirmar, revision, tareas, worktrees
 
 
 def configurar_tests(repo, cmd):
@@ -73,6 +73,76 @@ def test_review_con_veredicto_rechazar(env, tarea, monkeypatch, capsys):
     assert registro["sha_revisado"] == registro["tests_sha"] == sha
     assert registro["revisor"] == "gemini-reclutador"
     assert registro["confianza_autor"] == 90  # no atribuirle al autor la confianza del revisor
+
+
+def test_review_con_revisor_explicito(env, tarea, monkeypatch, capsys):
+    wt, pid, sha = tarea
+    monkeypatch.setattr(chat.mf, "load", lambda paths: {"agents": {
+        wt.agent: {"backend": "codex", "mode": "write"},
+        "gemini-bibliotecario": {"backend": "agy", "mode": "read-only"},
+        "claude-centinela": {"backend": "claude", "mode": "read-only"}}})
+
+    def revisar(paths, proyecto, agente, prompt):
+        assert agente == "claude-centinela"
+        assert "b.txt" in prompt and "PASARON" in prompt
+        return chat.Reply("Veredicto: APROBAR")
+
+    args = cli.build_parser().parse_args(["review", wt.branch, "--revisor", "claude-centinela"])
+    assert cli.cmd_review(args, executor=revisar) == 0
+    respuesta = salida(capsys)
+    assert respuesta["estado"] == "OK"
+    assert respuesta["datos"]["revisor"] == "claude-centinela"
+    registro = tareas.obtener(pid, wt.branch, paths=env)
+    assert registro["revisor"] == "claude-centinela"
+    assert registro["sha_revisado"] == registro["tests_sha"] == sha
+
+
+@pytest.mark.parametrize("nombre,agente,motivo", [
+    ("inexistente", None, "no existe"),
+    ("codex-critico", {"backend": "codex", "mode": "read-only"}, "otra familia"),
+    ("claude-escritor", {"backend": "claude", "mode": "write"}, "read-only"),
+])
+def test_review_revisor_invalido_conserva_evidencia(
+        env, tarea, monkeypatch, capsys, nombre, agente, motivo):
+    wt, pid, _ = tarea
+    agents = {wt.agent: {"backend": "codex", "mode": "write"}}
+    if agente is not None:
+        agents[nombre] = agente
+    monkeypatch.setattr(chat.mf, "load", lambda paths: {"agents": agents})
+    anterior = tareas.obtener(pid, wt.branch, paths=env)
+
+    def no_ejecutar(*args, **kwargs):
+        pytest.fail("un revisor inválido no debe actualizar la tarea ni ejecutar tests o review")
+
+    monkeypatch.setattr(tareas, "actualizar", no_ejecutar)
+    monkeypatch.setattr(worktrees, "run_tests", no_ejecutar)
+    args = cli.build_parser().parse_args(["review", wt.branch, "--revisor", nombre])
+    assert cli.cmd_review(args, executor=no_ejecutar) == 1
+    respuesta = salida(capsys)
+    assert respuesta["estado"] == "ERROR"
+    assert motivo in respuesta["errores"][0]
+    assert tareas.obtener(pid, wt.branch, paths=env) == anterior
+
+
+def test_review_sin_revisor_usa_seleccion_automatica(env, tarea, monkeypatch, capsys):
+    wt, pid, _ = tarea
+    manifest = {"agents": {
+        wt.agent: {"backend": "codex", "mode": "write"},
+        "gemini-bibliotecario": {"backend": "agy", "mode": "read-only"},
+        "claude-centinela": {"backend": "claude", "mode": "read-only"}}}
+    monkeypatch.setattr(chat.mf, "load", lambda paths: manifest)
+    elegir = Mock(wraps=revision.elegir_revisor)
+    monkeypatch.setattr(revision, "elegir_revisor", elegir)
+
+    def revisar(paths, proyecto, agente, prompt):
+        assert agente == "gemini-bibliotecario"
+        return chat.Reply("Veredicto: APROBAR")
+
+    args = cli.build_parser().parse_args(["review", wt.branch])
+    assert cli.cmd_review(args, executor=revisar) == 0
+    assert salida(capsys)["datos"]["revisor"] == "gemini-bibliotecario"
+    elegir.assert_called_once_with(manifest, wt.agent)
+    assert tareas.obtener(pid, wt.branch, paths=env)["revisor"] == "gemini-bibliotecario"
 
 
 def test_merge_sin_confirm_necesita_confirmacion(tarea, capsys):

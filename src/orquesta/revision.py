@@ -10,6 +10,19 @@ CONFIDENCE_ESCALATION = 75  # umbral de escalado, no peso de voto (arXiv 2505.19
 REVIEW_PREFERENCE = ("codex-abogado-del-diablo", "gemini-bibliotecario", "claude-centinela")
 
 
+def validar_revisor(manifest: dict, writer: str, nombre: str) -> str | None:
+    """Valida un revisor propuesto para el autor identificado por su nombre, sin I/O."""
+    agents = manifest.get("agents") or {}
+    if nombre not in agents:
+        return f"el revisor {nombre} no existe en el manifiesto"
+    candidato = agents[nombre]
+    if candidato.get("mode") != "read-only":
+        return f"el revisor {nombre} debe ser read-only"
+    if candidato.get("backend") == (agents.get(writer) or {}).get("backend"):
+        return f"el revisor {nombre} debe ser de otra familia que el autor {writer}"
+    return None
+
+
 def elegir_revisor(manifest: dict, writer: str) -> str | None:
     agents = manifest.get("agents") or {}
     family = (agents.get(writer) or {}).get("backend")

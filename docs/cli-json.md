@@ -27,6 +27,15 @@ El constructor rechaza estados desconocidos con `ValueError`.
 `exit_code()` devuelve `1` para cualquier estado distinto de `OK`,
 `NECESITO_CONFIRMACION` y `BLOQUEADO`.
 
+## Review
+
+`orquesta review RAMA [--repo DIR] [--revisor NOMBRE]` devuelve el sobre JSON.
+`--revisor` permite elegir un agente del manifiesto que sea `read-only` y tenga
+un backend distinto del autor (otra familia). Sin la opción se usa la selección
+automática habitual. Si el revisor indicado no cumple esas condiciones, devuelve
+`ERROR` (exit 1) con el motivo en `errores`, sin ejecutar tests ni review y sin
+modificar la evidencia previa. Una review válida registra el nombre en `datos.revisor`.
+
 ## Confirmación humana
 
 El modelo no confirma; sin TTY disponible, se devuelve NECESITO_CONFIRMACION con el comando sugerido para que lo corra el usuario.
