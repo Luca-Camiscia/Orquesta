@@ -203,3 +203,12 @@ def test_iso_sin_zona_se_interpreta_como_utc(tmp_path, monkeypatch):
     finally:
         monkeypatch.undo()
         time.tzset()
+
+
+@pytest.mark.parametrize("campo", ["timestamp", "tokens_in", "tokens_out", "latency_s"])
+def test_entero_gigante_omite_la_linea_sin_abortar(tmp_path, campo):
+    path = tmp_path / "usage.jsonl"
+    mala = json.dumps(row()).replace(f'"{campo}": ' + json.dumps(row()[campo]), f'"{campo}": ' + "9" * 400)
+    assert "9" * 400 in mala
+    path.write_text(mala + "\n" + json.dumps(row()) + "\n", encoding="utf-8")
+    assert usage.por_agente([path], now=NOW)["forjador"]["llamadas"] == 1

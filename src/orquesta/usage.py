@@ -112,7 +112,7 @@ def por_agente(paths: list[Path], now: datetime | float | None = None, dias: int
                     if latency is not None:
                         total["latencia"] += latency
                         total["muestras"] += 1
-                except (ValueError, TypeError, KeyError, AttributeError):
+                except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
                     continue
     return {
         agent: {"llamadas": total["llamadas"], "tokens": total["tokens"],
