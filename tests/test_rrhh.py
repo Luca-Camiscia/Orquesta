@@ -168,10 +168,10 @@ def test_triage_sin_revisor_cruzado_informa_el_hueco(plantel):
     "Verificalo, quizá ya está resuelto",
     "Comprobá: quizá funciona",
     "No estamos seguros: verificar el login",
-    "Check: puede que funcione",
     "Comprobá: quizás funciona",
+    "Chequeá: puede que funcione",
+    "Confirmá: acaso funciona",
     "Confirmá: todavía pasa",
-    "Validación: acaso funciona",
     "Reproduzco: podría funcionar",
     "No estoy segura: verificar el login",
 ])
@@ -204,6 +204,10 @@ def test_triage_abstencion_verificar_primero(plantel, texto):
     "Validar datos del formulario ya que fallan las pruebas",
     "Si estás seguro de la solución, validá y confirmá los cambios",
     "Verificar si funciona",
+    "Implementar validación del campo email que todavía no existe",
+    "Agregar check de permisos: el endpoint todavía no lo tiene",
+    "Agregar validación para que el usuario ya no pueda borrar",
+    "Validar el formulario aun cuando venga vacío",
 ])
 def test_triage_sin_abstencion_en_pedidos_normales(plantel, texto):
     t = rrhh.triage(texto, plantel, MODELOS)
@@ -227,12 +231,14 @@ def test_triage_abstencion_quita_solo_bonus_worktree_y_considera_lectura():
                for a in abstencion["recomendados"])
 
 
-def test_triage_abstencion_conserva_avisos_existentes(plantel):
+def test_triage_abstencion_no_busca_revisor_ni_avisa_que_falta(plantel):
+    # sin abstención, este plantel avisaría «No hay revisor habilitado»; con abstención no se pide revisor
     t = rrhh.triage("Validar y confirmar si el problema aún existe antes de implementar migración de auth y datos",
                     registry(plantel.agents[0]), MODELOS)
-    assert len(t["avisos"]) == 2
-    assert t["avisos"][0] == "No hay revisor habilitado de otra familia para esta tarea"
-    assert "verificar primero" in t["avisos"][1]
+    assert t["revisor"] is None
+    assert len(t["avisos"]) == 1 and "verificar primero" in t["avisos"][0]
+    sin = rrhh.triage("Implementar migración de auth y datos", registry(plantel.agents[0]), MODELOS)
+    assert sin["avisos"] == ["No hay revisor habilitado de otra familia para esta tarea"]
 
 
 def test_migracion_auth_es_alta_aunque_descripcion_breve(plantel):
@@ -278,3 +284,11 @@ def test_evaluar_incluye_reviews_de_tareas(env):
                          "agente": "codex-forja", "veredicto": veredicto}, paths=env)
     a = next(a for a in rrhh.evaluar(env) if a["name"] == "codex-forja")
     assert a["reviews_aprobadas"] == 2 and a["reviews_rechazadas"] == 1
+
+
+def test_abstencion_no_pide_revisor_de_escritura(plantel):
+    # con abstención no se recomienda escribir, así que tampoco corresponde un revisor para escritura no trivial
+    t = rrhh.triage("Verificá si todavía pasa el error de migración de auth y datos, puede que ya esté "
+                    "arreglado; si no, implementar el fix", plantel, MODELOS)
+    assert "abstencion" in t and t["revisor"] is None
+    assert any("verificar primero" in a for a in t["avisos"])
