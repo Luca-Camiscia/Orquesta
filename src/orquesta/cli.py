@@ -640,8 +640,8 @@ def cmd_usage(args: argparse.Namespace) -> int:
     import json
     from orquesta import usage
 
-    if args.dias <= 0:
-        print("Error: --dias debe ser > 0", file=sys.stderr)
+    if not 0 < args.dias <= 36500:
+        print("Error: --dias debe estar entre 1 y 36500", file=sys.stderr)
         return 1
     paths = default_paths()
     agents = usage.por_agente([paths.state_dir / "usage.jsonl"], dias=args.dias)

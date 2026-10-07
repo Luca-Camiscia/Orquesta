@@ -160,7 +160,7 @@ def test_cli_usage_rechaza_dias_no_positivos(tmp_path, monkeypatch, capsys, dias
     write_rows(tmp_path / "state" / "usage.jsonl", [row()])
     assert cli.main(["usage", "--dias", dias]) == 1
     captured = capsys.readouterr()
-    assert "--dias debe ser > 0" in captured.err
+    assert "--dias debe estar entre 1 y 36500" in captured.err
     assert captured.out == ""
 
 
@@ -169,3 +169,37 @@ def test_bytes_no_utf8_se_omiten_sin_abortar(tmp_path):
     good = json.dumps(row()).encode("utf-8") + b"\n"
     path.write_bytes(b'{"agent": "ni\xf1o"\xff}\n' + good)
     assert usage.por_agente([path], now=NOW)["forjador"]["llamadas"] == 1
+
+
+@pytest.mark.parametrize("campo", ["tokens_in", "tokens_out", "latency_s"])
+@pytest.mark.parametrize("valor", ["NaN", "Infinity", "-Infinity"])
+def test_nan_e_infinity_invalidan_la_linea(tmp_path, campo, valor):
+    path = tmp_path / "usage.jsonl"
+    mala = json.dumps(row()).replace(f'"{campo}": ' + str(row()[campo]), f'"{campo}": {valor}')
+    assert valor in mala
+    path.write_text(mala + "\n" + json.dumps(row()) + "\n", encoding="utf-8")
+    resultado = usage.por_agente([path], now=NOW)
+    assert resultado["forjador"]["llamadas"] == 1
+    json.dumps(resultado, allow_nan=False)  # la salida es JSON estricto
+
+
+def test_cli_dias_gigante_da_error_y_no_traceback(capsys):
+    assert cli.main(["usage", "--dias", "9" * 300]) == 1
+    assert "--dias debe estar entre 1 y 36500" in capsys.readouterr().err
+
+
+def test_iso_sin_zona_se_interpreta_como_utc(tmp_path, monkeypatch):
+    monkeypatch.setenv("TZ", "America/Argentina/Buenos_Aires")
+    import time
+    time.tzset()
+    try:
+        path = tmp_path / "usage.jsonl"
+        # 2026-10-05T23:00 sin zona: en UTC entra en la ventana de 1 día que termina en NOW (2026-10-06T00:00Z)
+        path.write_text(json.dumps(row(timestamp="2026-10-05T23:00:00")) + "\n", encoding="utf-8")
+        assert usage.por_agente([path], now=NOW, dias=1)["forjador"]["llamadas"] == 1
+        # y 2026-10-06T01:00 sin zona es posterior a NOW en UTC: afuera (en hora local AR seguiría adentro)
+        path.write_text(json.dumps(row(timestamp="2026-10-06T01:00:00")) + "\n", encoding="utf-8")
+        assert usage.por_agente([path], now=NOW, dias=1) == {}
+    finally:
+        monkeypatch.undo()
+        time.tzset()

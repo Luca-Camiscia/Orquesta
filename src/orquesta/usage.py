@@ -7,6 +7,7 @@ rate limit. Al pasar el 80% de ese límite, el riesgo es alto y conviene reparti
 from __future__ import annotations
 
 import json
+import math
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -87,11 +88,18 @@ def por_agente(paths: list[Path], now: datetime | float | None = None, dias: int
                     tokens_out = row.get("tokens_out")
                     latency = row.get("latency_s")
                     if any(value is not None and (isinstance(value, bool)
-                                                  or not isinstance(value, (int, float)))
+                                                  or not isinstance(value, (int, float))
+                                                  or not math.isfinite(value))
                            for value in (tokens_in, tokens_out, latency)):
-                        continue
-                    ts = datetime.fromisoformat(stamp).timestamp() if isinstance(stamp, str) else stamp
-                    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+                        continue  # NaN e Infinity pasan json.loads pero romperían el JSON de salida
+                    if isinstance(stamp, str):
+                        momento = datetime.fromisoformat(stamp)
+                        if momento.tzinfo is None:  # sin zona: UTC, como escribe record(), no la hora local
+                            momento = momento.replace(tzinfo=timezone.utc)
+                        ts = momento.timestamp()
+                    else:
+                        ts = stamp
+                    if isinstance(ts, bool) or not isinstance(ts, (int, float)) or not math.isfinite(ts):
                         continue
                     if not start <= ts < end:
                         continue
