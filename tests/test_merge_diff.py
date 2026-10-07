@@ -68,7 +68,7 @@ def test_merge_bloquea_test_debilitado(merge_diff, via, capsys):
 @pytest.mark.parametrize("via", ["cli", "chat"])
 def test_merge_permite_assert_reemplazado(merge_diff, via):
     wt, preparar, mergear, store, cid, _ = merge_diff
-    sha = preparar(b"def test_algo():\n    assert 1 == 1\n")
+    sha = preparar(b"def test_algo():\n    assert g(2) == 4\n")
     assert mergear(via) == (0 if via == "cli" else None)
     assert git(wt.repo, "rev-parse", "HEAD") == sha
     if via == "chat":
@@ -147,7 +147,7 @@ def test_merge_renombrar_el_archivo_de_tests_se_bloquea(merge_diff, via, capsys)
 @pytest.mark.parametrize("error", [worktrees.WorktreeError("git falló"), OSError("permiso")])
 def test_merge_se_bloquea_si_falla_el_diff(merge_diff, monkeypatch, via, error, capsys):
     wt, preparar, mergear, _, _, _ = merge_diff
-    preparar(b"def test_algo():\n    assert 1 == 1\n")
+    preparar(b"def test_algo():\n    assert g(2) == 4\n")
 
     def falla(*args, **kwargs):
         raise error
@@ -169,3 +169,44 @@ def test_assert_trivial_no_cuenta_como_reemplazo(trivial):
 def test_config_de_pytest_que_desactiva_tests_se_marca(linea):
     diff = "--- a/conftest.py\n+++ b/conftest.py\n@@ -1,1 +1,2 @@\n x = 1\n+" + linea + "\n"
     assert revision.tests_debilitados(diff) == ["conftest.py: configuración de pytest cambiada"]
+
+
+@pytest.mark.parametrize("via", ["cli", "chat"])
+def test_merge_gitattributes_con_diff_apagado_no_esconde_el_borrado(merge_diff, via, capsys):
+    wt, preparar, mergear, _, _, _ = merge_diff
+    # `-diff` ya commiteado en el repo: sin --text, git muestra «Binary files differ» y la guardia quedaría ciega.
+    (wt.repo / ".gitattributes").write_text("*.py -diff\n")
+    git(wt.repo, "add", ".gitattributes")
+    git(wt.repo, "commit", "-qm", "atributos")
+    preparar(b"def test_algo():\n    pass\n")
+    _bloquea(mergear, via, capsys, "debilita los tests")
+
+
+@pytest.mark.parametrize("via", ["cli", "chat"])
+def test_merge_colores_de_git_no_apagan_la_guardia(merge_diff, monkeypatch, via, capsys):
+    wt, preparar, mergear, _, _, _ = merge_diff
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "color.diff")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+    preparar(b"def test_algo():\n    pass\n")
+    _bloquea(mergear, via, capsys, "debilita los tests")
+
+
+@pytest.mark.parametrize("trivial", ["assert 1 == 1", "assert x == x", "assert r is r", "assert f() == 1 or True",
+                                     "assert True, 'msg'"])
+def test_asserts_vacios_no_justifican_borrar_el_real(trivial):
+    diff = ("--- a/test_algo.py\n+++ b/test_algo.py\n@@ -1,2 +1,2 @@\n def test_algo():\n"
+            "-    assert f() == 1\n+    " + trivial + "\n")
+    assert revision.tests_debilitados(diff) == ["test_algo.py: assert eliminado"]
+
+
+def test_assert_distinto_si_es_un_reemplazo_valido():
+    diff = ("--- a/test_algo.py\n+++ b/test_algo.py\n@@ -1,2 +1,2 @@\n def test_algo():\n"
+            "-    assert f() == 1\n+    assert f() == 2\n")
+    assert revision.tests_debilitados(diff) == []
+
+
+def test_archivo_de_tests_que_git_no_muestra_como_texto_se_marca():
+    diff = "diff --git a/test_a.py b/test_a.py\nindex 1..2 100644\nBinary files a/test_a.py and b/test_a.py differ\n"
+    assert revision.tests_debilitados(diff) == ["test_a.py: cambio en un test que Git no muestra como texto"]
+    assert revision.tests_debilitados(diff.replace("test_a.py", "datos.bin")) == []

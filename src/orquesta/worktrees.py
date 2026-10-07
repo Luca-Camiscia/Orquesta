@@ -68,8 +68,10 @@ def _git(cwd: Path, *args: str, check: bool = True) -> str:
 
 def diff_completo(repo: Path, base: str, head: str) -> str:
     """Diff completo para la guardia de tests: sin límite, sin detectar renombres (un `git mv` de un archivo
-    de tests saldría sin hunks) y tolerante a bytes no UTF-8 (un Latin-1 no puede apagar la guardia)."""
-    proc = subprocess.run(["git", "diff", "--no-renames", "--no-ext-diff", f"{base}..{head}"], cwd=repo,
+    de tests saldría sin hunks), forzado a texto (un `.gitattributes` con `-diff` o `binary` lo esconde),
+    sin colores de la configuración del usuario y tolerante a bytes no UTF-8 (un Latin-1 no puede apagar la guardia)."""
+    proc = subprocess.run(["git", "diff", "--no-renames", "--no-ext-diff", "--no-textconv", "--text", "--no-color",
+                           f"{base}..{head}", "--"], cwd=repo,
                           capture_output=True)
     if proc.returncode != 0:
         raise WorktreeError(f"git diff falló: {proc.stderr.decode('utf-8', 'replace').strip()}")
