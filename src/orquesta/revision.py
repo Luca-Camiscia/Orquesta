@@ -45,6 +45,9 @@ def tests_debilitados(diff: str) -> list[str]:
     assertion = re.compile(r"^\s*assert\b")
     skip = re.compile(r"pytest\.skip\s*\(|pytest\.mark\.skip(?:if)?\b|unittest\.skip\b|"
                       r"\.skipTest\s*\(|@pytest\.mark\.xfail\b|\bskipif\s*=")
+    trivial = re.compile(r"assert\s*\(?\s*(?:True|1)\s*\)?")  # un assert vacío no reemplaza a uno real
+    config_pytest = {"conftest.py", "pytest.ini", "setup.cfg", "pyproject.toml", "tox.ini"}
+    config_cambio = re.compile(r"collect_ignore|pytest_collection_modifyitems|addopts|--deselect|--ignore|\s-k\s")
     quotes = re.compile(r"'''|\"\"\"|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|#.*")
     delimiters = {"-": None, "+": None}
     current_test = {"-": None, "+": None}
@@ -106,6 +109,8 @@ def tests_debilitados(diff: str) -> list[str]:
                 block += 1
             for side in ("-", "+") if sign == " " else (sign,):
                 path = paths[side]
+                if sign == "+" and PurePosixPath(path).name in config_pytest and config_cambio.search(line[1:]):
+                    findings[(path, "configuración de pytest cambiada")] = None
                 if not es_test(path):
                     continue
                 code = codigo(line[1:], side, sign != " ")
@@ -118,7 +123,7 @@ def tests_debilitados(diff: str) -> list[str]:
                     continue
                 if definition:
                     definitions[side].append((path, definition.group(1)))
-                if assertion.match(code):
+                if assertion.match(code) and not (side == "+" and trivial.fullmatch(code.strip())):
                     asserts[side].append((path, block, current_test[side], code.strip()))
                 if side == "+" and skip.search(code):
                     findings[(path, "skip/xfail agregado")] = None
@@ -161,6 +166,9 @@ def razones_bloqueo(registro: dict) -> list[str]:
     verdict = (registro.get("review") or {}).get("veredicto")
     if verdict != "APROBAR":
         razones.append(f"la review de {branch} no está aprobada (veredicto: {verdict or 'sin review'}). "
+                       f"Si querés mergear igual, confirmalo explícitamente.")
+    if registro.get("diff_error"):
+        razones.append(f"no pude calcular el diff de {branch} para revisar que no debilite los tests. "
                        f"Si querés mergear igual, confirmalo explícitamente.")
     if "diff" in registro:
         debilitados = tests_debilitados(registro["diff"])
