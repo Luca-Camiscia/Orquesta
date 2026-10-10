@@ -943,12 +943,20 @@ def _wt(conv: dict, branch: str) -> dict:
 def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> None:
     conv = store.get_conversation(cid)
     wt = _wt(conv, branch)
+    revisado = None  # punta de la rama sobre la que se calculó el diff: es la que se mergea
     if not force:
+        try:
+            repo = wt.get("repo") or _repo_of(store.project_of(conv))
+            base_sha = wt.get("base_sha") or worktrees._find(store.paths, branch, repo).base_sha
+            revisado = worktrees._branch_tip(repo, branch)
+            wt["diff"] = worktrees.diff_completo(repo, base_sha, revisado)
+        except (worktrees.WorktreeError, OSError):
+            wt["diff_error"] = True  # falla cerrada: sin diff no se puede descartar un test debilitado
         razones = razones_bloqueo(wt)
         if razones:
             raise NeedsForce(razones[0])
     try:
-        worktrees.merge(store.paths, branch, repo=wt.get("repo") or _repo_of(store.project_of(conv)))
+        worktrees.merge(store.paths, branch, repo=wt.get("repo") or _repo_of(store.project_of(conv)), sha=revisado)
     except worktrees.WorktreeError as exc:
         raise ChatError(str(exc)) from None
     store.update(cid, lambda c: _wt(c, branch).update(status="mergeado"))

@@ -4,10 +4,80 @@ from __future__ import annotations
 import pytest
 
 from helpers import dump_yaml, git, registry_dict
-from orquesta import chat, worktrees
+from orquesta import chat, revision as reglas_revision, worktrees
 from orquesta.generate import apply_plan, build_plan
 from test_chat import proyecto, store  # noqa: F401: fixtures compartidas
 from test_tanda7 import Fake
+
+
+def diff_test(cambios, archivo="tests/test_algo.py"):
+    return (f"diff --git a/{archivo} b/{archivo}\n--- a/{archivo}\n+++ b/{archivo}\n"
+            f"@@ -1,8 +1,8 @@\n{cambios}\n")
+
+
+@pytest.mark.parametrize("cambios", [
+    "-def test_algo():",
+    "-    assert resultado == 1",
+    "+    pytest.skip ('pendiente')",
+    "+@pytest.mark.skip",
+    "+    @pytest.mark.skipif(True, reason='pendiente')",
+    "+    @unittest.skip('pendiente')",
+    "+    self.skipTest ('pendiente')",
+    "+@pytest.mark.xfail(reason='pendiente')",
+    "+    decorador(skipif=True)",
+    '     """\n-    assert resultado == 1\n     """',
+    "     '''\n-    assert resultado == 1\n     '''",
+    '-    assert resultado == 1\n     """',
+    '-    assert uno\n-    assert dos\n+    assert uno_y_dos',
+    '-    assert uno\n contexto\n contexto\n contexto\n+    assert otro',
+    '-    assert uno\n@@ -20,2 +20,2 @@\n+    assert otro',
+    '-def test_algo():\n-    assert uno\n-    assert dos\n+def test_algo():\n+    assert uno',
+])
+def test_tests_debilitados_detecta_borrados_y_desactivaciones(cambios):
+    motivos = reglas_revision.tests_debilitados(diff_test(cambios))
+    assert motivos and all("tests/test_algo.py" in motivo for motivo in motivos)
+
+
+@pytest.mark.parametrize("cambios,archivo", [
+    ("+def test_nuevo():\n+    assert resultado", "tests/test_algo.py"),
+    ("-    assert resultado == 1\n+    assert resultado == 2", "tests/test_algo.py"),
+    ("-def test_algo():\n+def test_algo():", "tests/test_algo.py"),
+    ("     @pytest.mark.skipif(True, reason='existente')\n+    valor = 2", "tests/test_algo.py"),
+    ("-    assert resultado", "src/servicio.py"),
+    ("+    pytest.skip('pendiente')", "src/servicio.py"),
+    ("+# pytest.skip('comentario')", "tests/test_algo.py"),
+    ('+    texto = "pytest.skip(esto)"', "tests/test_algo.py"),
+    ('-    """\n-    assert ejemplo\n-    """', "tests/test_algo.py"),
+    ("+    '''\n+    pytest.skip('ejemplo')\n+    '''", "tests/test_algo.py"),
+    ('+    """ejemplo pytest.skip()"""', "tests/test_algo.py"),
+    ("+    assert not_skipif == 2", "tests/test_algo.py"),
+])
+def test_tests_debilitados_evita_falsos_positivos(cambios, archivo):
+    assert reglas_revision.tests_debilitados(diff_test(cambios, archivo)) == []
+
+
+def test_tests_debilitados_test_trasladado_entre_archivos():
+    diff = diff_test("-def test_algo():\n-    assert resultado", "tests/test_viejo.py")
+    diff += diff_test("+def test_algo():\n+    assert resultado", "tests/test_nuevo.py")
+    assert reglas_revision.tests_debilitados(diff) == []
+
+
+def test_tests_debilitados_deduplica_por_archivo_y_tipo():
+    diff = diff_test("-def test_uno():\n-    assert uno\n-def test_dos():\n-    assert dos\n"
+                     "+    pytest.skip('uno')\n+    self.skipTest('dos')")
+    motivos = reglas_revision.tests_debilitados(diff)
+    assert len(motivos) == 3 and len(set(motivos)) == 3
+    assert len(reglas_revision.tests_debilitados(diff + diff_test("-    assert otro", "test_otro.py"))) == 4
+
+
+def test_razones_bloqueo_con_diff_y_sin_diff():
+    registro = {"branch": "orquesta/autor/fix", "review": {"veredicto": "APROBAR"}}
+    assert reglas_revision.razones_bloqueo(registro) == []
+    assert reglas_revision.razones_bloqueo({**registro, "diff": ""}) == []
+    motivos = reglas_revision.razones_bloqueo({**registro, "diff": diff_test("-    assert resultado")})
+    assert len(motivos) == 1
+    assert "orquesta/autor/fix" in motivos[0] and "debilita los tests" in motivos[0]
+    assert "confirmalo explícitamente" in motivos[0]
 
 
 @pytest.fixture

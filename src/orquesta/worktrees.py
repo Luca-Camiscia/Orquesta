@@ -66,6 +66,18 @@ def _git(cwd: Path, *args: str, check: bool = True) -> str:
     return proc.stdout.strip()
 
 
+def diff_completo(repo: Path, base: str, head: str) -> str:
+    """Diff completo para la guardia de tests: sin límite, sin detectar renombres (un `git mv` de un archivo
+    de tests saldría sin hunks), forzado a texto (un `.gitattributes` con `-diff` o `binary` lo esconde),
+    sin colores ni escapes de nombres (`core.quotePath`) ni prefijos de la configuración del usuario, y tolerante a bytes no UTF-8 (un Latin-1 no puede apagar la guardia)."""
+    proc = subprocess.run(["git", "-c", "core.quotePath=false", "diff", "--no-renames", "--no-ext-diff", "--no-textconv",
+                           "--text", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", f"{base}..{head}", "--"], cwd=repo,
+                          capture_output=True)
+    if proc.returncode != 0:
+        raise WorktreeError(f"git diff falló: {proc.stderr.decode('utf-8', 'replace').strip()}")
+    return proc.stdout.decode("utf-8", "replace")
+
+
 def git_toplevel(path: Path) -> Path | None:
     proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path, capture_output=True,
                           text=True)
@@ -298,10 +310,15 @@ def conflicts(paths: Paths, branch: str, repo: str | Path | None = None) -> dict
     return {"merge_conflict": proc.returncode == 1, "overlaps": overlaps}
 
 
-def merge(paths: Paths, branch: str, repo: str | Path | None = None) -> None:
-    """Mergea la rama en el repo original (aborta si hay conflicto) y limpia el worktree."""
+def merge(paths: Paths, branch: str, repo: str | Path | None = None, sha: str | None = None) -> None:
+    """Mergea la rama en el repo original (aborta si hay conflicto) y limpia el worktree.
+
+    Con `sha` solo mergea ese commit y falla si la rama avanzó: es el que se revisó.
+    """
     wt = _find(paths, branch, repo)
-    proc = subprocess.run(["git", "merge", "--no-edit", branch], cwd=wt.repo, capture_output=True, text=True)
+    if sha is not None and _branch_tip(wt.repo, branch) != sha:
+        raise WorktreeError(f"la rama {branch} cambió después de revisarla: volvé a revisarla antes de mergear")
+    proc = subprocess.run(["git", "merge", "--no-edit", sha or branch], cwd=wt.repo, capture_output=True, text=True)
     if proc.returncode != 0:
         subprocess.run(["git", "merge", "--abort"], cwd=wt.repo, capture_output=True)
         raise WorktreeError(f"el merge falló y se abortó: {(proc.stderr or proc.stdout).strip()[:300]}")

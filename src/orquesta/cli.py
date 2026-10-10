@@ -438,6 +438,11 @@ def cmd_merge(args: argparse.Namespace, *, leer_tty=None) -> int:
         if registro.get("tests_ok") is not None and sha != registro.get("tests_sha"):
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO,
                                motivo=f"review vieja: corré `orquesta review {wt.branch}`")
+        try:
+            # La guardia necesita el diff completo; el límite del prompt ocultaría borrados.
+            registro["diff"] = worktrees.diff_completo(wt.repo, registro["base_sha"], sha)
+        except (worktrees.WorktreeError, OSError):
+            registro["diff_error"] = True  # falla cerrada: sin diff no se puede descartar un test debilitado
         razones = revision.razones_bloqueo(tareas.a_registro_review(registro))
         if razones and not args.forzar:
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO, {"razones": razones}, "\n".join(razones))
