@@ -75,10 +75,13 @@ de entorno ni flag que saltee el freno.
 | `orquesta generate -m "msg"` | Backup → escribe → tests → CHANGELOG + commit (si algo falla, restaura) |
 | `orquesta generate --confirm <agente>` | Aplica un cambio protegido o una escalada (solo con OK explícito del usuario, en una segunda terminal) |
 | `orquesta doctor [--json]` | Chequeos de salud deterministas |
-| `orquesta run <agente> --cwd DIR [--task SLUG] <<'EOF' … EOF` | Delega en el backend del agente |
+| `orquesta run <agente> --cwd DIR [--task SLUG] <<'EOF' … EOF` | Delega en el backend del agente; la salida original queda en `state/salidas/` (ruta y sha256 en `salida completa:`) |
 | `orquesta run <agente> --ping` | Ping mínimo por el backend |
 | `orquesta reunion --modo <modo> --participantes a,b [--aspectos ...] [--cwd DIR] [--titulo T]` | Reunión desde la terminal (pregunta por stdin) |
 | `orquesta tareas [--json \| --linea]` | Tareas abiertas del proyecto actual |
+| `orquesta ledger anotar <tarea> --progreso\|--sin-progreso [--nota T]` | Anota una ronda; avisa estancamiento (2 sin progreso) y bloquea en el tope (4 sin progreso o 6 rondas) |
+| `orquesta ledger ver \| cerrar <tarea> --motivo T` | Estado de las tareas del ledger, o cierre |
+| `orquesta usage [--dias N]` | Uso por agente (llamadas, tokens, latencia, errores) como array JSON |
 | `orquesta review [--repo R] <rama>` | Review de otra familia de una tarea registrada |
 | `orquesta merge [--repo R] [--confirm] [--forzar] <rama>` | Mergea el SHA revisado (con confirmación por TTY) |
 | `orquesta descartar [--repo R] [--confirm] <rama>` | Descarta una tarea |

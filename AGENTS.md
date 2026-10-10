@@ -7,7 +7,7 @@ registro YAML, un generador del plugin de Claude Code (`orquesta@orquesta-local`
 ## Comandos
 
 ```bash
-uv run pytest                      # suite completa (~920 tests, ~50 s); tiene que quedar en verde
+uv run pytest                      # suite completa (~1200 tests, ~55 s); tiene que quedar en verde
 PYTHONPATH=$PWD/src uv run pytest  # dentro de un worktree: sin esto testeás el paquete del repo principal
 uv run orquesta generate --dry-run # qué cambiaría en el plugin (~/orquesta/plugin) sin escribir nada
 uv run orquesta doctor --skip-live # chequeos de salud sin llamar a los backends
@@ -26,13 +26,14 @@ uv run orquesta ui --no-browser    # UI en http://127.0.0.1:8787
 | `src/orquesta/migracion.py`, `migracion_cmd.py` | Fase (`legacy`/`plugin`) y `orquesta migrar estado\|corte\|rollback` con diario idempotente |
 | `src/orquesta/hooks.py` | Hooks del plugin: `session-start` (inyecta el contexto) y `pre-bash` (avisa ante `--confirm`/evasión) |
 | `src/orquesta/confirmar.py`, `cli_json.py` | Confirmación humana por `/dev/tty` y sobre JSON de la CLI (`docs/cli-json.md`) |
-| `src/orquesta/tareas.py`, `revision.py` | Registro de tareas (SHA revisado, tests) y review/merge con bloqueos |
+| `src/orquesta/tareas.py`, `revision.py` | Registro de tareas (SHA revisado, tests) y review/merge con bloqueos (incluye la guardia de tests debilitados) |
+| `src/orquesta/ledger.py` | Ledger de progreso por tarea: estancamiento y tope duro (`orquesta ledger`) |
 | `src/orquesta/guard.py`, `manifest.py` | Agentes protegidos, escaladas y manifiesto de deploy (hashes) |
 | `src/orquesta/runner.py`, `worktrees.py`, `procs.py` | `orquesta run`: arma el comando, aplica sandbox, worktree y límites de paralelismo, y detecta rate limit |
 | `src/orquesta/chat.py` | Proyectos, conversaciones y reuniones (rondas, moderada, crítica, posturas, seccionado), review automática |
 | `src/orquesta/rrhh.py` | Recursos Humanos: evaluación, catálogo, triage y sugerencias (determinista, sin LLM) |
 | `src/orquesta/modelos.py` | Descubre modelos (caché de Codex, `agy models`, alias de Claude) |
-| `src/orquesta/usage.py`, `calibration.py` | Uso por ventana de 5 h y calibración de la confianza declarada |
+| `src/orquesta/usage.py`, `calibration.py` | Uso por ventana de 5 h, uso por agente (`orquesta usage`) y calibración de la confianza declarada |
 | `src/orquesta/ui/app.py`, `ui/index.html` | FastAPI más una UI vanilla JS en un solo archivo, con temas por `data-estilo` y tokens CSS |
 | `docs/` | `headless.md` (invocaciones verificadas), `investigacion.md` (papers), `cli-json.md`, `plugin-brief.md`, `plugin-plan.md` (decisiones y modelo de amenaza del plugin) |
 | `plugin/` | Plugin generado por `orquesta generate`, ignorado por git. No lo edites a mano |
