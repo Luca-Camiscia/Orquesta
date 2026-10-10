@@ -308,5 +308,17 @@ def render_block_inner(reg: Registry, ctx: RenderContext) -> str:
         "→ verificá más), nunca como peso de voto.",
         "- Si tenés que elegir entre propuestas de distintos modelos, que decida un juez de otra familia que "
         "la de los autores, o los tests (sesgo de autopreferencia, arXiv 2404.13076).",
+        "- Cascada: si la tarea es secuencial o la resuelve un solo agente, usá uno solo. Varios agentes o una "
+        "reunión, solo para subtareas paralelizables, o si falló la verificación o la CONFIANZA es baja "
+        "(arXiv 2512.08296, 2505.18286).",
+        "- Una tarea se cierra con una señal externa (tests en el SHA revisado, un comando reproducible o el "
+        "usuario), nunca por el RESULTADO o la CONFIANZA que declara el delegado (arXiv 2607.25152).",
+        "- En el brief citá textual el pedido original del usuario, además de tu resumen, y delegá sin "
+        "intermediarios: cada salto pierde información (arXiv 2603.26993).",
+        "- Anotá cada ronda de una tarea delegada con `orquesta ledger anotar <tarea> --progreso` o "
+        "`--sin-progreso`. Si el sobre avisa estancamiento, replanificá con un brief nuevo, sin historial; "
+        "si devuelve BLOQUEADO, frená y escalá al usuario (Magentic-One, arXiv 2411.04468; arXiv 2607.01641).",
+        "- Si la respuesta de un wrapper parece recortada o resumida, leé el archivo de `salida completa:` "
+        "del bloque `orquesta run`: es la salida original del backend.",
     ]
     return "\n".join(lines)
