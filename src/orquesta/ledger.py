@@ -54,7 +54,8 @@ def _leer(archivo: Path) -> list[dict]:
         return []
     except json.JSONDecodeError as exc:
         raise ValueError(f"{archivo} no es JSON válido: {exc}") from None
-    if not isinstance(datos, list) or not all(_entrada_valida(r) for r in datos):
+    if (not isinstance(datos, list) or not all(_entrada_valida(r) for r in datos)
+            or len({r["tarea"] for r in datos}) != len(datos)):  # una tarea repetida quedaría ignorada
         raise ValueError(f"{archivo} no tiene la forma esperada (lista de tareas con intentos y cierre)")
     return datos
 

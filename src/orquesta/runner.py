@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -341,6 +342,30 @@ def _resolve(paths: Paths, agent: str) -> tuple[mf.DeployedAgent | None, dict | 
     return entry, manifest, backend, None
 
 
+def _guardar_salida(paths: Paths, agent: str, task: str | None, output: str, sha: str) -> tuple[Path, Path]:
+    """Guarda la salida cruda del backend (solo para el usuario, 0600) sin seguir enlaces simbólicos.
+
+    La tarea pasa por slugify: llega cruda de `--task` y no puede armar una ruta fuera de la carpeta.
+    """
+    folder = paths.state_dir / "salidas" / agent
+    folder.mkdir(parents=True, exist_ok=True)
+    if any(p.is_symlink() for p in (folder.parent, folder)):
+        raise OSError(f"{folder} pasa por un enlace simbólico")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    salida = folder / f"{timestamp}-{worktrees.slugify(task) if task else 'sin-tarea'}-{sha[:8]}.md"
+    data = output.encode("utf-8")
+    try:
+        fd = os.open(salida, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        # Misma tarea, mismo segundo y misma salida: ya está guardada. Un enlace o algo distinto, no.
+        if salida.is_symlink() or not salida.is_file() or salida.read_bytes() != data:
+            raise
+        return folder, salida
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    return folder, salida
+
+
 def run(req: RunRequest, paths: Paths) -> RunResult:
     t0 = time.monotonic()
     entry, manifest, backend, err = _resolve(paths, req.agent)
@@ -417,12 +442,8 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
     result.meta = {**meta, **result.meta, "contrato": parse_contract(result.output)}
     if result.output:
         sha = hashlib.sha256(result.output.encode("utf-8")).hexdigest()
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         try:
-            folder = (paths.state_dir / "salidas" / req.agent).resolve()
-            folder.mkdir(parents=True, exist_ok=True)
-            salida = folder / f"{timestamp}-{req.task or 'sin-tarea'}-{sha[:8]}.md"
-            salida.write_text(result.output, encoding="utf-8")
+            folder, salida = _guardar_salida(paths, req.agent, req.task, result.output, sha)
         except OSError as exc:
             result.meta.setdefault("warnings", []).append(
                 f"no se pudo guardar la salida completa: {exc}")

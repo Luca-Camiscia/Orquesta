@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -186,22 +187,52 @@ def test_format_result_muestra_referencia_a_salida_completa(env, proyecto):
     assert texto.index("── orquesta run ──") < texto.index("rama:") < texto.index("commit:") < texto.index(linea)
 
 
-@pytest.mark.parametrize("operacion", ["mkdir", "write_text"])
+@pytest.mark.parametrize("operacion", ["mkdir", "open"])
 def test_run_avisa_si_no_puede_guardar_salida(env, proyecto, monkeypatch, operacion):
     deploy(env)
-    original = getattr(Path, operacion)
+    duenio = os if operacion == "open" else Path
+    original = getattr(duenio, operacion)
 
     def fallar_salida(path, *args, **kwargs):
-        if path.is_relative_to(env.state_dir / "salidas"):
+        if Path(path).is_relative_to(env.state_dir / "salidas"):
             raise OSError("sin permiso")
         return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, operacion, fallar_salida)
+    monkeypatch.setattr(duenio, operacion, fallar_salida)
     r = correr(env, "codex-critico", "revisá esto", proyecto)
     assert (r.status, r.exit_code) == ("OK", 0)
     assert r.output.startswith("PONG:")
     assert "salida" not in r.meta and "salida_sha256" not in r.meta
     assert "no se pudo guardar la salida completa: sin permiso" in r.meta["warnings"]
+
+
+@pytest.mark.parametrize("task", ["../../../escape", "a/b", "/tmp/x"])
+def test_run_la_tarea_no_arma_rutas_fuera_de_la_carpeta(env, proyecto, task):
+    deploy(env)
+    carpeta = env.state_dir / "salidas" / "codex-critico"
+    carpeta.mkdir(parents=True)
+    r = correr(env, "codex-critico", "revisá esto", proyecto, task=task)
+    salida = Path(r.meta["salida"])
+    assert salida.parent == carpeta
+    assert salida.read_text(encoding="utf-8") == r.output
+
+
+def test_run_salida_solo_legible_por_el_usuario(env, proyecto):
+    deploy(env)
+    r = correr(env, "codex-critico", "revisá esto", proyecto)
+    assert Path(r.meta["salida"]).stat().st_mode & 0o777 == 0o600
+
+
+def test_run_no_sigue_enlaces_simbolicos_en_las_salidas(env, proyecto, tmp_path):
+    deploy(env)
+    afuera = tmp_path / "afuera"
+    afuera.mkdir()
+    (env.state_dir / "salidas").mkdir(parents=True)
+    (env.state_dir / "salidas" / "codex-critico").symlink_to(afuera)
+    r = correr(env, "codex-critico", "revisá esto", proyecto)
+    assert r.status == "OK" and "salida" not in r.meta
+    assert any("enlace simbólico" in w for w in r.meta["warnings"])
+    assert list(afuera.iterdir()) == []
 
 
 def test_run_retiene_las_200_salidas_mas_recientes(env, proyecto):

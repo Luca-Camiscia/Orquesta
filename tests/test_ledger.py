@@ -104,3 +104,12 @@ def test_nota_recortada_y_slug_limite(env, ledger):
     ledger.anotar("proyecto", tarea, progreso=True, nota="ñ" * 501, paths=env)
     datos = json.loads((env.state_dir / "proyecto" / "ledger.json").read_text())
     assert datos[0]["intentos"][0]["nota"] == "ñ" * 500
+
+
+def test_tarea_duplicada_en_el_json_es_invalida(env, ledger):
+    archivo = env.state_dir / "proyecto" / "ledger.json"
+    archivo.parent.mkdir(parents=True)
+    entrada = {"tarea": "demo", "intentos": [], "cerrada": False}
+    archivo.write_text(json.dumps([entrada, entrada]), encoding="utf-8")
+    with pytest.raises(ValueError, match="forma esperada"):
+        ledger.listar("proyecto", paths=env)
