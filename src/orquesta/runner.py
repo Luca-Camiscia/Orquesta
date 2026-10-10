@@ -218,6 +218,7 @@ def find_orquesta_off(cwd: Path) -> Path | None:
 class TreeState:
     entries: frozenset
     digest: str
+    firmas: tuple = ()  # (entrada, tamaño:mtime) de cada archivo sucio: nombra cuál cambió de contenido
 
 
 def tree_state(cwd: Path) -> TreeState | None:
@@ -231,11 +232,17 @@ def tree_state(cwd: Path) -> TreeState | None:
     status = git("status", "--porcelain=v1", "-z", "--untracked-files=all")
     entries = frozenset(e.decode(errors="replace") for e in status.split(b"\0") if e)
     h = hashlib.sha256(status + git("diff", "--no-ext-diff", "--binary"))
+    firmas = []
     for e in sorted(entries):
-        if e.startswith("?? "):
+        try:
             st = (root / e[3:]).stat()
-            h.update(f"{e}:{st.st_size}:{st.st_mtime_ns}".encode())
-    return TreeState(entries, h.hexdigest())
+        except OSError:  # borrado, o el origen de un renombre
+            continue
+        firma = f"{st.st_size}:{st.st_mtime_ns}"
+        firmas.append((e, firma))
+        if e.startswith("?? "):
+            h.update(f"{e}:{firma}".encode())
+    return TreeState(entries, h.hexdigest(), tuple(firmas))
 
 
 CONTRACT = ("Cerrá tu respuesta con estas cuatro líneas, exactas:\n"
@@ -392,8 +399,10 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
             if before is not None:
                 after = tree_state(work_cwd)
                 if after is not None and after.digest != before.digest:
-                    changed = sorted(after.entries ^ before.entries) or ["(archivos ya modificados "
-                                                                         "cambiaron de contenido)"]
+                    antes = dict(before.firmas)
+                    changed = (sorted(after.entries ^ before.entries)
+                               or [e for e, firma in after.firmas if e in antes and antes[e] != firma]
+                               or ["(archivos ya modificados cambiaron de contenido)"])
                     result = RunResult("VIOLACION_READ_ONLY", output=result.output, detail=(
                         "el árbol cambió durante una corrida read-only (¿el backend u otro "
                         "proceso?): " + ", ".join(e[3:] if e[2:3] == " " else e for e in changed)))

@@ -329,6 +329,19 @@ def test_read_only_detecta_escrituras(env, proyecto):
     assert "colado.txt" in r.detail
 
 
+@pytest.mark.parametrize("rastreado", [False, True])
+def test_read_only_nombra_el_archivo_ya_modificado_que_cambio(env, proyecto, rastreado):
+    deploy(env)
+    (proyecto / "plan.md").write_text("antes\n", encoding="utf-8")
+    if rastreado:
+        git(proyecto, "add", "plan.md")
+        git(proyecto, "commit", "-qm", "plan")
+        (proyecto / "plan.md").write_text("sucio antes de la corrida\n", encoding="utf-8")
+    r = correr(env, "codex-critico", "WRITE:plan.md", proyecto)
+    assert (r.status, r.exit_code) == ("VIOLACION_READ_ONLY", 7)
+    assert "plan.md" in r.detail and "ya modificados" not in r.detail
+
+
 def test_write_en_worktree_commitea_en_su_rama_sin_tocar_el_repo(env, proyecto):
     deploy(env)
     r = correr(env, "codex-forja", "WRITE:arreglo.txt", proyecto, task="fix promedio")
