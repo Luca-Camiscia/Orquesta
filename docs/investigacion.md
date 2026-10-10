@@ -41,17 +41,54 @@ action guards; Vasconcelos et al. ([2402.01694](https://arxiv.org/abs/2402.01694
 confianza suelto no calibra. El usuario prefiere explorar una interfaz de terminal (plugin de Claude
 Code) en vez de rediseñar la UI web.
 
+## Organización y comunicación entre agentes (2026-10-09)
+
+Mismo método: `gemini-investigador` y un investigador Claude con búsqueda web, en paralelo y sin verse. Coincidieron
+en lo central: topología centralizada, un solo agente antes que varios, comunicación por artefactos y no por
+prosa, y control de bucles en código. Cada ID de la tabla se abrió en su página abs de arXiv.
+
+| Tema | Paper | Resultado (abstract) | Qué hace orquesta |
+|---|---|---|---|
+| Escalado de equipos | Kim et al. 2025 ([2512.08296](https://arxiv.org/abs/2512.08296)) | 260 configuraciones: de +80,8% en tareas descomponibles a −70% en planificación secuencial; la alineación arquitectura-tarea decide | Regla de cascada en el contexto del orquestador |
+| Uno o varios | Gao et al. 2025 ([2505.18286](https://arxiv.org/abs/2505.18286)); Tran y Kiela 2026 ([2604.02460](https://arxiv.org/abs/2604.02460)) | Cascada de un agente a varios: +1,1–12% de precisión y hasta 20% menos costo. Con igual presupuesto de razonamiento, un agente solo iguala o supera a varios | Varios agentes o reunión solo si la tarea se paraleliza o falló la verificación |
+| Ledgers y estancamiento | Magentic-One, Fourney et al. 2024 ([2411.04468](https://arxiv.org/abs/2411.04468)) | Task ledger y progress ledger; replanifica al estancarse | `orquesta ledger`: 2 rondas sin progreso → replanificar; tope → escalar al usuario |
+| Bucles sin tope | Hou et al. 2026 ([2607.01641](https://arxiv.org/abs/2607.01641)) | 68 bucles infinitos confirmados en 47 proyectos (91,9% de precisión): reintentos y handoffs sin tope en el código | El tope del ledger vive en código, no en el prompt |
+| Espejismo de progreso | Park y Choi 2026 ([2607.25152](https://arxiv.org/abs/2607.25152)) | El agente dijo mejorar en los 54 ciclos; en el 56% el cambio real fue ≤ 0. El mejor juez aceptó 44% de regresiones. Un gate externo que solo dice sí/no rinde casi igual que el feedback completo (110 contra 113) | Una tarea se cierra solo con señal externa (tests en el SHA revisado, comando o usuario) |
+| Comunicación por artefactos | AECP, Xue et al. 2026 ([2610.06481](https://arxiv.org/abs/2610.06481)) | Solo artefactos estructurados entre agentes de código: +28,2% de tests pasados, −16,5% de tiempo, y el reenvío de instrucciones maliciosas cae de 95% a 0% | El runner guarda la salida original del backend y devuelve ruta y sha256: el orquestador no depende del resumen del wrapper |
+| Mensajes compactos | PACT, Huang et al. 2026 ([2606.05304](https://arxiv.org/abs/2606.05304)) | Mensajes de acción-estado: −10% de tokens por tarea resuelta en OpenHands; en SWE-agent, la mitad de tokens de entrada sin perder resolución | Pendiente: reuniones con resumen estructurado en vez de transcripción |
+| Delegación encadenada | Ao, Gao y Simchi-Levi 2026 ([2603.26993](https://arxiv.org/abs/2603.26993)) | Teórico: una red de delegación sin información externa nueva queda dominada por un único decisor con la misma información | El brief cita textual el pedido original; sin intermediarios |
+| Supervisión liviana | SupervisorAgent, Lin et al. 2025 ([2510.26585](https://arxiv.org/abs/2510.26585)) | Supervisor en tiempo de ejecución: −29,68% de tokens en GAIA sin perder éxito | Mismo espíritu que el ledger: reglas deterministas, sin LLM |
+| Presupuesto | BAGEN, Lin et al. 2026 ([2606.00198](https://arxiv.org/abs/2606.00198)) | Cortar temprano ahorra 28–64% de tokens en trayectorias fallidas; la conciencia de presupuesto apenas correlaciona con la capacidad (r = 0,35) | Pendiente: presupuesto por tarea en el ledger |
+| Topologías | AgentPrune ([2410.02506](https://arxiv.org/abs/2410.02506)), G-Designer ([2410.11782](https://arxiv.org/abs/2410.11782)), MacNet ([2406.07155](https://arxiv.org/abs/2406.07155)) | Podar mensajes redundantes: −28,1 a −72,8% de tokens. Más agentes satura rápido | Se mantiene la topología centralizada; no se agregan roles |
+
+**Evidencia del propio repo.** Las cuatro tareas T1–T4 (2026-10-06) usaron 13 ramas: T4 pasó por 6 rondas de fix
+y review sin un tope. En esta misma investigación, el wrapper de Gemini recortó 3709 caracteres de la salida del
+backend: es el "teléfono descompuesto" que AECP y el blog de Anthropic describen.
+
+**Desacuerdos.** Gemini propuso reemplazar el historial de las reuniones por un resumen estructurado (PACT, AECP) y
+detectar estancamiento por similitud de objeciones; Claude priorizó el ledger, el cierre con señal externa y el
+presupuesto. Se implementó primero lo que está en código determinista y tiene tests baratos; lo de reuniones queda
+pendiente. Protocolos (MCP, A2A, ACP, ANP; Ehtesham et al. 2025, [2505.02279](https://arxiv.org/abs/2505.02279)): para
+CLIs locales no aportan y suman superficie de ataque.
+
 ## Citas dudosas (no usar sin verificar)
 
 Solo las trajo `gemini-investigador` y no se pudieron confirmar: `arXiv:2501.12345` (parece un número
 inventado), las cifras de "15-25% de sesgo de familia" y "58-72% de sesgo de posición", y los
 porcentajes atribuidos a HCP-MAD y a ConfidenceBench. En la ronda de interfaces: "16 plataformas" (listó 11), un mood "preciso" inexistente y el paper de *cognitive forcing* atribuido a van Berkel (es de Buçinca et al. 2021). En la de modelos gratis: supuso GPU dedicada (la PC tiene una AMD Barcelo integrada) y citó modelos que Groq ya no lista. Además atribuye "Debate or Vote" a autores
-anónimos, cuando es de Choi, Zhu y Li. Es un buen ejemplo de por qué se contrasta entre familias.
+anónimos, cuando es de Choi, Zhu y Li. Es un buen ejemplo de por qué se contrasta entre familias. En la ronda de organización (2026-10-09), sin abrir
+en arXiv: CoMemBench (`2609.32192`) y ColMAD (`2510.20963`), que trajo Gemini; `2608.02712`, `2607.00038` y
+`2603.05344`, que el investigador Claude encontró en búsquedas sin abrir. Las cifras de relay de `2603.26993`
+(de más de 90% a 22,5%) salen de un resumen de terceros, no del abstract.
 
 ## Pendiente (no implementado)
 
-- Evaluar con el juez en los dos órdenes (A-B y B-A). Duplica el costo; conviene solo para decisiones
-  pareadas importantes.
+- Reuniones con resumen estructurado de acción-estado en vez de transcripción (PACT, AECP) y pasar a la crítica
+  solo las propuestas finales (AgentPrune).
+- Presupuesto por tarea: rango de gasto declarado y corte temprano (BAGEN, 2606.00198).
+- Esquema de salida por rol (SOPs de MetaGPT, [2308.00352](https://arxiv.org/abs/2308.00352)).
+- Ask-F1 del interrogador: preguntas útiles contra bloqueos que aparecieron sin preguntar (HiL-Bench, [2604.09408](https://arxiv.org/abs/2604.09408)).
+
 - Testing diferencial al estilo PatchDiff ([2503.15223](https://arxiv.org/abs/2503.15223)).
 - Cascada por costo: tareas triviales a modelos baratos (RouteLLM, [2406.18665](https://arxiv.org/abs/2406.18665)).
 - Cuarta familia de modelos por API gratis (plan a futuro, decisión del usuario 2026-10-05): Groq con
