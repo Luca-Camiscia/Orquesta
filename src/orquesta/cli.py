@@ -6,6 +6,8 @@
     orquesta doctor [--json] [--no-cache] [--skip-live] [--only ID]
     orquesta wt list | new | clean RAMA [--force] | prune
     orquesta review RAMA [--repo DIR] [--revisor NOMBRE]
+    orquesta ledger anotar TAREA (--progreso | --sin-progreso) [--nota TEXTO] [--repo DIR]
+    orquesta ledger cerrar TAREA --motivo TEXTO [--repo DIR] | ver [--repo DIR]
     orquesta rrhh triage | evaluar | catalogo | sugerir | reclutador | validar | memoria | nota | abrir
 
 Códigos de salida de `generate`: 0 ok/sin cambios, 1 errores, 3 requiere confirmación.
@@ -516,6 +518,36 @@ def cmd_tareas(args: argparse.Namespace) -> int:
         return _emit_tarea(args.cmd, cli_json.ERROR, motivo=str(exc))
 
 
+def cmd_ledger(args: argparse.Namespace) -> int:
+    from orquesta import cli_json, ledger, worktrees
+
+    paths = default_paths()
+    comando = f"ledger {args.ledger_cmd}"
+    try:
+        repo = worktrees.git_toplevel(Path(args.repo).resolve() if args.repo else Path.cwd())
+        if repo is None:
+            raise worktrees.WorktreeError("el directorio indicado no es un repo git")
+        repo = next((w.repo for w in worktrees.list_worktrees(paths)
+                     if w.path.resolve() == repo.resolve()), repo)
+        pid = worktrees.project_id(repo)
+        if args.ledger_cmd == "ver":
+            datos = {"tareas": ledger.listar(pid, paths=paths)}
+        elif args.ledger_cmd == "cerrar":
+            datos = ledger.cerrar(pid, args.tarea, motivo=args.motivo, paths=paths)
+        else:
+            datos = ledger.anotar(pid, args.tarea, progreso=args.progreso, nota=args.nota, paths=paths)
+            if datos["accion"] == "escalar":
+                return _emit_tarea(comando, cli_json.BLOQUEADO, datos,
+                                   motivo="tope alcanzado: escalá al usuario antes de otro intento")
+            if datos["accion"] == "replanificar":
+                aviso = (f"estancamiento: {datos['sin_progreso']} intentos sin progreso; "
+                         "replanificá con un brief nuevo (sin historial), p. ej. con el arquitecto")
+                return cli_json.emit(cli_json.sobre(comando, cli_json.OK, datos=datos, avisos=[aviso]))
+        return _emit_tarea(comando, cli_json.OK, datos)
+    except (worktrees.WorktreeError, OSError, ValueError) as exc:
+        return _emit_tarea(comando, cli_json.ERROR, motivo=str(exc))
+
+
 def cmd_hook(args: argparse.Namespace) -> int:
     from orquesta import hooks
     try:
@@ -726,6 +758,21 @@ def build_parser() -> argparse.ArgumentParser:
         if nombre == "merge":
             comando.add_argument("--forzar", action="store_true", help="ignorar bloqueadores de tests y veredicto")
         comando.set_defaults(func=funcion)
+    ledger = sub.add_parser("ledger", help="registrar progreso y detectar estancamiento")
+    lsub = ledger.add_subparsers(dest="ledger_cmd", required=True)
+    for nombre in ("anotar", "cerrar", "ver"):
+        comando = lsub.add_parser(nombre)
+        comando.add_argument("--repo", help="directorio del proyecto (default: el actual)")
+        if nombre != "ver":
+            comando.add_argument("tarea", metavar="TAREA")
+        if nombre == "anotar":
+            progreso = comando.add_mutually_exclusive_group(required=True)
+            progreso.add_argument("--progreso", dest="progreso", action="store_true")
+            progreso.add_argument("--sin-progreso", dest="progreso", action="store_false")
+            comando.add_argument("--nota", default="", metavar="TEXTO")
+        elif nombre == "cerrar":
+            comando.add_argument("--motivo", required=True, metavar="TEXTO")
+        comando.set_defaults(func=cmd_ledger)
     t = sub.add_parser("tareas", help="listar tareas abiertas del proyecto actual")
     formato = t.add_mutually_exclusive_group()
     formato.add_argument("--json", action="store_true", help="salida JSON (default)")
