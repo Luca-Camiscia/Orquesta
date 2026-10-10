@@ -1,6 +1,6 @@
 # Salida JSON de la CLI
 
-El sobre se imprime como JSON en una sola línea, con caracteres Unicode sin escapar.
+Los comandos que usan el sobre lo imprimen como JSON en una sola línea, con caracteres Unicode sin escapar.
 Siempre incluye estas claves:
 
 | Clave | Contenido |
@@ -50,3 +50,29 @@ atributo `comando_sugerido`. Los comandos que confirman (`merge`, `descartar`,
 `generate --confirm`, `migrar corte|rollback`) convierten esa excepción en el
 sobre `NECESITO_CONFIRMACION` (exit 3) con el comando exacto, que el usuario corre
 en una segunda terminal (`!` de Claude Code tampoco tiene TTY).
+
+## `orquesta usage`
+
+`orquesta usage [--dias N]` analiza el uso por agente de los últimos N días (default: 30).
+Lee `state/usage.jsonl` dentro de `ORQUESTA_HOME` (o la raíz de orquesta si no está definido).
+Devuelve directamente un array JSON en una sola línea, ordenado por `agent`, sin el sobre
+versionado. Sale con código `0`; si no hay invocaciones en la ventana, devuelve `[]`.
+
+```json
+[{"agent":"codex-forjador","llamadas":4,"tokens":1200,"latencia_media_s":3.5,"errores":1,"tasa_error":0.25,"backend":"codex"}]
+```
+
+| Campo | Contenido |
+|---|---|
+| `agent` | Identificador del agente. |
+| `llamadas` | Invocaciones registradas en la ventana. |
+| `tokens` | Suma de `tokens_in` y `tokens_out`; `null` cuenta como `0`. |
+| `latencia_media_s` | Promedio de latencias disponibles, en segundos; `0.0` si no hay muestras. |
+| `errores` | Invocaciones cuyo estado no es `ok` ni `OK` (formato del runner). |
+| `tasa_error` | `errores / llamadas`. |
+| `backend` | Backend si es único en la ventana; `null` si hay múltiples. |
+
+La ventana incluye el límite inferior y excluye el instante actual:
+`now - N * 86400 <= timestamp < now`. Se acepta `timestamp` Unix o ISO y el campo `ts`
+ISO que escribe el registro actual. Los archivos ausentes y las líneas inválidas se omiten (JSON roto, `agent` o `backend` que no son texto, o tokens y latencia que no son números); una línea inválida se descarta entera. `--dias` tiene que estar entre 1 y 36500: fuera de ese rango el comando termina con error. Un timestamp ISO sin zona se interpreta como UTC, y `NaN`/`Infinity` en la latencia y tokens que no sean enteros invalidan la línea.
+No se agrega una línea base «directo»: el registro no contiene ese dato.

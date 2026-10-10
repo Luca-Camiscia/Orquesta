@@ -4,6 +4,7 @@
     orquesta generate [--dry-run] [-m MSG] [--confirm AGENTE ...]
     orquesta run AGENTE [--cwd DIR] [--task SLUG] [--prompt-file F | stdin] [--ping]
     orquesta doctor [--json] [--no-cache] [--skip-live] [--only ID]
+    orquesta usage [--dias N]               uso por agente como array JSON
     orquesta wt list | new | clean RAMA [--force] | prune
     orquesta review RAMA [--repo DIR] [--revisor NOMBRE]
     orquesta rrhh triage | evaluar | catalogo | sugerir | reclutador | validar | memoria | nota | abrir
@@ -647,6 +648,19 @@ def cmd_rrhh(args: argparse.Namespace) -> int:
     return cli_json.emit(cli_json.sobre(f"rrhh {comando}", estado, datos=datos, errores=errores))
 
 
+def cmd_usage(args: argparse.Namespace) -> int:
+    import json
+    from orquesta import usage
+
+    if not 0 < args.dias <= 36500:
+        print("Error: --dias debe estar entre 1 y 36500", file=sys.stderr)
+        return 1
+    paths = default_paths()
+    agents = usage.por_agente([paths.state_dir / "usage.jsonl"], dias=args.dias)
+    print(json.dumps([{"agent": agent, **agents[agent]} for agent in sorted(agents)], ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="orquesta", description="Ecosistema multi-modelo para Claude Code.")
     sub = p.add_subparsers(dest="cmd")
@@ -695,6 +709,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--skip-live", action="store_true", help="saltear los chequeos que gastan cuota")
     d.add_argument("--only", metavar="ID", help="solo los chequeos cuyo id empieza así")
     d.set_defaults(func=cmd_doctor)
+
+    uso = sub.add_parser("usage", help="analizar uso por agente (salida JSON)")
+    uso.add_argument("--dias", type=int, default=30, help="días a analizar (default: 30)")
+    uso.set_defaults(func=cmd_usage)
 
     pl = sub.add_parser("plugins", help="plugins de Claude Code: listar, instalar (auditado), desinstalar")
     plsub = pl.add_subparsers(dest="pl_cmd")
