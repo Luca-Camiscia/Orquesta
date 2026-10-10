@@ -158,6 +158,89 @@ def test_triage_sin_revisor_cruzado_informa_el_hueco(plantel):
     assert t["revisor"] is None and t["avisos"]
 
 
+@pytest.mark.parametrize("texto", [
+    "Verificar si el login ya funciona correctamente",
+    "Puede que ya esté arreglado, chequealo por favor",
+    "Validar y confirmar que el problema aún existe antes de implementar",
+    "checar si el issue todavía pasa",
+    "Verificar si ya funciona",
+    "Reproducí si el error todavía pasa",
+    "Verificalo, quizá ya está resuelto",
+    "Comprobá: quizá funciona",
+    "No estamos seguros: verificar el login",
+    "Comprobá: quizás funciona",
+    "Chequeá: puede que funcione",
+    "Confirmá: acaso funciona",
+    "Confirmá: todavía pasa",
+    "Reproduzco: podría funcionar",
+    "No estoy segura: verificar el login",
+])
+def test_triage_abstencion_verificar_primero(plantel, texto):
+    t = rrhh.triage(texto, plantel, MODELOS)
+    assert t["abstencion"] == "Verificar primero y no escribir código si el problema no se reproduce"
+    assert "Sugerencia: verificar primero si el problema aún existe antes de implementar cambios" in t["avisos"]
+
+
+@pytest.mark.parametrize("texto", [
+    "Implementar login con autenticación OAuth",
+    "Corregir typo en README.md",
+    "Agregar tests para la nueva función de búsqueda",
+    "Arreglar el bug de autenticación",
+    "Crear una new feature para dashboards",
+    "Verificar login",
+    "Verificar verificar verificar login",
+    "Implementar login seguro que ya puede funcionar",
+    "Corregir el bug del reporte: el error aparece en el login y el problema rompe la sesión",
+    "Arreglar el error 500 que ya reportaron, el problema está en el parser",
+    "Implementar el fix del issue 42, ya tenemos el bug reproducido",
+    "Validar el formato del input del formulario",
+    "Agregar tests que verifiquen el parser",
+    "VERIFICÓ, verificás y comprobá el error",
+    "No estoy segura: quizás ya funciona",
+    "¿Estás seguro? Podría ya funcionar",
+    "Validar y confirmar el problema antes de implementar",
+    "Crear función para validar si un cuit es válido",
+    "Implementar autenticación y verificar si el token es válido",
+    "Validar datos del formulario ya que fallan las pruebas",
+    "Si estás seguro de la solución, validá y confirmá los cambios",
+    "Verificar si funciona",
+    "Implementar validación del campo email que todavía no existe",
+    "Agregar check de permisos: el endpoint todavía no lo tiene",
+    "Agregar validación para que el usuario ya no pueda borrar",
+    "Validar el formulario aun cuando venga vacío",
+])
+def test_triage_sin_abstencion_en_pedidos_normales(plantel, texto):
+    t = rrhh.triage(texto, plantel, MODELOS)
+    assert "abstencion" not in t
+    assert set(t) == {"dificultad", "razones", "recomendados", "revisor", "avisos"}
+    assert not any("verificar primero" in a for a in t["avisos"])
+
+
+def test_triage_abstencion_quita_solo_bonus_worktree_y_considera_lectura():
+    reg = registry(
+        Agent(name="escritor", backend="codex", mode="write", role="Implementación",
+              route_when=["implementar login"]),
+        Agent(name="lector", backend="agy", role="Login", route_when=["implementar login"]))
+    normal = rrhh.triage("Implementar login", reg, MODELOS)
+    abstencion = rrhh.triage("Verificar si ya funciona antes de implementar login", reg, MODELOS)
+    assert [a["name"] for a in normal["recomendados"]] == ["escritor", "lector"]
+    assert [a["puntaje"] for a in normal["recomendados"]] == [85, 45]
+    assert [a["name"] for a in abstencion["recomendados"]] == ["lector", "escritor"]
+    assert [a["puntaje"] for a in abstencion["recomendados"]] == [45, 40]
+    assert all("Puede implementar en un worktree aislado" not in a["motivos"]
+               for a in abstencion["recomendados"])
+
+
+def test_triage_abstencion_no_busca_revisor_ni_avisa_que_falta(plantel):
+    # sin abstención, este plantel avisaría «No hay revisor habilitado»; con abstención no se pide revisor
+    t = rrhh.triage("Validar y confirmar si el problema aún existe antes de implementar migración de auth y datos",
+                    registry(plantel.agents[0]), MODELOS)
+    assert t["revisor"] is None
+    assert len(t["avisos"]) == 1 and "verificar primero" in t["avisos"][0]
+    sin = rrhh.triage("Implementar migración de auth y datos", registry(plantel.agents[0]), MODELOS)
+    assert sin["avisos"] == ["No hay revisor habilitado de otra familia para esta tarea"]
+
+
 def test_migracion_auth_es_alta_aunque_descripcion_breve(plantel):
     assert rrhh.triage("Migrar auth", plantel, MODELOS)["dificultad"] >= 4
 
@@ -201,3 +284,11 @@ def test_evaluar_incluye_reviews_de_tareas(env):
                          "agente": "codex-forja", "veredicto": veredicto}, paths=env)
     a = next(a for a in rrhh.evaluar(env) if a["name"] == "codex-forja")
     assert a["reviews_aprobadas"] == 2 and a["reviews_rechazadas"] == 1
+
+
+def test_abstencion_no_pide_revisor_de_escritura(plantel):
+    # con abstención no se recomienda escribir, así que tampoco corresponde un revisor para escritura no trivial
+    t = rrhh.triage("Verificá si todavía pasa el error de migración de auth y datos, puede que ya esté "
+                    "arreglado; si no, implementar el fix", plantel, MODELOS)
+    assert "abstencion" in t and t["revisor"] is None
+    assert any("verificar primero" in a for a in t["avisos"])

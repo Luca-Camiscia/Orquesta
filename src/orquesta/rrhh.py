@@ -256,6 +256,21 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
     """
     palabras = _palabras(texto)
     normal = _normalizar(texto)
+    verificacion = _palabras("verificar verifica verificó verificás verificá verificalo checar chequea chequear "
+                            "chequealo chequeá comprobar comprobá comprobalo confirmar confirmá "
+                            "confirmalo validar valida validá validalo reproducir reproduce reproducí "
+                            "reproducilo reproduzco")
+    tiene_verbo_verificacion = bool(palabras & verificacion)
+    # La duda es sobre si el problema persiste. «si» y «ya» sueltos no cuentan: «validar si un cuit es válido»
+    # es una especificación, y «ya que» es causal. «ya» solo vale ante un estado («ya funciona», «ya está»).
+    marcadores_duda = re.search(
+        r"\b(?:puede que|podria|quizas?|acaso)\b"
+        r"|\b(?:todavia|aun)\s+(?:pasa|pasan|falla|fallan|existe|existen|funciona|funcionan|anda|andan|ocurre|"
+        r"se reproduce)\b"
+        r"|\bya\s+(?:esta|estan|funciona|funcionan|pasa|pasan|anda|andan|existe|existen|fue|fueron|"
+        r"resuelto|arreglado|corregido)\b"
+        r"|\bno\s+(?:estoy|estamos)\s+segur[oa]s?\b", normal)
+    abstencion = tiene_verbo_verificacion and bool(marcadores_duda)
     razones = []
     dificultad = 1
     if len(texto) > 400:
@@ -308,7 +323,7 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
                 if produccion and _categoria(a) == "Revisión/Calidad":
                     score += 10
                     motivos.append("Puede aportar tests/calidad; la implementación requiere otro agente")
-                else:
+                elif not abstencion:
                     score += 45
                     motivos.append("Puede implementar en un worktree aislado")
             elif a.mode == "read-only":
@@ -323,7 +338,7 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
     ranked.sort(key=lambda a: (-a["puntaje"], a["name"]))
     revisor = None
     avisos = []
-    if escritura and dificultad >= 3 and ranked:
+    if escritura and dificultad >= 3 and ranked and not abstencion:
         familia = ranked[0]["backend"]
         candidatos = [a for a in ranked if a["backend"] != familia
                       and _categoria(registry.agent(a["name"])) == "Revisión/Calidad"
@@ -332,8 +347,13 @@ def triage(texto: str, registry: Registry, modelos: dict) -> dict:
             revisor = {**candidatos[0], "motivos": ["Review de otra familia para escritura no trivial"]}
         else:
             avisos.append("No hay revisor habilitado de otra familia para esta tarea")
-    return {"dificultad": dificultad, "razones": razones, "recomendados": ranked[:3],
-            "revisor": revisor, "avisos": avisos}
+    if abstencion:
+        avisos.append("Sugerencia: verificar primero si el problema aún existe antes de implementar cambios")
+    resultado = {"dificultad": dificultad, "razones": razones, "recomendados": ranked[:3],
+                 "revisor": revisor, "avisos": avisos}
+    if abstencion:
+        resultado["abstencion"] = "Verificar primero y no escribir código si el problema no se reproduce"
+    return resultado
 
 
 def sugerir_participantes(conv: dict, registry: Registry) -> dict:
