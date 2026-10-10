@@ -467,11 +467,37 @@ def _labels(conv: dict) -> dict[str, str]:
     return {n: f"Participante {chr(65 + i)}" for i, n in enumerate(dict.fromkeys(names))}
 
 
-def _history(conv: dict, viewer: str | None = None, anon: bool = False, until_user: bool = False) -> str:
+def _es_propuesta(m: dict) -> bool:
+    """Respuesta de un participante a la consigna: no cuenta el veredicto del juez ni la review automática."""
+    return (m["status"] == "done" and bool(m["text"].strip())
+            and (m.get("meta") or {}).get("rol") not in ("veredicto", "review"))
+
+
+_GANADORA = re.compile(r"^[\s>*_`\-]*Ganadora:\s*[*_`]*\s*([XY])\b", re.M | re.I)
+
+
+def _ganadora(texto: str) -> str | None:
+    """Letra elegida por el juez; tolera el Markdown que suelen agregar los modelos. Si nombra las dos, None."""
+    letras = {m.upper() for m in _GANADORA.findall(texto or "")}
+    return letras.pop() if len(letras) == 1 else None
+
+
+def _history(conv: dict, viewer: str | None = None, anon: bool = False, until_user: bool = False,
+             reverse_proposals: tuple[str, ...] = ()) -> str:
     msgs = [m for m in conv["messages"] if m["status"] != "pending"]
     if until_user:
         last_user = max((i for i, m in enumerate(msgs) if m["author"] == USER), default=-1)
         msgs = msgs[:last_user + 1]
+    if reverse_proposals:
+        last_user = max((i for i, m in enumerate(msgs) if m["author"] == USER), default=-1)
+        rounds: dict[int | None, list[int]] = {}
+        for i, m in enumerate(msgs):
+            if i > last_user and m["author"] in reverse_proposals and _es_propuesta(m):
+                rounds.setdefault((m.get("meta") or {}).get("ronda"), []).append(i)
+        for indices in rounds.values():
+            proposals = [msgs[i] for i in reversed(indices)]
+            for i, m in zip(indices, proposals):
+                msgs[i] = m
     omitted = 0
     if len(msgs) > BRIEF_KEEP:
         keep_idx = set(range(len(msgs) - BRIEF_KEEP, len(msgs)))
@@ -750,19 +776,54 @@ def _judge_for(store: Store, participants: list[str]) -> str:
     return JUDGE if JUDGE in deployed else ORCHESTRATOR
 
 
-def _judge(store: Store, cid: str, project: dict, executor: Executor, rubric: str) -> None:
+def _judge(store: Store, cid: str, project: dict, executor: Executor, rubric: str,
+           simetrico: bool = False) -> None:
     if procs.is_cancelled(cid):
         return
     judge = _judge_for(store, store.get_conversation(cid)["participants"])
     conv = store.get_conversation(cid)
-    prompt = (f"Sos el juez de una reunión de orquesta, proyecto «{project['name']}». No aportes ideas nuevas "
-              f"salvo para desempatar.\n\nHistorial (participantes anónimos, en orden aleatorio):\n"
-              f"{_history(conv, judge, True)}\n\n---\n{rubric}\n"
-              f"Evaluá por evidencia verificable, no por elocuencia ni cantidad de votos; señalá consensos "
-              f"sospechosos y no premies el largo ni el relleno. Entregá: decisión final, desacuerdos que "
-              f"quedan, qué verificar después, y cerrá "
-              f"con RESULTADO y CONFIANZA (0-100).")
-    _speak(store, cid, project, judge, executor, prompt=prompt, meta={"rol": "veredicto"})
+    last_user = max((i for i, m in enumerate(conv["messages"]) if m["author"] == USER), default=-1)
+    turno = [m for m in conv["messages"][last_user + 1:] if m["author"] in conv["participants"] and _es_propuesta(m)]
+    proposals = tuple(dict.fromkeys(m["author"] for m in turno))
+    # Si las propuestas no entran enteras en el historial, cada orden recortaría una distinta y la divergencia
+    # no sería sensibilidad al orden: en ese caso se juzga una sola vez.
+    entran = sum(len(m["text"]) for m in turno) <= HISTORY_CHARS // 2
+    histories = [_history(conv, judge, True)]
+    decision_rule = ""
+    if simetrico and entran and len(conv["participants"]) == len(proposals) == 2:
+        # Ambos prompts parten de la misma foto: etiquetas estables y sin el primer veredicto.
+        histories.append(_history(conv, judge, True, reverse_proposals=proposals))
+        labels = _labels(conv)
+        a, b = ("VOS" if who == judge else labels[who] for who in proposals)
+        decision_rule = (f"La propuesta X corresponde a {a} y la propuesta Y a {b}, sin importar su "
+                         "posición en el historial. Incluí una única línea exacta `Ganadora: X` o "
+                         "`Ganadora: Y` para identificar la propuesta ganadora, ")
+    decisions = []
+    for history in histories:
+        if procs.is_cancelled(cid):
+            return
+        prompt = (f"Sos el juez de una reunión de orquesta, proyecto «{project['name']}». No aportes ideas nuevas "
+                  f"salvo para desempatar.\n\nHistorial (participantes anónimos, en orden aleatorio):\n"
+                  f"{history}\n\n---\n{rubric}\n"
+                  f"Evaluá por evidencia verificable, no por elocuencia ni cantidad de votos; señalá consensos "
+                  f"sospechosos y no premies el largo ni el relleno. Entregá: decisión final, desacuerdos que "
+                  f"quedan, qué verificar después, {decision_rule}y cerrá "
+                  f"con RESULTADO y CONFIANZA (0-100).")
+        reply = _speak(store, cid, project, judge, executor, prompt=prompt, meta={"rol": "veredicto"})
+        decisions.append(_ganadora(reply.text) if not reply.error else None)
+    if len(decisions) != 2 or procs.is_cancelled(cid):
+        return
+    if None in decisions:
+        uncertainty = "INCIERTO: no se pudo verificar la sensibilidad al orden por falta de una decisión válida."
+    elif decisions[0] != decisions[1]:
+        quien = dict(zip("XY", proposals))  # nombres reales: la CLI y la UI los anonimizan igual que el resto
+        uncertainty = ("INCIERTO por sensibilidad al orden: las dos evaluaciones eligieron propuestas distintas "
+                       f"(1.ª: {quien[decisions[0]]}; 2.ª, con el orden invertido: {quien[decisions[1]]}).")
+    else:
+        return
+    store.update(cid, lambda c: c["messages"].append({"id": _id(), "author": judge, "text": uncertainty,
+                                                    "status": "done", "ts": _now(),
+                                                    "meta": {"rol": "veredicto", "incierto": True}}))
 
 
 def _redact(text: str, names: list[str]) -> str:
@@ -785,7 +846,7 @@ def _mode_critica(store: Store, cid: str, project: dict, executor: Executor) -> 
     r0 = _parallel(store, cid, project, executor, [(w, _frame(project, w, hist, blind), {"ronda": 0})
                                                   for w in who_all])
     if procs.is_cancelled(cid) or len(who_all) < 2:
-        return _judge(store, cid, project, executor, "Sintetizá las respuestas.")
+        return _judge(store, cid, project, executor, "Sintetizá las respuestas.", simetrico=True)
     # Debate selectivo (iMAD, arXiv 2511.11306; "Debate or Vote", 2508.17536): si la ronda a ciegas ya
     # coincide, no se debate: se cierra con el juez y se ahorran todas las llamadas de crítica.
     judge = _judge_for(store, who_all)
@@ -809,7 +870,8 @@ def _mode_critica(store: Store, cid: str, project: dict, executor: Executor) -> 
         jobs.append((w, _frame(project, w, hist, instr), {"ronda": 1}))
     _parallel(store, cid, project, executor, jobs)
     _judge(store, cid, project, executor,
-           "Compará la ronda 0 (independiente) con la 1 (crítica): qué se sostuvo, qué cambió y con qué evidencia.")
+           "Compará la ronda 0 (independiente) con la 1 (crítica): qué se sostuvo, qué cambió y con qué evidencia.",
+           simetrico=True)
 
 
 def _mode_posturas(store: Store, cid: str, project: dict, executor: Executor) -> None:

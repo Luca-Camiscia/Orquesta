@@ -175,8 +175,13 @@ def cmd_reunion(args: argparse.Namespace) -> int:
                  "confianza": ((m.get("meta") or {}).get("contrato") or runner.parse_contract(m["text"])).get("confianza")}
                 for m in conv["messages"]
             ]
-            verdict = next((m for m in reversed(conv["messages"])
-                            if (m.get("meta") or {}).get("rol") == "veredicto"), None)
+            veredictos = [m for m in conv["messages"] if (m.get("meta") or {}).get("rol") == "veredicto"]
+            # El aviso INCIERTO no es un veredicto: no puede reemplazar a la decisión con sus desacuerdos.
+            verdict = next((m for m in reversed(veredictos) if not (m.get("meta") or {}).get("incierto")), None)
+            incierto = next((m for m in reversed(veredictos) if (m.get("meta") or {}).get("incierto")), None)
+            if incierto is not None:
+                datos["incierto"] = chat._redact_map(incierto["text"], labels)
+                avisos.append("no se pudo confirmar que el veredicto no dependa del orden de las propuestas (ver datos.incierto): tomalo con cautela")
             if verdict is not None:
                 judge = verdict["author"]
                 datos["juez"] = judge

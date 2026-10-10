@@ -244,6 +244,112 @@ def _conv(store, proyecto, mode, participants=("gemini-lector", "codex-critico")
     return store.create_conversation(pr["id"], "m", "reunion", list(participants), mode=mode)
 
 
+class FakeJuezSimetrico(FakeExec):
+    def __init__(self, decisiones):
+        super().__init__()
+        self.decisiones = iter(decisiones)
+
+    def __call__(self, paths, project, participant, prompt):
+        self.calls.append((participant, prompt))
+        return chat.Reply(f"Evaluación {len(self.calls)}.\n{next(self.decisiones)}\n"
+                          "RESULTADO: OK\nCONFIANZA: 80")
+
+
+def _propuestas(store, proyecto, participants=("gemini-lector", "codex-critico"), rondas=(0,)):
+    conv = _conv(store, proyecto, "critica", participants)
+    chat._set_text(store, conv["id"], chat.USER, "Elegí la mejor solución.")
+    for ronda in rondas:
+        for i, who in enumerate(participants):
+            chat._set_text(store, conv["id"], who, f"Solución {i + 1}, ronda {ronda}, de {who}.")
+            store.update(conv["id"], lambda c: c["messages"][-1]["meta"].update(ronda=ronda))
+    return conv, store.get_project_for_conversation(conv)
+
+
+@pytest.mark.parametrize("ganadora", ["X", "Y"])
+def test_juez_simetrico_coincide_y_preserva_anonimato(store, proyecto, ganadora):
+    conv, pr = _propuestas(store, proyecto)
+    fake = FakeJuezSimetrico([f"Ganadora: {ganadora}"] * 2)
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    assert len(fake.calls) == 2
+    normal, inverso = [prompt for _, prompt in fake.calls]
+    assert normal.index("Solución 1") < normal.index("Solución 2")
+    assert inverso.index("Solución 2") < inverso.index("Solución 1")
+    assert normal.split("---\n")[1] == inverso.split("---\n")[1]  # A/B identifican la misma propuesta
+    assert "Ganadora: X" in normal and "Ganadora: Y" in normal
+    assert "Evaluación 1" not in inverso  # el segundo juez no ve el primer veredicto
+    assert all(who not in prompt for _, prompt in fake.calls for who in conv["participants"])
+    msgs = store.get_conversation(conv["id"])["messages"]
+    assert len([m for m in msgs if m["meta"].get("rol") == "veredicto"]) == 2
+    assert all("INCIERTO" not in m["text"] for m in msgs)
+    assert msgs[-1]["meta"]["contrato"]["confianza"] == 80
+
+
+@pytest.mark.parametrize("decisiones", [("X", "Y"), ("Y", "X")])
+def test_juez_simetrico_diverge_y_reporta_sensibilidad_al_orden(store, proyecto, decisiones):
+    conv, pr = _propuestas(store, proyecto)
+    fake = FakeJuezSimetrico([f"Ganadora: {d}" for d in decisiones])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    assert len(fake.calls) == 2
+    final = store.get_conversation(conv["id"])["messages"][-1]
+    assert final["meta"]["rol"] == "veredicto"
+    assert "INCIERTO" in final["text"] and "sensibilidad al orden" in final["text"]
+
+
+@pytest.mark.parametrize("participants", [("gemini-lector",),
+                                         ("gemini-lector", "codex-critico", "orquestador")])
+def test_juez_uno_o_tres_participantes_hace_una_sola_llamada(store, proyecto, participants):
+    conv, pr = _propuestas(store, proyecto, participants)
+    fake = FakeJuezSimetrico(["Decisión final: implementar."])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    assert len(fake.calls) == 1
+    assert "Ganadora:" not in fake.calls[0][1]
+    assert "INCIERTO" not in store.get_conversation(conv["id"])["messages"][-1]["text"]
+
+
+def test_juez_simetrico_invierte_cada_ronda_sin_cambiar_sus_etiquetas(store, proyecto):
+    conv, pr = _propuestas(store, proyecto, rondas=(0, 1))
+    fake = FakeJuezSimetrico(["Ganadora: X"] * 2)
+    chat._judge(store, conv["id"], pr, fake, "Compará las rondas.", simetrico=True)
+    assert len(fake.calls) == 2
+    inverso = fake.calls[1][1]
+    assert (inverso.index("Solución 2, ronda 0") < inverso.index("Solución 1, ronda 0") <
+            inverso.index("Solución 2, ronda 1") < inverso.index("Solución 1, ronda 1"))
+    for ronda in (0, 1):
+        for solucion in (1, 2):
+            needle = f"Solución {solucion}, ronda {ronda}"
+            headers = [next(line.split(": ")[0] for line in prompt.splitlines() if needle in line)
+                       for _, prompt in fake.calls]
+            assert headers[0] == headers[1]
+
+
+def test_juez_no_cuenta_respuestas_de_turnos_anteriores_ni_errores(store, proyecto):
+    conv, pr = _propuestas(store, proyecto)
+    chat._set_text(store, conv["id"], chat.USER, "Nueva pregunta.")
+    chat._set_text(store, conv["id"], "gemini-lector", "Una sola propuesta válida.")
+    chat._speak(store, conv["id"], pr, "codex-critico", lambda *args: chat.Reply("falló", error="ERROR"))
+    fake = FakeJuezSimetrico(["Decisión final: implementar."])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    assert len(fake.calls) == 1
+
+
+def test_juez_tres_participantes_con_dos_respuestas_no_duplica_el_costo(store, proyecto):
+    conv, pr = _propuestas(store, proyecto, ("gemini-lector", "codex-critico", "orquestador"))
+    store.update(conv["id"], lambda c: c["messages"][-1].update(status="error"))
+    fake = FakeJuezSimetrico(["Decisión final: implementar."])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("decision", ["Sin ganadora.", "Ganadora: C", "Ganadora: X\nGanadora: Y"])
+def test_juez_simetrico_sin_decision_valida_reporta_incertidumbre(store, proyecto, decision):
+    conv, pr = _propuestas(store, proyecto)
+    fake = FakeJuezSimetrico(["Ganadora: X", decision])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    assert len(fake.calls) == 2
+    final = store.get_conversation(conv["id"])["messages"][-1]
+    assert final["meta"]["rol"] == "veredicto" and "INCIERTO" in final["text"]
+
+
 def test_modo_critica_ciega_luego_critica_anonima_y_juez(store, proyecto):
     conv = _conv(store, proyecto, "critica")
     fake = FakeJuez()
@@ -277,6 +383,112 @@ def test_modo_seccionado_reparte_aspectos(store, proyecto):
     prompts = {c[0]: c[1] for c in fake.calls[:2]}
     assert "Tu aspecto: seguridad" in prompts["gemini-lector"]
     assert "Tu aspecto: performance" in prompts["codex-critico"]
+
+
+def test_seccionado_dos_participantes_juzga_una_vez_sin_ganadora(store, proyecto):
+    conv = _conv(store, proyecto, "seccionado")
+    fake = FakeJuez()
+    chat.run_turn(store, conv["id"], "Aspectos: seguridad; performance", executor=fake)
+    prompts = [prompt for who, prompt in fake.calls if who == chat.ORCHESTRATOR]
+    assert len(prompts) == 1
+    assert "Ganadora:" not in prompts[0]
+    veredictos = [m for m in store.get_conversation(conv["id"])["messages"]
+                  if m["meta"].get("rol") == "veredicto"]
+    assert len(veredictos) == 1 and "INCIERTO" not in veredictos[0]["text"]
+
+
+def test_moderada_dos_participantes_cierra_una_vez_sin_ganadora(store, proyecto):
+    conv = _conv(store, proyecto, "moderada")
+    fake = FakeExec(["PREGUNTAR @codex-critico: propuesta", "PREGUNTAR @gemini-lector: propuesta",
+                     "SINTESIS: conclusión final"])
+    chat.run_turn(store, conv["id"], "Decidan", executor=fake)
+    cierres = [prompt for who, prompt in fake.calls if who == chat.ORCHESTRATOR
+               and "Llevás 2" in prompt]
+    assert len(cierres) == 1 and "Ganadora:" not in cierres[0]
+    msgs = store.get_conversation(conv["id"])["messages"]
+    assert len(msgs) == 4 and msgs[-1]["text"] == "conclusión final"
+
+
+@pytest.mark.parametrize("desacuerdo", ["SI"])
+def test_critica_dos_participantes_juzga_simetrico_y_marca_divergencia(store, proyecto, desacuerdo):
+    conv = _conv(store, proyecto, "critica")
+    calls = []
+    decisiones = iter(("X", "Y"))
+
+    def executor(paths, project, who, prompt):
+        calls.append((who, prompt))
+        if "SOLO con `DESACUERDO:" in prompt:
+            return chat.Reply(f"DESACUERDO: {desacuerdo}")
+        if who == chat.ORCHESTRATOR:
+            return chat.Reply(f"Ganadora: {next(decisiones)}\nRESULTADO: OK\nCONFIANZA: 80")
+        return chat.Reply(f"Solución de {who}\nRESULTADO: OK\nCONFIANZA: 60")
+
+    chat.run_turn(store, conv["id"], "Elegí la mejor solución", executor=executor)
+    prompts = [prompt for who, prompt in calls if who == chat.ORCHESTRATOR
+               and "SOLO con `DESACUERDO:" not in prompt]
+    assert len(prompts) == 2 and all("Ganadora:" in prompt for prompt in prompts)
+    assert all(who not in prompt for who in conv["participants"] for prompt in prompts)
+    assert prompts[0].split("---\n")[0] != prompts[1].split("---\n")[0]
+    veredictos = [m for m in store.get_conversation(conv["id"])["messages"]
+                  if m["meta"].get("rol") == "veredicto"]
+    assert len(veredictos) == 3
+    assert veredictos[0]["text"].startswith("Ganadora: X")
+    assert veredictos[1]["text"].startswith("Ganadora: Y")
+    assert "INCIERTO por sensibilidad al orden" in veredictos[2]["text"]
+
+
+def test_critica_con_consenso_juzga_una_sola_vez(store, proyecto):
+    conv = _conv(store, proyecto, "critica")
+    calls = []
+
+    def executor(paths, project, who, prompt):
+        calls.append((who, prompt))
+        if "SOLO con `DESACUERDO:" in prompt:
+            return chat.Reply("DESACUERDO: NO")
+        return chat.Reply(f"Solución de {who}\nRESULTADO: OK\nCONFIANZA: 60")
+
+    chat.run_turn(store, conv["id"], "Elegí la mejor solución", executor=executor)
+    juez = [prompt for who, prompt in calls if who == chat.ORCHESTRATOR and "SOLO con `DESACUERDO:" not in prompt]
+    assert len(juez) == 1 and "Ganadora:" not in juez[0]  # con consenso no hay ganadora que verificar
+
+
+@pytest.mark.parametrize("texto", ["Ganadora: X", "`Ganadora: X`", "**Ganadora: X**", "Ganadora: X.",
+                                   "- Ganadora: X", "> Ganadora: **X**", "ganadora: x", "Ganadora:  X (por tests)"])
+def test_ganadora_tolera_el_markdown_de_los_modelos(texto):
+    assert chat._ganadora(f"Decisión final.\n{texto}\nRESULTADO: OK") == "X"
+
+
+@pytest.mark.parametrize("texto", ["", "sin decisión", "Ganadora: C", "Ganadora: X\nGanadora: Y"])
+def test_ganadora_ambigua_o_ausente_es_none(texto):
+    assert chat._ganadora(texto) is None
+
+
+def test_juez_propuestas_enormes_juzga_una_sola_vez(store, proyecto):
+    conv, pr = _propuestas(store, proyecto)
+    store.update(conv["id"], lambda c: [m.update(text="x" * (chat.HISTORY_CHARS // 2)) for m in c["messages"]
+                                        if m["author"] in c["participants"]])
+    fake = FakeJuezSimetrico(["Ganadora: X", "Ganadora: Y"])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    # el recorte del historial haría que cada orden perdiera material distinto: no se compara
+    assert len(fake.calls) == 1
+    assert all("INCIERTO" not in m["text"] for m in store.get_conversation(conv["id"])["messages"])
+
+
+def test_la_review_automatica_no_cuenta_como_propuesta():
+    base = {"status": "done", "text": "texto", "author": "x"}
+    assert chat._es_propuesta({**base, "meta": {}})
+    assert chat._es_propuesta({**base, "meta": {"ronda": 1}})
+    assert not chat._es_propuesta({**base, "meta": {"rol": "veredicto"}})
+    assert not chat._es_propuesta({**base, "meta": {"rol": "review"}})
+    assert not chat._es_propuesta({**base, "text": "  ", "meta": {}})
+    assert not chat._es_propuesta({**base, "status": "pending", "meta": {}})
+
+
+def test_juez_dos_participantes_por_defecto_no_compara_ganadoras(store, proyecto):
+    conv, pr = _propuestas(store, proyecto)
+    fake = FakeJuez()
+    chat._judge(store, conv["id"], pr, fake, "Sintetizá las respuestas.")
+    assert len(fake.calls) == 1 and "Ganadora:" not in fake.calls[0][1]
 
 
 def test_la_confianza_del_contrato_queda_en_el_mensaje(store, proyecto):
@@ -373,3 +585,20 @@ def test_default_executor_con_manifiesto_roto_devuelve_error(env, tmp_path):
     migracion.set_fase(env, "plugin")  # sin manifiesto del plugin: ManifestError
     r = chat.default_executor(env, {"dir": str(tmp_path)}, "codex-forja", "hola")
     assert r.error and "manifiesto de la fase plugin" in r.error
+
+
+def test_ganadora_ignora_las_letras_de_los_participantes():
+    # «Participante A» es una etiqueta anónima, no la propuesta: no puede leerse como decisión
+    assert chat._ganadora("Ganadora: A") is None and chat._ganadora("Ganadora: B") is None
+    assert chat._ganadora("Prefiero al Participante A.\nGanadora: Y") == "Y"
+
+
+def test_incierto_lleva_nombres_reales_y_se_marca_en_meta(store, proyecto):
+    conv, pr = _propuestas(store, proyecto)
+    fake = FakeJuezSimetrico(["Ganadora: X", "Ganadora: Y"])
+    chat._judge(store, conv["id"], pr, fake, "Compará las soluciones.", simetrico=True)
+    msgs = store.get_conversation(conv["id"])["messages"]
+    aviso = msgs[-1]
+    assert aviso["meta"] == {"rol": "veredicto", "incierto": True}
+    assert all(nombre in aviso["text"] for nombre in conv["participants"])
+    assert "Participante" not in aviso["text"]
