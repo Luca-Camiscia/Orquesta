@@ -262,3 +262,13 @@ def test_borrar_un_assert_de_unittest_se_detecta():
     diff = ("--- a/tests/test_a.py\n+++ b/tests/test_a.py\n@@ -1,3 +1,2 @@\n def test_a(self):\n"
             "-    self.assertEqual(f(), 1)\n     pass\n")
     assert revision.tests_debilitados(diff) == ["tests/test_a.py: assert eliminado"]
+
+
+def test_chat_merge_por_sha_conserva_el_nombre_de_la_rama(merge_diff):
+    wt, preparar, mergear, _, _, _ = merge_diff
+    preparar(b"def test_algo():\n    assert g(2) == 4\n")
+    (wt.repo / "otro.txt").write_text("main avanzó\n")  # sin fast-forward: hay commit de merge
+    git(wt.repo, "add", "-A")
+    git(wt.repo, "commit", "-qm", "main avanza")
+    mergear("chat")
+    assert git(wt.repo, "log", "-1", "--format=%s") == f"Merge branch '{wt.branch}'"

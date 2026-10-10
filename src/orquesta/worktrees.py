@@ -318,7 +318,10 @@ def merge(paths: Paths, branch: str, repo: str | Path | None = None, sha: str | 
     wt = _find(paths, branch, repo)
     if sha is not None and _branch_tip(wt.repo, branch) != sha:
         raise WorktreeError(f"la rama {branch} cambió después de revisarla: volvé a revisarla antes de mergear")
-    proc = subprocess.run(["git", "merge", "--no-edit", sha or branch], cwd=wt.repo, capture_output=True, text=True)
+    # Por SHA, Git escribiría «Merge commit '<sha>'»: el mensaje conserva el nombre de la rama.
+    mensaje = ["-m", f"Merge branch '{branch}'"] if sha is not None else []
+    proc = subprocess.run(["git", "merge", "--no-edit", *mensaje, sha or branch], cwd=wt.repo, capture_output=True,
+                          text=True)
     if proc.returncode != 0:
         subprocess.run(["git", "merge", "--abort"], cwd=wt.repo, capture_output=True)
         raise WorktreeError(f"el merge falló y se abortó: {(proc.stderr or proc.stdout).strip()[:300]}")
