@@ -19,6 +19,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -405,6 +406,24 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
         except worktrees.WorktreeError as exc:
             meta.setdefault("warnings", []).append(f"no se pudo commitear en el worktree: {exc}")
     result.meta = {**meta, **result.meta, "contrato": parse_contract(result.output)}
+    if result.output:
+        sha = hashlib.sha256(result.output.encode("utf-8")).hexdigest()
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        try:
+            folder = (paths.state_dir / "salidas" / req.agent).resolve()
+            folder.mkdir(parents=True, exist_ok=True)
+            salida = folder / f"{timestamp}-{req.task or 'sin-tarea'}-{sha[:8]}.md"
+            salida.write_text(result.output, encoding="utf-8")
+        except OSError as exc:
+            result.meta.setdefault("warnings", []).append(
+                f"no se pudo guardar la salida completa: {exc}")
+        else:
+            result.meta.update(salida=str(salida), salida_sha256=sha)
+            with contextlib.suppress(OSError):
+                archivos = sorted(folder.glob("*.md"))
+                for viejo in archivos[:-200]:
+                    with contextlib.suppress(OSError):
+                        viejo.unlink()
     result.latency_s = round(time.monotonic() - t0, 1)
     u = result.meta.get("usage") or {}
     try:
@@ -475,6 +494,8 @@ def format_result(r: RunResult) -> str:
     for key, label in (("worktree", "worktree"), ("branch", "rama"), ("commit", "commit")):
         if m.get(key):
             lines.append(f"{label}: {m[key]}")
+    if m.get("salida"):
+        lines.append(f"salida completa: {m['salida']} (sha256 {m.get('salida_sha256', '')[:12]})")
     if m.get("diffstat"):
         lines += ["diffstat:", *("  " + ln for ln in m["diffstat"].splitlines())]
     lines += [f"aviso: {w}" for w in m.get("warnings") or []]

@@ -1,7 +1,9 @@
 """Runner (`orquesta run`): arma el comando desde backends.yaml y aplica las reglas en código."""
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -158,6 +160,101 @@ def test_run_ok_con_codex(env, proyecto):
     r = correr(env, "codex-critico", "revisá esto", proyecto)
     assert (r.status, r.exit_code) == ("OK", 0)
     assert r.output.startswith("PONG:")
+
+
+@pytest.mark.parametrize("task", [None, "revision"])
+def test_run_guarda_salida_completa_y_sha256(env, proyecto, task):
+    deploy(env)
+    r = correr(env, "codex-critico", "revisá esto", proyecto, task=task)
+    assert (r.status, r.exit_code) == ("OK", 0)
+    salida = Path(r.meta["salida"])
+    assert salida.is_absolute()
+    assert salida.parent == env.state_dir / "salidas" / "codex-critico"
+    assert salida.read_text(encoding="utf-8") == r.output
+    sha = hashlib.sha256(r.output.encode("utf-8")).hexdigest()
+    assert r.meta["salida_sha256"] == sha
+    assert re.fullmatch(rf"\d{{8}}T\d{{6}}Z-{task or 'sin-tarea'}-{sha[:8]}\.md", salida.name)
+
+
+def test_format_result_muestra_referencia_a_salida_completa(env, proyecto):
+    deploy(env)
+    r = correr(env, "codex-critico", "revisá esto", proyecto)
+    r.meta.update(branch="orquesta/codex-critico/revision", commit="abc123")
+    texto = runner.format_result(r)
+    linea = f"salida completa: {r.meta['salida']} (sha256 {r.meta['salida_sha256'][:12]})"
+    assert linea in texto.splitlines()
+    assert texto.index("── orquesta run ──") < texto.index("rama:") < texto.index("commit:") < texto.index(linea)
+
+
+@pytest.mark.parametrize("operacion", ["mkdir", "write_text"])
+def test_run_avisa_si_no_puede_guardar_salida(env, proyecto, monkeypatch, operacion):
+    deploy(env)
+    original = getattr(Path, operacion)
+
+    def fallar_salida(path, *args, **kwargs):
+        if path.is_relative_to(env.state_dir / "salidas"):
+            raise OSError("sin permiso")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, operacion, fallar_salida)
+    r = correr(env, "codex-critico", "revisá esto", proyecto)
+    assert (r.status, r.exit_code) == ("OK", 0)
+    assert r.output.startswith("PONG:")
+    assert "salida" not in r.meta and "salida_sha256" not in r.meta
+    assert "no se pudo guardar la salida completa: sin permiso" in r.meta["warnings"]
+
+
+def test_run_retiene_las_200_salidas_mas_recientes(env, proyecto):
+    deploy(env)
+    carpeta = env.state_dir / "salidas" / "codex-critico"
+    carpeta.mkdir(parents=True)
+    viejas = [carpeta / f"20000101T000000Z-revision-{i:08x}.md" for i in range(202)]
+    for path in reversed(viejas):
+        path.write_text("salida anterior", encoding="utf-8")
+    r = correr(env, "codex-critico", "revisá esto", proyecto)
+    assert r.status == "OK"
+    assert set(carpeta.iterdir()) == {*viejas[3:], Path(r.meta["salida"])}
+
+
+def test_run_ignora_errores_al_borrar_salidas_viejas(env, proyecto, monkeypatch):
+    deploy(env)
+    carpeta = env.state_dir / "salidas" / "codex-critico"
+    carpeta.mkdir(parents=True)
+    for i in range(200):
+        (carpeta / f"20000101T000000Z-revision-{i:08x}.md").touch()
+    original = Path.unlink
+
+    def fallar_borrado(path, *args, **kwargs):
+        if path.parent == carpeta:
+            raise OSError("sin permiso")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fallar_borrado)
+    r = correr(env, "codex-critico", "revisá esto", proyecto)
+    assert (r.status, r.exit_code) == ("OK", 0)
+    assert Path(r.meta["salida"]).read_text(encoding="utf-8") == r.output
+
+
+def test_run_salida_vacia_no_crea_archivo(env, proyecto):
+    deploy(env)
+    r = correr(env, "codex-critico", "EMPTY", proyecto)
+    assert r.status == "FALLO_BACKEND" and r.output == ""
+    assert "salida" not in r.meta and "salida_sha256" not in r.meta
+    assert not (env.state_dir / "salidas").exists()
+
+
+def test_run_guarda_salida_despues_del_chequeo_read_only(env, proyecto, monkeypatch):
+    deploy(env)
+    original = runner.tree_state
+
+    def chequear_arbol(cwd):
+        assert not (env.state_dir / "salidas").exists()
+        return original(cwd)
+
+    monkeypatch.setattr(runner, "tree_state", chequear_arbol)
+    r = correr(env, "codex-critico", "revisá esto", proyecto)
+    assert r.status == "OK"
+    assert Path(r.meta["salida"]).is_file()
 
 
 def test_run_antepone_la_persona_y_el_modo(env, proyecto):
