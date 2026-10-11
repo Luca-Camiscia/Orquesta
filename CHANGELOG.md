@@ -2,6 +2,10 @@
 
 Cada `orquesta generate` aplicado agrega una entrada acá, en el mismo commit. Lo más nuevo, arriba.
 
+## 2026-10-11 15:08 — Organización: T1–T4, salida completa, ledger y reglas del orquestador
+
+- plugin (~/orquesta/plugin): 2 archivos (0 creados, 2 modificados, 0 borrados)
+
 ## 2026-10-06 08:59 — Aplicar cambios del registro
 
 - plugin (~/orquesta/plugin): 3 archivos (0 creados, 3 modificados, 0 borrados)
