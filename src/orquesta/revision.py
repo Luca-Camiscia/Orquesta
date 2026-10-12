@@ -36,15 +36,16 @@ def elegir_revisor(manifest: dict, writer: str,
     return ok[0] if ok else None
 
 
-def prompt_review(project_name: str, project_dir: str, diff: str, evidencia: str,
+def prompt_review(project_name: str, diff: str, evidencia: str,
                   recortado: list[str] | None = None) -> str:
     aviso = ""
     if recortado is not None:
         aviso = ("El diff está recortado: el prompt no incluye todos los cambios. "
                  "Lista completa de archivos cambiados:\n" + "\n".join(f"- {p}" for p in recortado) +
-                 f"\nSos read-only y corrés en el worktree {project_dir}: leé ahí los archivos que no "
-                 "viste completos antes de dar un veredicto.\n\n")
-    return (f"Review automático en el proyecto «{project_name}» ({project_dir}). Un agente dejó estos "
+                 "\nSos read-only y tu directorio de trabajo es el worktree de la tarea: leé ahí los "
+                 "archivos que no viste completos antes de dar un veredicto.\n\n")
+    # Sin rutas en el texto: la del worktree lleva el nombre del agente y rompería la review ciega.
+    return (f"Review automático en el proyecto «{project_name}». Un agente dejó estos "
             f"cambios (no importa quién: juzgá solo el código):\n\n```diff\n{diff}\n```\n\n{evidencia}\n\n"
             f"{aviso}Revisalos: bugs, casos borde, tests que faltan, riesgos. Hallazgos por severidad con "
             f"archivo:línea. Pasar los tests no prueba que esté bien. Solo podés RECHAZAR con un hallazgo "

@@ -407,7 +407,7 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
         recortado = (worktrees._git(wt.repo, "diff", "--name-only", rango).splitlines()
                      if len(completo) > chat.REVIEW_DIFF_CHARS else None)
         project = {"name": wt.repo.name, "dir": str(wt.path)}
-        prompt = revision.prompt_review(project["name"], project["dir"], diff, evidencia, recortado=recortado)
+        prompt = revision.prompt_review(project["name"], diff, evidencia, recortado=recortado)
         reply = (executor or chat.default_executor)(paths, project, revisor, prompt)
         veredicto = revision.parsear_veredicto(reply.text) if not reply.error else None
         registro = tareas.actualizar(pid, wt.branch, {

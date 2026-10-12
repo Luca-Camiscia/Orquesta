@@ -646,7 +646,7 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
     else:
         evidencia = (f"Resultado de los tests del proyecto: {'PASARON' if tests['ok'] else 'FALLARON'} "
                      f"(`{tests['cmd']}`).\n```\n{tests['salida'][-800:]}\n```")
-    prompt = prompt_review(review_project["name"], review_project["dir"], diff, evidencia, recortado=recortado)
+    prompt = prompt_review(review_project["name"], diff, evidencia, recortado=recortado)
     r = _speak(store, cid, review_project, reviewer, executor,
                prompt=prompt, meta={"rol": "review", "branch": branch})
     verdict = parsear_veredicto(r.text)

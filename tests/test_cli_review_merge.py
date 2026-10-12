@@ -85,6 +85,7 @@ def test_review_con_revisor_explicito(env, tarea, monkeypatch, capsys):
     def revisar(paths, proyecto, agente, prompt):
         assert agente == "claude-centinela"
         assert "b.txt" in prompt and "PASARON" in prompt
+        assert wt.agent not in prompt and str(wt.path) not in prompt  # review ciega al autor
         return chat.Reply("Veredicto: APROBAR")
 
     args = cli.build_parser().parse_args(["review", wt.branch, "--revisor", "claude-centinela"])

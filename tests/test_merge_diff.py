@@ -129,7 +129,7 @@ def test_review_avisa_recorte_y_merge_exige_forzar(
     if largo:
         assert "peligro = True" not in prompt
         assert "antes de dar un veredicto" in prompt
-        assert str(wt.path) in prompt
+        assert str(wt.path) not in prompt and "worktree de la tarea" in prompt  # sin ruta: review ciega
         _bloquea(mergear, via, capsys, "la review vio un diff recortado")
         assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha
         assert mergear(via, forzar=True, leer_tty=lambda p: f"forzar {wt.branch}") == (
