@@ -90,7 +90,7 @@ flowchart LR
 | No self-review | The reviewer must be read-only, from a different backend family than the author and installed; the prompt carries no author name or worktree path | [`revision.py`](src/orquesta/revision.py) `elegir_revisor`, `validar_revisor` | `tests/test_cli_review_merge.py` |
 | Merge only what was reviewed | Merge requires branch tip == reviewed SHA == tested SHA, clean trees and the base still an ancestor. If the diff was too long for the review prompt, the reviewer gets the full file list and the merge is blocked until you confirm | [`cli.py`](src/orquesta/cli.py) `cmd_merge`, `worktrees.merge_sha` | `tests/test_cli_review_merge.py` |
 | A human confirms | `--confirm` reads an exact text from `/dev/tty`; without a TTY the CLI returns `NECESITO_CONFIRMACION` (exit 3) and the command to run in a second terminal. No flag or env var skips it | [`confirmar.py`](src/orquesta/confirmar.py) | `tests/test_confirmar.py`, `tests/test_cli_review_merge.py` |
-| Tests cannot be weakened to get green | Diff heuristics: deleted tests or assertions, new `skip`/`xfail`, trivial asserts, pytest config that deselects | [`revision.py`](src/orquesta/revision.py) `tests_debilitados` | `tests/test_caracterizacion_revision.py` |
+| The usual ways of weakening tests are caught | Diff heuristics over the full diff: deleted tests or assertions, new `skip`/`xfail`, trivial asserts (`assert True`, `x == x`), pytest config that deselects. It is a heuristic: replacing an assertion with a weaker one (`== 80` → `>= 0`) is left to the reviewer | [`revision.py`](src/orquesta/revision.py) `tests_debilitados` | `tests/test_caracterizacion_revision.py` |
 | Protected agents and privilege escalation | `generate` diffs against what is *deployed* and refuses read-only → write, new tools or plugins, prompt changes of protected agents without `--confirm` | [`guard.py`](src/orquesta/guard.py) | `tests/test_guard.py` |
 | Delegation loops end | The orchestrator logs each round in a per-task ledger; after 2 rounds without progress it must re-plan, and at 4 (or 6 rounds) the runner itself refuses new runs of that task (`ESTADO: BLOQUEADO`) | [`ledger.py`](src/orquesta/ledger.py), `runner.run` | `tests/test_ledger.py`, `tests/test_runner.py` |
 
@@ -117,9 +117,14 @@ The local panel (`orquesta ui`, bound to 127.0.0.1 with a per-session token, Hos
 
 Requirements: Linux, Python 3.11+, [uv](https://docs.astral.sh/uv/), git, `bubblewrap`,
 [Claude Code](https://docs.anthropic.com/claude-code), and at least one of the
-[Codex CLI](https://github.com/openai/codex) or the Antigravity CLI (`agy`), logged in with your subscription.
+[Codex CLI](https://github.com/openai/codex) or Google's Antigravity CLI (`agy`, a single binary; see the
+[Antigravity docs](https://antigravity.google/docs)), logged in with your subscription. Verified versions
+and invocations are in [`docs/headless.md`](docs/headless.md); `orquesta doctor` checks each session
+(`codex login status`, `agy models`).
 The bundled registry uses both; with only one installed, reviews fall back to an installed backend of
 another family (Claude counts), and `orquesta doctor` flags a backend CLI that is missing or logged out.
+To run without one of them, set `enabled: false` on its agents in `orquesta.yaml` and regenerate (disabling
+an agent counts as a registry change the guard asks you to confirm).
 
 ```bash
 git clone https://github.com/Luca-Camiscia/orquesta ~/orquesta && cd ~/orquesta
