@@ -113,7 +113,11 @@ def a_registro_review(tarea: dict) -> dict:
         "branch": tarea.get("rama", ""),
         "tests": tests,
         "confianza_autor": tarea.get("confianza_autor"),  # ya en 0-100
-        "review": {"veredicto": tarea.get("veredicto")},  # tal cual parsear_veredicto
+        "review": {"veredicto": tarea.get("veredicto"),  # tal cual parsear_veredicto
+                   "recortado": tarea.get("diff_recortado", False),
+                   "diff_chars": tarea.get("diff_chars"),
+                   "diff_mostrado_chars": tarea.get("diff_mostrado_chars"),
+                   "diff_archivos": tarea.get("diff_archivos", [])},
         **({"diff": tarea["diff"]} if "diff" in tarea else {}),
         **({"diff_error": True} if tarea.get("diff_error") else {}),
     }

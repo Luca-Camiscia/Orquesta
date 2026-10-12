@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from typing import Callable
 
 ORCHESTRATOR = "orquestador"
 JUDGE = "claude-juez"
@@ -23,20 +24,29 @@ def validar_revisor(manifest: dict, writer: str, nombre: str) -> str | None:
     return None
 
 
-def elegir_revisor(manifest: dict, writer: str) -> str | None:
+def elegir_revisor(manifest: dict, writer: str,
+                   disponible: Callable[[str], bool] | None = None) -> str | None:
     agents = manifest.get("agents") or {}
     family = (agents.get(writer) or {}).get("backend")
-    ok = [n for n, e in agents.items() if e.get("mode") == "read-only" and e.get("backend") != family]
+    ok = [n for n, e in agents.items() if e.get("mode") == "read-only" and e.get("backend") != family
+          and (disponible is None or disponible(e.get("backend")))]
     for name in REVIEW_PREFERENCE:
         if name in ok:
             return name
     return ok[0] if ok else None
 
 
-def prompt_review(project_name: str, project_dir: str, diff: str, evidencia: str) -> str:
+def prompt_review(project_name: str, project_dir: str, diff: str, evidencia: str,
+                  recortado: list[str] | None = None) -> str:
+    aviso = ""
+    if recortado is not None:
+        aviso = ("El diff está recortado: el prompt no incluye todos los cambios. "
+                 "Lista completa de archivos cambiados:\n" + "\n".join(f"- {p}" for p in recortado) +
+                 f"\nSos read-only y corrés en el worktree {project_dir}: leé ahí los archivos que no "
+                 "viste completos antes de dar un veredicto.\n\n")
     return (f"Review automático en el proyecto «{project_name}» ({project_dir}). Un agente dejó estos "
             f"cambios (no importa quién: juzgá solo el código):\n\n```diff\n{diff}\n```\n\n{evidencia}\n\n"
-            f"Revisalos: bugs, casos borde, tests que faltan, riesgos. Hallazgos por severidad con "
+            f"{aviso}Revisalos: bugs, casos borde, tests que faltan, riesgos. Hallazgos por severidad con "
             f"archivo:línea. Pasar los tests no prueba que esté bien. Solo podés RECHAZAR con un hallazgo "
             f"concreto (archivo:línea y caso que falla); lo demás va como APROBAR CON CAMBIOS. Terminá con "
             f"una línea exacta `Veredicto: APROBAR`, `Veredicto: APROBAR CON CAMBIOS` o `Veredicto: "
@@ -187,10 +197,15 @@ def razones_bloqueo(registro: dict) -> list[str]:
     if conf is not None and conf < CONFIDENCE_ESCALATION:
         razones.append(f"el autor declaró confianza {conf} (< {CONFIDENCE_ESCALATION}): revisá el diff o pedí "
                        f"otra opinión antes de mergear. Si querés mergear igual, confirmalo explícitamente.")
-    verdict = (registro.get("review") or {}).get("veredicto")
+    review = registro.get("review") or {}
+    verdict = review.get("veredicto")
     if verdict != "APROBAR":
         razones.append(f"la review de {branch} no está aprobada (veredicto: {verdict or 'sin review'}). "
                        f"Si querés mergear igual, confirmalo explícitamente.")
+    if review.get("recortado"):
+        razones.append(f"la review vio un diff recortado ({review.get('diff_mostrado_chars', '?')} de "
+                       f"{review.get('diff_chars', '?')} caracteres): revisá los archivos "
+                       f"{', '.join(review.get('diff_archivos') or [])} o confirmalo explícitamente.")
     if registro.get("diff_error"):
         razones.append(f"no pude calcular el diff de {branch} para revisar que no debilite los tests. "
                        f"Si querés mergear igual, confirmalo explícitamente.")

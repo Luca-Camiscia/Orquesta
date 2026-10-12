@@ -363,6 +363,7 @@ def _confirmar_tarea(args: argparse.Namespace, repo: Path, *, leer_tty=None, det
 
 def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
     from orquesta import chat, cli_json, revision, tareas, worktrees
+    from orquesta.config import backend_disponible
 
     paths = default_paths()
     try:
@@ -387,9 +388,12 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO, motivo="el worktree debe estar limpio y en la rama de la tarea")
         # Invalidar la evidencia anterior incluso si falla el executor o no devuelve un veredicto.
         tareas.actualizar(pid, wt.branch, {"sha_revisado": None, "tests_sha": None,
-                          "tests_ok": None, "veredicto": None, "revisor": None}, str(wt.repo), paths=paths)
+                          "tests_ok": None, "veredicto": None, "revisor": None,
+                          "diff_recortado": False, "diff_chars": None, "diff_mostrado_chars": None,
+                          "diff_archivos": []}, str(wt.repo), paths=paths)
         if revisor is None:
-            revisor = revision.elegir_revisor(chat.mf.load(paths) or {}, wt.agent)
+            revisor = revision.elegir_revisor(chat.mf.load(paths) or {}, wt.agent,
+                                              disponible=lambda b: backend_disponible(paths, b))
         if revisor is None:
             return _emit_tarea(args.cmd, cli_json.ERROR, motivo="no hay un revisor de otra familia disponible")
         tests = worktrees.run_tests(wt)  # siempre el comando actual de .orquesta/proyecto.toml
@@ -397,9 +401,13 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
         evidencia = (f"Resultado de los tests del proyecto: {'PASARON' if tests['ok'] else 'FALLARON'} "
                      f"(`{tests['cmd']}`).\n```\n{tests['salida']}\n```" if tests is not None else
                      "No hay comando de tests configurado para el proyecto (.orquesta/proyecto.toml).")
-        diff = worktrees._git(wt.repo, "diff", f"{registro['base_sha']}..{sha}")[:chat.REVIEW_DIFF_CHARS]
+        rango = f"{registro['base_sha']}..{sha}"
+        completo = worktrees._git(wt.repo, "diff", rango)
+        diff = completo[:chat.REVIEW_DIFF_CHARS]
+        recortado = (worktrees._git(wt.repo, "diff", "--name-only", rango).splitlines()
+                     if len(completo) > chat.REVIEW_DIFF_CHARS else None)
         project = {"name": wt.repo.name, "dir": str(wt.path)}
-        prompt = revision.prompt_review(project["name"], project["dir"], diff, evidencia)
+        prompt = revision.prompt_review(project["name"], project["dir"], diff, evidencia, recortado=recortado)
         reply = (executor or chat.default_executor)(paths, project, revisor, prompt)
         veredicto = revision.parsear_veredicto(reply.text) if not reply.error else None
         registro = tareas.actualizar(pid, wt.branch, {
@@ -407,6 +415,8 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
             "tests_ok": tests["ok"] if tests is not None else None,
             "tests_cmd": tests["cmd"] if tests is not None else None,
             "veredicto": veredicto, "revisor": revisor,
+            "diff_recortado": recortado is not None, "diff_chars": len(completo),
+            "diff_mostrado_chars": len(diff), "diff_archivos": recortado or [],
             "confianza_autor": registro.get("confianza_autor"),
         }, str(wt.repo), paths=paths)
         if reply.error or veredicto is None:
@@ -458,7 +468,8 @@ def cmd_merge(args: argparse.Namespace, *, leer_tty=None) -> int:
             return resultado
         # Mientras el usuario confirmaba pudo correr otra review: si la tarea cambió, no se usa la vieja.
         # La verificación y el merge van bajo el mismo lock que usa la review para invalidar la evidencia.
-        claves = ("status", "sha_revisado", "tests_sha", "tests_ok", "veredicto", "confianza_autor")
+        claves = ("status", "sha_revisado", "tests_sha", "tests_ok", "veredicto", "confianza_autor",
+                  "diff_recortado", "diff_chars", "diff_mostrado_chars", "diff_archivos")
 
         def mergear():
             if not worktrees._is_merged(wt.repo, registro["base_sha"]):

@@ -1,6 +1,7 @@
 """Carga de orquesta.yaml y backends.yaml desde disco (o desde git HEAD)."""
 from __future__ import annotations
 
+import shutil
 import subprocess
 from typing import Any
 
@@ -37,6 +38,14 @@ def load_registry(paths: Paths) -> Registry:
 
 def load_backends(paths: Paths) -> BackendsConfig:
     return parse_backends(_read(paths.backends, "backends.yaml"))
+
+
+def backend_disponible(paths: Paths, backend: str) -> bool:
+    """Claude es nativo; los demás necesitan el binario definido en backends.yaml."""
+    if backend == "claude":
+        return True
+    config = load_backends(paths).backends.get(backend)
+    return config is not None and bool(config.command) and shutil.which(config.command[0]) is not None
 
 
 def load_all(paths: Paths) -> tuple[Registry, BackendsConfig]:
