@@ -4,6 +4,7 @@
 Uso: fake_backend.py <codex|agy> [flags...]. El comportamiento sale del prompt:
   WRITE:<archivo>   crea ese archivo en el directorio de trabajo (-C o cwd)
   STAGE:<archivo>   agrega ese archivo al índice de git después de escribir
+  COMMIT           agrega todos los cambios y los commitea en el cwd
   SLEEP:<seg>       duerme antes de responder
   RATELIMIT         sale con 1 y un mensaje de límite de uso
   EMPTY             no imprime nada (exit 0)
@@ -59,6 +60,9 @@ if m:
 m = re.search(r"STAGE:(\S+)", prompt)
 if m:
     subprocess.run(["git", "add", "--", m.group(1)], cwd=cwd, check=True)
+if re.search(r"\bCOMMIT\b", prompt):
+    subprocess.run(["git", "add", "-A"], cwd=cwd, check=True)
+    subprocess.run(["git", "commit", "-qm", "x"], cwd=cwd, check=True)
 if "RATELIMIT" in prompt:
     print("ERROR: You've hit your usage limit / quota reached. Try again later.", file=sys.stderr)
     sys.exit(1)

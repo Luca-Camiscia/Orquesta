@@ -28,13 +28,13 @@ from typing import Iterator
 from filelock import FileLock, Timeout
 
 from orquesta import manifest as mf
-from orquesta import procs
+from orquesta import ledger, procs
 from orquesta import worktrees
 from orquesta.config import load_backends
 from orquesta.paths import Paths
 from orquesta.schema import Backend, ConfigError, ModeSpec
 
-EXIT_CODES = {"OK": 0, "ERROR": 2, "ORQUESTA_OFF": 3, "NO_GIT": 4, "OCUPADO": 5,
+EXIT_CODES = {"OK": 0, "ERROR": 2, "ORQUESTA_OFF": 3, "BLOQUEADO": 3, "NO_GIT": 4, "OCUPADO": 5,
               "FALLO_BACKEND": 6, "VIOLACION_READ_ONLY": 7, "RATE_LIMIT": 75, "TIMEOUT": 124,
               "CANCELADO": 130}
 
@@ -74,6 +74,20 @@ class Command:
 
 # --- armado del comando ----------------------------------------------------------------------
 
+def _readonly_mounts(cwd: Path) -> list[Path]:
+    root = worktrees.git_toplevel(cwd) if cwd.is_dir() else None
+    if root is None:
+        return [cwd]
+    mounts = [root]
+    proc = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                          cwd=root, capture_output=True, text=True)
+    if proc.returncode == 0:
+        common = Path(proc.stdout.strip()).resolve()
+        if not common.is_relative_to(root.resolve()):
+            mounts.append(common)
+    return mounts
+
+
 def _sandbox_prefix(backend: Backend, spec: ModeSpec | None, mode: str | None, cwd: Path,
                     platform: str, home: Path) -> tuple[list[str], list[str]]:
     if spec is None or not spec.os_sandbox:
@@ -90,7 +104,8 @@ def _sandbox_prefix(backend: Backend, spec: ModeSpec | None, mode: str | None, c
     if spec.os_sandbox == "workspace":
         prefix += ["--bind", str(cwd), str(cwd)]
     elif spec.os_sandbox == "readonly":
-        prefix += ["--ro-bind", str(cwd), str(cwd)]
+        for p in _readonly_mounts(cwd):
+            prefix += ["--ro-bind", str(p), str(p)]
     return prefix + ["--die-with-parent", "--"], []
 
 
@@ -223,6 +238,7 @@ class TreeState:
     entries: frozenset
     digest: str
     firmas: tuple = ()  # (entrada, tamaño:mtime) de cada archivo sucio: nombra cuál cambió de contenido
+    refs: bytes = b""
 
 
 def tree_state(cwd: Path) -> TreeState | None:
@@ -233,10 +249,14 @@ def tree_state(cwd: Path) -> TreeState | None:
     def git(*args: str) -> bytes:
         return subprocess.run(["git", *args], cwd=root, capture_output=True).stdout
 
+    # Los ignorados por git quedan fuera por política: cachés y .venv no cuentan como cambios.
     status = git("status", "--porcelain=v1", "-z", "--untracked-files=all")
+    refs = b"\0".join((git("rev-parse", "HEAD"),
+                       git("for-each-ref", "--format=%(refname) %(objectname)"),
+                       git("symbolic-ref", "-q", "HEAD")))  # detached devuelve salida vacía
     entries = frozenset(e.decode(errors="replace") for e in status.split(b"\0") if e)
     h = hashlib.sha256(status + git("diff", "--no-ext-diff", "--binary")
-                       + git("diff", "--cached", "--no-ext-diff", "--binary"))
+                       + git("diff", "--cached", "--no-ext-diff", "--binary") + refs)
     firmas = []
     for e in sorted(entries):
         try:
@@ -246,7 +266,7 @@ def tree_state(cwd: Path) -> TreeState | None:
         firma = f"{st.st_size}:{st.st_mtime_ns}"
         firmas.append((e, firma))
         h.update(f"{e}:{firma}".encode())
-    return TreeState(entries, h.hexdigest(), tuple(firmas))
+    return TreeState(entries, h.hexdigest(), tuple(firmas), refs)
 
 
 CONTRACT = ("Cerrá tu respuesta con estas cuatro líneas, exactas:\n"
@@ -384,6 +404,20 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
 
     meta: dict = {"agent": req.agent, "backend": entry.backend, "mode": entry.mode,
                   "isolation": entry.isolation}
+    if req.task:
+        try:
+            repo = worktrees.git_toplevel(cwd)
+            if repo is not None:
+                repo = next((w.repo for w in worktrees.list_worktrees(paths)
+                             if w.path.resolve() == repo.resolve()), repo)
+                estado = next((e for e in ledger.listar(worktrees.project_id(repo), paths=paths)
+                               if e["tarea"] == req.task), None)
+                if estado and (estado["cerrada"] or estado["accion"] == "escalar"):
+                    detalle = ("tarea cerrada en el ledger" if estado["cerrada"]
+                               else "tope del ledger alcanzado: escalá al usuario")
+                    return RunResult("BLOQUEADO", meta=meta, detail=detalle)
+        except (worktrees.WorktreeError, OSError, ValueError) as exc:
+            return RunResult("ERROR", meta=meta, detail=f"no se pudo consultar el ledger: {exc}")
     work_cwd, wt = cwd, None
     if entry.mode == "write" and entry.isolation == "worktree":
         root = worktrees.git_toplevel(cwd)
@@ -426,7 +460,8 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                     antes = dict(before.firmas)
                     changed = (sorted(after.entries ^ before.entries)
                                or [e for e, firma in after.firmas if e in antes and antes[e] != firma]
-                               or ["(archivos ya modificados cambiaron de contenido)"])
+                               or (["(cambió HEAD o una rama)"] if after.refs != before.refs else
+                                   ["(archivos ya modificados cambiaron de contenido)"]))
                     result = RunResult("VIOLACION_READ_ONLY", output=result.output, detail=(
                         "el árbol cambió durante una corrida read-only (¿el backend u otro "
                         "proceso?): " + ", ".join(e[3:] if e[2:3] == " " else e for e in changed)))

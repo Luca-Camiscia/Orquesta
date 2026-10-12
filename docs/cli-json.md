@@ -55,6 +55,11 @@ resolviendo los worktrees registrados al repo original. Los comandos usan el sob
 JSON con `comando` igual a `ledger anotar`, `ledger cerrar` o `ledger ver`.
 Un slug inválido, una tarea cerrada al anotar o un ledger corrupto devuelve `ERROR` (exit 1).
 
+`orquesta run AGENTE --task TAREA` consulta el mismo ledger antes de delegar. Si el slug
+está cerrado o su acción es `escalar`, devuelve `ESTADO: BLOQUEADO` (exit 3) sin ejecutar
+el backend, con el detalle `tarea cerrada en el ledger` o
+`tope del ledger alcanzado: escalá al usuario`. Una tarea sin anotaciones sigue normalmente.
+
 ## Confirmación humana
 
 El modelo no confirma; sin TTY disponible, se devuelve NECESITO_CONFIRMACION con el comando sugerido para que lo corra el usuario.
