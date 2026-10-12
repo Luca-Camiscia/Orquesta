@@ -21,8 +21,8 @@ BUILTIN_TOOLS = frozenset({
     "Task", "Bash", "CronCreate", "CronDelete", "CronList", "DesignSync", "Edit",
     "EnterWorktree", "ExitWorktree", "ListAgents", "ListMcpResourcesTool", "LSP", "Monitor",
     "NotebookEdit", "PushNotification", "Read", "ReadMcpResourceDirTool", "ReadMcpResourceTool",
-    "RemoteTrigger", "ReportFindings", "ScheduleWakeup", "SendMessage", "Skill", "TaskCreate",
-    "TaskGet", "TaskList", "TaskStop", "TaskUpdate", "ToolSearch", "WebFetch", "WebSearch", "Write",
+    "RemoteTrigger", "ReportFindings", "ScheduleWakeup", "SendMessage", "Skill",
+    "TaskStop", "ToolSearch", "WebFetch", "WebSearch", "Write",
 })
 # Tools que aparecen solo en sesiones interactivas (Agent es el alias de Task).
 INTERACTIVE_TOOLS = frozenset({

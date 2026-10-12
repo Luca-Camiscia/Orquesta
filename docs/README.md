@@ -7,6 +7,7 @@ each one contains so you can decide what is worth translating.
 |---|---|---|
 | [`case-study.md`](case-study.md) | English | A real loop from this project: an independent review finds holes in the sandbox guarantees, agents fix them in worktrees, the orchestrator verifies, plus numbers from the usage log |
 | [`../eval/README.md`](../eval/README.md) | English | Small evaluation: one agent vs. the orquesta loop, scored by hidden tests |
+| [`verification.md`](verification.md) | English | What was checked against the real CLIs, when and with which versions: live `orquesta doctor`, sandbox probes, real end-to-end runs |
 | [`headless.md`](headless.md) | Spanish | Evidence log for every CLI invocation in `backends.yaml`: what was tried, what failed (for example `agy --mode plan` still writes files, `agy -p -` does not read stdin) and with which versions |
 | [`plugin-plan.md`](plugin-plan.md) | Spanish | Design of the Claude Code plugin: threat model (a model that follows rules but makes mistakes), technical decisions, stages and risks. Written by the architect agent and reviewed adversarially by a GPT agent (12 findings, all addressed) |
 | [`plugin-brief.md`](plugin-brief.md) | Spanish | The brief that preceded that plan, produced by the clarifying-questions agent |

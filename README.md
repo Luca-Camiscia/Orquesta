@@ -120,7 +120,7 @@ Requirements: Linux, Python 3.11+, [uv](https://docs.astral.sh/uv/), git, `bubbl
 [Claude Code](https://docs.anthropic.com/claude-code), and at least one of the
 [Codex CLI](https://github.com/openai/codex) or Google's Antigravity CLI (`agy`, a single binary; see the
 [Antigravity docs](https://antigravity.google/docs)), logged in with your subscription. Verified versions
-and invocations are in [`docs/headless.md`](docs/headless.md); `orquesta doctor` checks each session
+and invocations are in [`docs/headless.md`](docs/headless.md) and [`docs/verification.md`](docs/verification.md); `orquesta doctor` checks each session
 (`codex login status`, `agy models`).
 The bundled registry uses both; with only one installed, reviews fall back to an installed backend of
 another family (Claude counts), and `orquesta doctor` flags a backend CLI that is missing or logged out.
