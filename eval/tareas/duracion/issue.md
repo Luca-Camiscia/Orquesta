@@ -1,0 +1,1 @@
+Bug report: `parse_duration` in codigo.py se rompe con entradas que no son exactamente "XhYm" (por ejemplo "45s" anda raro, y con basura no da error claro). Hacela robusta: debe aceptar combinaciones de horas, minutos y segundos en ese orden, y rechazar entradas inválidas con ValueError.

@@ -142,6 +142,15 @@ def test_read_only_de_agy_corre_dentro_de_bwrap_con_proyecto_solo_lectura(env):
     assert cmd.argv[i - 1:i + 2] == ["--ro-bind", "/proyecto", "/proyecto"]
 
 
+def test_prompt_largo_de_agy_queda_visible_dentro_del_sandbox(env):
+    cmd = runner.build_command(REAL["agy"], mode="read-only", model=None, cwd=Path("/proyecto"),
+                               prompt="x" * 30000, state_dir=env.state_dir, platform="linux")
+    pre = cmd.argv[:cmd.argv.index("--")]
+    f = str(cmd.temp_files[0])
+    assert pre[pre.index(f) - 1:pre.index(f) + 2] == ["--ro-bind", f, f]
+    assert pre.index(f) > pre.index("--tmpfs")
+
+
 def test_read_only_usa_tmp_privado_y_remonta_el_proyecto_encima(env):
     cwd = Path("/tmp/proyecto")
     cmd = runner.build_command(REAL["agy"], mode="read-only", model=None, cwd=cwd,

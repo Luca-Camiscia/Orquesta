@@ -170,6 +170,9 @@ def build_command(backend: Backend, *, mode: str | None, model: str | None, cwd:
         argv += [*backend.prompt.flag, text]
     prefix, warnings = _sandbox_prefix(backend, spec, mode, cwd, platform, home or Path.home(),
                                        original_repo, tmpdir)
+    if prefix:
+        for f in temp:  # el prompt largo tiene que verse aunque state/ quede bajo el /tmp privado
+            prefix[-2:-2] = ["--ro-bind", str(f), str(f)]
     # TMPDIR privado: Codex write corre sin el /tmp compartido y bwrap monta un /tmp vacío
     env = {**os.environ, "TMPDIR": str(tmpdir)} if tmpdir is not None else None
     return Command(prefix + argv, stdin, temp, warnings, env)
