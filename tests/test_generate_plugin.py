@@ -56,7 +56,7 @@ def test_legacy_conserva_snapshot_y_agrega_plugin_con_generacion(env):
     files["agents/orquesta/.orquesta-manifest.json"] = manifest.dumps(deployed)
     digest = hashlib.sha256(json.dumps(files, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     # cambia si cambia el texto de los agentes generados (p. ej. los estados del runner)
-    assert digest == "69ae2b4517f933daf2f88ff987e787f397dd35be51bd53987d0c97b6092e2bbc"
+    assert digest == "07bc9fbd388b1bd005b1093c3ba70bd7997f1f3a66453eeda23977487b8687ed"
     plugin = json.loads(env.plugin_manifest.read_text())
     generation = plugin.pop("generacion")
     assert len(generation) == 8

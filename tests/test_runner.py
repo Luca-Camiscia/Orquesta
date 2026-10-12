@@ -216,6 +216,52 @@ def test_write_de_agy_en_bwrap_solo_bindea_el_workspace(env):
     assert pre[i - 1:i + 2] == ["--bind", "/proyecto", "/proyecto"]
 
 
+@pytest.mark.parametrize("gitdir_separado", [False, True])
+def test_write_de_agy_remonta_checkout_antes_del_worktree(env, proyecto, tmp_path, gitdir_separado):
+    if gitdir_separado:
+        git(proyecto, "init", "-q", "--separate-git-dir", str(tmp_path / "git-comun"))
+    comun = git(proyecto, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    wt = worktrees.create(env, repo=proyecto, agent="codex-forja", task="fix")
+    cwd = wt.path / "src"
+    cwd.mkdir()
+    cmd = runner.build_command(REAL["agy"], mode="write", model=None, cwd=cwd,
+                               prompt="hola", state_dir=env.state_dir, platform="linux",
+                               original_repo=proyecto if gitdir_separado else None)
+    pre = cmd.argv[:cmd.argv.index("--")]
+    privado = git(wt.path, "rev-parse", "--absolute-git-dir")
+    montajes = [pre[i:i + 3] for i, arg in enumerate(pre) if arg in ("--bind", "--ro-bind")]
+    assert montajes.index(["--bind", "/tmp", "/tmp"]) < montajes.index(
+        ["--ro-bind", str(proyecto), str(proyecto)])
+    i = montajes.index(["--ro-bind", str(proyecto), str(proyecto)])
+    resto = ([["--ro-bind", comun, comun]] if gitdir_separado else [])
+    assert montajes[i + 1:] == resto + [
+        ["--bind", str(wt.path), str(wt.path)],
+        ["--bind", privado, privado],
+        ["--bind", str(Path(comun) / "objects"), str(Path(comun) / "objects")],
+    ]
+
+
+@pytest.mark.skipif(not _bwrap_disponible(), reason="bwrap no está o no puede crear namespaces")
+@pytest.mark.parametrize("destino", ["colado.txt", ".git/colado.txt"])
+def test_write_bwrap_protege_checkout_y_permite_worktree(env, proyecto, destino):
+    wt = worktrees.create(env, repo=proyecto, agent="codex-forja", task="fix")
+    prefix, warnings = runner._sandbox_prefix(
+        REAL["agy"], REAL["agy"].modes["write"], "write", wt.path,
+        "linux", Path.home())
+    archivo = proyecto / destino
+    result = subprocess.run(prefix + ["touch", str(archivo)], cwd=wt.path, capture_output=True)
+    assert not warnings
+    assert result.returncode != 0, result.stderr
+    assert not archivo.exists()
+    propio = wt.path / "arreglo.txt"
+    result = subprocess.run(prefix + ["touch", str(propio)], cwd=wt.path, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert propio.exists()
+    for args in (["git", "add", "arreglo.txt"], ["git", "status", "--porcelain"]):
+        result = subprocess.run(prefix + args, cwd=wt.path, capture_output=True)
+        assert result.returncode == 0, result.stderr
+
+
 def test_fuera_de_linux_no_hay_sandbox_y_avisa(env):
     cmd = runner.build_command(REAL["agy"], mode="read-only", model=None, cwd=Path("/p"),
                                prompt="hola", state_dir=env.state_dir, platform="win32")
@@ -564,6 +610,43 @@ def test_write_en_worktree_commitea_en_su_rama_sin_tocar_el_repo(env, proyecto):
     assert r.meta["commit"] and "arreglo.txt" in r.meta["diffstat"]
     assert not (proyecto / "arreglo.txt").exists()
     assert "arreglo.txt" in git(proyecto, "show", "--stat", "--format=", r.meta["branch"])
+
+
+@pytest.mark.parametrize("backend", ["codex", "agy"])
+@pytest.mark.parametrize("sucio", [False, True])
+def test_write_detecta_cambio_en_checkout_sin_commitear_worktree(env, proyecto, backend, sucio):
+    deploy(env, lambda d: d["agents"][1].update(backend=backend))
+    archivo = proyecto / "README.md"
+    if sucio:
+        archivo.write_text("cambio previo del usuario\n")
+    antes = git(proyecto, "rev-parse", "HEAD")
+    r = correr(env, "codex-forja", f"WRITE:arreglo.txt WRITE:{archivo}", proyecto, task="fix")
+    assert (r.status, r.exit_code) == ("VIOLACION_CHECKOUT", 8)
+    assert "el agente write cambió el checkout original fuera de su worktree: README.md" in r.detail
+    assert "commit" not in r.meta
+    assert git(proyecto, "rev-parse", r.meta["branch"]) == antes
+    assert git(proyecto, "rev-parse", "HEAD") == antes
+    assert (Path(r.meta["worktree"]) / "arreglo.txt").exists()
+
+
+def test_write_permite_commit_del_backend_en_su_propia_rama(env, proyecto):
+    deploy(env)
+    antes = git(proyecto, "rev-parse", "HEAD")
+    r = correr(env, "codex-forja", "WRITE:arreglo.txt COMMIT", proyecto, task="fix")
+    assert r.status == "OK", r.detail
+    assert git(proyecto, "rev-parse", r.meta["branch"]) != antes
+    assert git(proyecto, "rev-parse", "HEAD") == antes
+    assert git(proyecto, "status", "--porcelain") == ""
+
+
+def test_tree_state_excluye_solo_la_ref_de_la_tarea(env, proyecto):
+    wt = worktrees.create(env, repo=proyecto, agent="codex-forja", task="fix")
+    ref = f"refs/heads/{wt.branch}"
+    antes = runner.tree_state(proyecto, exclude_ref=ref)
+    git(wt.path, "commit", "--allow-empty", "-qm", "propio")
+    assert runner.tree_state(proyecto, exclude_ref=ref).digest == antes.digest
+    git(proyecto, "branch", "ajena", wt.branch)
+    assert runner.tree_state(proyecto, exclude_ref=ref).digest != antes.digest
 
 
 def test_ocupado_si_no_hay_slots_libres(env, proyecto):
