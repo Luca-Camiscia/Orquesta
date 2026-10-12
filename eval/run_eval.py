@@ -8,12 +8,14 @@ can run, and hidden tests (test_oculto.py) that no agent sees. Two conditions, s
   B  orquesta loop  same first run, then `orquesta review` by another model family (tests on the
                     reviewed SHA + verdict); if the verdict is not APROBAR, one more round for the
                     author with the review findings, from where it left off.
+  C  self-review    control for B's extra round: same first run, then always one more round where
+                    the author is asked to review its own attempt critically. No external reviewer.
 
 The final commit of each condition is scored with the hidden tests. Real backends, real quota:
 this calls Codex and Gemini through the same runner the plugin uses, in a throwaway ORQUESTA_HOME
 (clone of this repo) so your own state is not touched.
 
-    uv run python eval/run_eval.py [--tareas a,b] [--condiciones A,B] > eval/results.jsonl
+    uv run python eval/run_eval.py [--tareas a,b] [--condiciones A,B,C] [--repeticiones N] > eval/results.jsonl
 """
 from __future__ import annotations
 
@@ -55,8 +57,8 @@ def preparar_home(tmp: Path, simulado: bool = False) -> None:
     apply_plan(build_plan(default_paths()), "deploy", run_tests=None)
 
 
-def preparar_proyecto(tmp: Path, tarea: str, cond: str) -> Path:
-    proj = tmp / "proyectos" / f"{tarea}-{cond}"
+def preparar_proyecto(tmp: Path, tarea: str, cond: str, rep: int = 1) -> Path:
+    proj = tmp / "proyectos" / f"{tarea}-{cond}-{rep}"
     shutil.copytree(TAREAS / tarea, proj, ignore=shutil.ignore_patterns("test_oculto.py", "__pycache__"))
     (proj / ".orquesta").mkdir()
     (proj / ".orquesta" / "proyecto.toml").write_text(
@@ -106,12 +108,12 @@ def revisar(branch: str, proj: Path) -> tuple[dict, str, float]:
     return sobre, (textos[-1] if textos else ""), round(time.monotonic() - t, 1)
 
 
-def trial(tmp: Path, tarea: str, cond: str) -> dict:
-    proj = preparar_proyecto(tmp, tarea, cond)
+def trial(tmp: Path, tarea: str, cond: str, rep: int = 1) -> dict:
+    proj = preparar_proyecto(tmp, tarea, cond, rep)
     issue = (TAREAS / tarea / "issue.md").read_text().strip()
-    fila: dict = {"tarea": tarea, "condicion": cond, "llamadas_autor": 0, "llamadas_revisor": 0,
+    fila: dict = {"tarea": tarea, "condicion": cond, "rep": rep, "llamadas_autor": 0, "llamadas_revisor": 0,
                   "segundos": 0.0}
-    r, s = correr_agente(proj, f"eval-{tarea}-{cond.lower()}", issue)
+    r, s = correr_agente(proj, f"eval-{tarea}-{cond.lower()}{rep}", issue)
     fila["llamadas_autor"] += 1
     fila["segundos"] += s
     if r.status != "OK" or not r.meta.get("worktree"):
@@ -127,35 +129,48 @@ def trial(tmp: Path, tarea: str, cond: str) -> dict:
             prompt = (f"{issue}\n\nYa hiciste un primer intento (está commiteado en este worktree). Una "
                       f"review independiente de otro modelo dijo:\n\n{texto[-6000:]}\n\nCorregí lo que "
                       f"corresponda; si un hallazgo no aplica, ignoralo.")
-            r2, s = correr_agente(worktree, f"eval-{tarea}-b2", prompt)
+            r2, s = correr_agente(worktree, f"eval-{tarea}-b{rep}r2", prompt)
             fila["llamadas_autor"] += 1
             fila["segundos"] += s
             if r2.status == "OK" and r2.meta.get("worktree"):
                 worktree = Path(r2.meta["worktree"])
             else:
                 fila["error_ronda_2"] = f"{r2.status}: {r2.detail}"
+    if cond == "C":  # control: misma segunda vuelta para el autor, sin revisor externo
+        prompt = (f"{issue}\n\nYa hiciste un primer intento (está commiteado en este worktree). Revisalo "
+                  f"críticamente como lo haría un revisor exigente: casos borde, entradas inválidas, "
+                  f"tests que faltan. Corregí lo que corresponda.")
+        r2, s = correr_agente(worktree, f"eval-{tarea}-c{rep}r2", prompt)
+        fila["llamadas_autor"] += 1
+        fila["segundos"] += s
+        if r2.status == "OK" and r2.meta.get("worktree"):
+            worktree = Path(r2.meta["worktree"])
+        else:
+            fila["error_ronda_2"] = f"{r2.status}: {r2.detail}"
     fila.update(ocultos=ocultos(tarea, worktree), ocultos_ok=None)
     fila["ocultos_ok"] = fila["ocultos"]["ok"]
     return fila
 
 
-def _trial(tmp: Path, tc: tuple[str, str]) -> dict:
+def _trial(tmp: Path, tc: tuple[str, str, int]) -> dict:
     try:
         return trial(tmp, *tc)
     except Exception as exc:  # una tarea rota no tira abajo las demás
-        return {"tarea": tc[0], "condicion": tc[1], "error": repr(exc), "ocultos_ok": False}
+        return {"tarea": tc[0], "condicion": tc[1], "rep": tc[2], "error": repr(exc), "ocultos_ok": False}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tareas", default=",".join(sorted(p.name for p in TAREAS.iterdir() if p.is_dir())))
-    ap.add_argument("--condiciones", default="A,B")
+    ap.add_argument("--condiciones", default="A,B,C")
+    ap.add_argument("--repeticiones", type=int, default=1)
     ap.add_argument("--paralelo", type=int, default=2, help="tareas a la vez (codex max_parallel = 2)")
     ap.add_argument("--simulado", action="store_true", help="backends guionados: sin cuota, solo plomería")
     args = ap.parse_args()
     tmp = Path(tempfile.mkdtemp(prefix="orquesta-eval-", dir=Path.home() / ".cache"))
     preparar_home(tmp, args.simulado)
-    trabajos = [(t, c) for t in args.tareas.split(",") for c in args.condiciones.split(",")]
+    trabajos = [(t, c, n) for n in range(1, args.repeticiones + 1)
+                for t in args.tareas.split(",") for c in args.condiciones.split(",")]
     # Procesos y no hilos: la review captura stdout con redirect_stdout, que es global al proceso.
     with ProcessPoolExecutor(args.paralelo) as pool:
         for fila in pool.map(partial(_trial, tmp), trabajos):

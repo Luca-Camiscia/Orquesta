@@ -1,0 +1,12 @@
+{"tarea": "csvlinea", "condicion": "A", "llamadas_autor": 1, "llamadas_revisor": 0, "segundos": 111.9, "ocultos": {"ok": true, "resumen": "3 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "csvlinea", "condicion": "B", "llamadas_autor": 2, "llamadas_revisor": 1, "segundos": 506.6, "veredicto_1": "APROBAR CON CAMBIOS", "ocultos": {"ok": true, "resumen": "3 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "duracion", "condicion": "A", "llamadas_autor": 1, "llamadas_revisor": 0, "segundos": 78.0, "ocultos": {"ok": true, "resumen": "11 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "duracion", "condicion": "B", "llamadas_autor": 2, "llamadas_revisor": 1, "segundos": 361.4, "veredicto_1": "APROBAR CON CAMBIOS", "ocultos": {"ok": true, "resumen": "11 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "intervalos", "condicion": "A", "llamadas_autor": 1, "llamadas_revisor": 0, "segundos": 48.1, "ocultos": {"ok": true, "resumen": "4 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "intervalos", "condicion": "B", "llamadas_autor": 2, "llamadas_revisor": 1, "segundos": 282.1, "veredicto_1": "APROBAR CON CAMBIOS", "ocultos": {"ok": true, "resumen": "4 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "media", "condicion": "A", "llamadas_autor": 1, "llamadas_revisor": 0, "segundos": 56.0, "ocultos": {"ok": false, "resumen": "2 failed, 3 passed in 0.02s"}, "ocultos_ok": false}
+{"tarea": "media", "condicion": "B", "llamadas_autor": 2, "llamadas_revisor": 1, "segundos": 354.2, "veredicto_1": "RECHAZAR", "ocultos": {"ok": true, "resumen": "5 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "paginar", "condicion": "A", "llamadas_autor": 1, "llamadas_revisor": 0, "segundos": 58.2, "ocultos": {"ok": false, "resumen": "4 failed, 2 passed in 0.02s"}, "ocultos_ok": false}
+{"tarea": "paginar", "condicion": "B", "llamadas_autor": 2, "llamadas_revisor": 1, "segundos": 535.4, "veredicto_1": "RECHAZAR", "ocultos": {"ok": true, "resumen": "6 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "slug", "condicion": "A", "llamadas_autor": 1, "llamadas_revisor": 0, "segundos": 81.5, "ocultos": {"ok": true, "resumen": "3 passed in 0.01s"}, "ocultos_ok": true}
+{"tarea": "slug", "condicion": "B", "llamadas_autor": 2, "llamadas_revisor": 1, "segundos": 462.0, "veredicto_1": "APROBAR CON CAMBIOS", "ocultos": {"ok": true, "resumen": "3 passed in 0.01s"}, "ocultos_ok": true}
