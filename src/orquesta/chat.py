@@ -24,7 +24,7 @@ from typing import Callable
 from filelock import FileLock
 
 from orquesta import manifest as mf
-from orquesta import procs, runner, worktrees
+from orquesta import migracion, procs, runner, worktrees
 from orquesta.config import backend_disponible
 from orquesta.paths import Paths
 from orquesta.revision import (
@@ -380,6 +380,15 @@ def strip_mood_tag(text: str) -> str:
     return re.sub(r"^\s*\[mood:[^\]\n]*\]\s*", "", text, count=1)
 
 
+def nombre_agente_claude(paths: Paths, nombre: str) -> str:
+    """Resuelve el nombre nativo según la fase; si es inválida, usa legacy."""
+    try:
+        fase = migracion.fase(paths)
+    except ValueError:
+        fase = "legacy"
+    return f"orquesta:{nombre}" if fase == "plugin" else nombre
+
+
 def _claude(args: list[str], prompt: str, cwd: str) -> Reply:
     cmd = ["claude", "-p", "--permission-mode", "plan", "--output-format", "json", *args, prompt]
     try:
@@ -430,7 +439,8 @@ def default_executor(paths: Paths, project: dict, participant: str, prompt: str)
             if slot is None:
                 return Reply("", error=f"ESTADO: OCUPADO — los {limit} lugares de claude están ocupados "
                                        "(max_parallel): esperá y volvé a intentar")
-            args = ["--model", "opus"] if participant == ORCHESTRATOR else ["--agent", participant]
+            args = (["--model", "opus"] if participant == ORCHESTRATOR
+                    else ["--agent", nombre_agente_claude(paths, participant)])
             return _record_claude(paths, participant, _claude(args, prompt, cwd))
     task = None
     if entry.mode == "write":

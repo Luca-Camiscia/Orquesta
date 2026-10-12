@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from helpers import git
-from orquesta import chat
+from orquesta import chat, migracion
 from orquesta.generate import apply_plan, build_plan
 from orquesta.ui.app import create_app
 
@@ -128,6 +128,34 @@ def test_ejecutor_real_corre_codex_por_el_runner(store, proyecto, env):
     pr = store.create_project("P", str(proyecto))
     r = chat.default_executor(env, pr, "codex-critico", "hola")
     assert r.error is None and r.text.startswith("PONG")
+
+
+@pytest.mark.parametrize("fase,nombre", [
+    ("plugin", "orquesta:mantenedor"),
+    ("legacy", "mantenedor"),
+])
+def test_ejecutor_claude_usa_nombre_segun_fase(store, env, monkeypatch, fase, nombre):
+    migracion.set_fase(env, fase)
+    apply_plan(build_plan(env), "deploy de prueba", run_tests=None)
+    calls = []
+
+    def claude(args, prompt, cwd):
+        calls.append((args, prompt, cwd))
+        return chat.Reply("respuesta")
+
+    monkeypatch.setattr(chat, "_claude", claude)
+    pr = store.list_projects()[0]
+    r = chat.default_executor(env, pr, "mantenedor", "hola")
+    assert r.error is None and r.text == "respuesta"
+    assert calls == [(["--agent", nombre], "hola", pr["dir"])]
+
+
+def test_nombre_agente_claude_con_fase_invalida_usa_legacy(env, monkeypatch):
+    def fase_invalida(paths):
+        raise ValueError("fase inválida")
+
+    monkeypatch.setattr(migracion, "fase", fase_invalida)
+    assert chat.nombre_agente_claude(env, "mantenedor") == "mantenedor"
 
 
 def test_ejecutor_real_write_crea_worktree_y_se_mergea(store, proyecto, env):
