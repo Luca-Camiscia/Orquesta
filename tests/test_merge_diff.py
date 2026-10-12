@@ -1,5 +1,6 @@
 """Guardia de merge en CLI y chat, con repos temporales y diff completo."""
 import json
+import sys
 
 import pytest
 
@@ -172,6 +173,99 @@ def _bloquea(mergear, via, capsys, texto):
             mergear(via)
 
 
+def _avanzar_destino(wt):
+    (wt.repo / "destino.txt").write_text("cambio independiente\n")
+    git(wt.repo, "add", "destino.txt")
+    git(wt.repo, "commit", "-qm", "avance del destino")
+    return git(wt.repo, "rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("via", ["cli", "chat"])
+def test_merge_bloquea_destino_avanzado_despues_de_review(merge_diff, via, capsys, env):
+    wt, preparar, mergear, store, cid, pid = merge_diff
+    preparar(None, extra=lambda p: (p / "tarea.txt").write_text("cambio revisado\n"))
+    destino = _avanzar_destino(wt)
+    motivo = (f"el destino main avanzó desde la base de {wt.branch}: incorporá el destino en la rama "
+              f"(merge o rebase), corré `orquesta review {wt.branch}` de nuevo, "
+              "o confirmalo explícitamente con --forzar")
+    if via == "cli":
+        assert mergear(via) == 3
+        respuesta = json.loads(capsys.readouterr().out)
+        assert respuesta["estado"] == "BLOQUEADO"
+        assert motivo in respuesta["datos"]["razones"]
+    else:
+        with pytest.raises(chat.NeedsForce) as exc:
+            mergear(via)
+        assert str(exc.value) == motivo
+    assert git(wt.repo, "rev-parse", "HEAD") == destino
+    assert tareas.obtener(pid, wt.branch, paths=env)["status"] == "abierto"
+    assert store.get_conversation(cid)["worktrees"][0]["status"] == "abierto"
+
+
+@pytest.mark.parametrize("via", ["cli", "chat"])
+def test_merge_forzado_permite_destino_avanzado(merge_diff, via):
+    wt, preparar, mergear, _, _, _ = merge_diff
+    sha = preparar(None, extra=lambda p: (p / "tarea.txt").write_text("cambio revisado\n"))
+    destino = _avanzar_destino(wt)
+    assert mergear(via, forzar=True, leer_tty=lambda p: f"forzar {wt.branch}") == (
+        0 if via == "cli" else None)
+    assert git(wt.repo, "rev-parse", "HEAD^1") == destino
+    assert git(wt.repo, "rev-parse", "HEAD^2") == sha
+    assert (wt.repo / "destino.txt").read_text() == "cambio independiente\n"
+    assert (wt.repo / "tarea.txt").read_text() == "cambio revisado\n"
+
+
+@pytest.mark.parametrize("via", ["cli", "chat"])
+def test_merge_permite_destino_incorporado_y_nueva_review(merge_diff, via, monkeypatch, env):
+    wt, preparar, mergear, store, cid, pid = merge_diff
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    (wt.repo / ".orquesta").mkdir()
+    (wt.repo / ".orquesta" / "proyecto.toml").write_text(
+        f'[worktree]\ntests = "{sys.executable} -m pytest -q -p no:cacheprovider"\n')
+    preparar(None, extra=lambda p: (p / "tarea.txt").write_text("cambio revisado\n"))
+    _avanzar_destino(wt)
+    git(wt.path, "merge", "--no-edit", "main")
+    sha = git(wt.path, "rev-parse", "HEAD")
+    monkeypatch.setattr(chat.mf, "load", lambda paths: {"agents": {
+        wt.agent: {"backend": "codex", "mode": "write"},
+        "claude-centinela": {"backend": "claude", "mode": "read-only"},
+    }})
+
+    def revisar(paths, project, agent, prompt):
+        return chat.Reply("Veredicto: APROBAR")
+
+    if via == "cli":
+        args = cli.build_parser().parse_args(["review", wt.branch])
+        assert cli.cmd_review(args, executor=revisar) == 0
+        registro = tareas.obtener(pid, wt.branch, paths=env)
+        assert registro["sha_revisado"] == registro["tests_sha"] == sha
+        assert registro["tests_ok"] is True
+    else:
+        tests = worktrees.run_tests(wt)
+        assert tests["ok"] is True
+        store.update(cid, lambda c: c["worktrees"][0].update(tests=tests))
+        assert chat._auto_review(store, cid, store.project_of(store.get_conversation(cid)),
+                                 wt.agent, wt.branch, revisar, tests=tests) == "APROBAR"
+        assert store.get_conversation(cid)["worktrees"][0]["tests"]["ok"] is True
+    assert mergear(via) == (0 if via == "cli" else None)
+    assert git(wt.repo, "rev-parse", "HEAD") == sha
+    assert git(wt.repo, "rev-parse", "HEAD^{tree}") == git(wt.repo, "rev-parse", f"{sha}^{{tree}}")
+
+
+def test_cli_merge_revalida_destino_despues_de_confirmar(merge_diff, capsys):
+    wt, preparar, mergear, _, _, _ = merge_diff
+    preparar(None, extra=lambda p: (p / "tarea.txt").write_text("cambio revisado\n"))
+    destino = []
+
+    def confirmar(prompt):
+        destino.append(_avanzar_destino(wt))
+        return wt.branch
+
+    assert mergear("cli", leer_tty=confirmar) == 3
+    assert "el destino main avanzó" in capsys.readouterr().out
+    assert git(wt.repo, "rev-parse", "HEAD") == destino[0]
+
+
 @pytest.mark.parametrize("via", ["cli", "chat"])
 def test_merge_latin1_en_otro_archivo_no_apaga_la_guardia(merge_diff, via, capsys):
     wt, preparar, mergear, _, _, _ = merge_diff
@@ -314,11 +408,11 @@ def test_borrar_un_assert_de_unittest_se_detecta():
     assert revision.tests_debilitados(diff) == ["tests/test_a.py: assert eliminado"]
 
 
-def test_chat_merge_por_sha_conserva_el_nombre_de_la_rama(merge_diff):
+def test_chat_merge_forzado_conserva_el_nombre_de_la_rama(merge_diff):
     wt, preparar, mergear, _, _, _ = merge_diff
     preparar(b"def test_algo():\n    assert g(2) == 4\n")
     (wt.repo / "otro.txt").write_text("main avanzó\n")  # sin fast-forward: hay commit de merge
     git(wt.repo, "add", "-A")
     git(wt.repo, "commit", "-qm", "main avanza")
-    mergear("chat")
+    mergear("chat", forzar=True)
     assert git(wt.repo, "log", "-1", "--format=%s") == f"Merge branch '{wt.branch}'"

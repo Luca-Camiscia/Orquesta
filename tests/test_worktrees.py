@@ -131,7 +131,7 @@ def test_merge_sha_mergea_el_commit_revisado(env, repo, monkeypatch):
     assert result == {"status": "ok", "sha_merged": sha, "destino": "main"}
     assert git(repo, "rev-parse", "HEAD") == sha
     assert (repo / "b.txt").read_text() == "nuevo\n"
-    assert ("merge", "--no-edit", sha) in comandos
+    assert ("merge", "--no-edit", "--ff-only", sha) in comandos
     assert ("merge", "--no-edit", wt.branch) not in comandos
 
 

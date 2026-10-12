@@ -215,4 +215,6 @@ def razones_bloqueo(registro: dict) -> list[str]:
         if debilitados:
             razones.append(f"el diff de {branch} debilita los tests: {'; '.join(debilitados)}. "
                            f"Si querés mergear igual, confirmalo explícitamente.")
+    if registro.get("destino_error"):
+        razones.append(registro["destino_error"])
     return razones

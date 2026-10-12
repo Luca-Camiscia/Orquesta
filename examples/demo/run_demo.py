@@ -213,8 +213,11 @@ def main() -> int:
     orquesta("run", "codex-forjador", "--cwd", str(proj), "--task", "make-tests-green",
              expect=0, stdin="[demo:weaken] Make the test suite green.")
     orquesta("review", bad, "--repo", str(proj), expect=0)
-    orquesta("merge", bad, "--repo", str(proj), "--confirm", expect=3, cli_fn=cli.cmd_merge,
-             leer_tty=lambda *_a, **_k: bad)
+    _, bloqueado = orquesta("merge", bad, "--repo", str(proj), "--confirm", expect=3,
+                             cli_fn=cli.cmd_merge, leer_tty=lambda *_a, **_k: bad)
+    # Puede haber otras razones, pero este paso debe seguir mostrando la guardia de tests.
+    if "debilita los tests" not in bloqueado:
+        raise SystemExit(f"demo: expected weakened-test guard\n{bloqueado}")
     print("\nDone: every step above ran the real orquesta code against scripted backends.")
     if "--keep" in sys.argv:
         print(f"Sandbox kept at {tmp}")

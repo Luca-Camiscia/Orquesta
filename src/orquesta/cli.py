@@ -455,7 +455,9 @@ def cmd_merge(args: argparse.Namespace, *, leer_tty=None) -> int:
             registro["diff"] = worktrees.diff_completo(wt.repo, registro["base_sha"], sha)
         except (worktrees.WorktreeError, OSError):
             registro["diff_error"] = True  # falla cerrada: sin diff no se puede descartar un test debilitado
-        razones = revision.razones_bloqueo(tareas.a_registro_review(registro))
+        review = tareas.a_registro_review(registro)
+        review["destino_error"] = worktrees.bloqueo_destino(wt.repo, registro["destino"], sha, wt.branch)
+        razones = revision.razones_bloqueo(review)
         if razones and not args.forzar:
             return _emit_tarea(args.cmd, cli_json.BLOQUEADO, {"razones": razones}, "\n".join(razones))
         detalle = f"Mergear {sha[:8]} de {wt.branch} en {registro['destino']} ({wt.repo})"
@@ -474,7 +476,8 @@ def cmd_merge(args: argparse.Namespace, *, leer_tty=None) -> int:
         def mergear():
             if not worktrees._is_merged(wt.repo, registro["base_sha"]):
                 raise worktrees.WorktreeError("el SHA base ya no es ancestro del destino")
-            return worktrees.merge_sha(paths, wt.branch, sha, registro["destino"], repo=wt.repo)
+            return worktrees.merge_sha(paths, wt.branch, sha, registro["destino"], repo=wt.repo,
+                                       force=args.forzar)
 
         try:
             datos = tareas.cerrar_si_vigente(pid, wt.branch, str(wt.repo), {k: registro.get(k) for k in claves},
