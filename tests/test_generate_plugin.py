@@ -289,7 +289,8 @@ def test_generacion_cambia_con_el_contenido_del_plugin(env, monkeypatch):
     antes = generate.build_plan(env)
     monkeypatch.setattr(plugin_render, "_RULES", plugin_render._RULES + "\n- Regla nueva.\n")
     despues = generate.build_plan(env)
-    gen = lambda plan: json.loads(plan.plugin_files[env.plugin_manifest])["generacion"]
+    def gen(plan):
+        return json.loads(plan.plugin_files[env.plugin_manifest])["generacion"]
     assert gen(antes) != gen(despues)
 
 

@@ -6,7 +6,7 @@ import pytest
 from helpers import dump_yaml, git, registry_dict
 from orquesta import chat, revision as reglas_revision, worktrees
 from orquesta.generate import apply_plan, build_plan
-from test_chat import proyecto, store  # noqa: F401: fixtures compartidas
+from test_chat import proyecto, store  # noqa: F401  (fixtures compartidas)
 from test_tanda7 import Fake
 
 

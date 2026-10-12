@@ -319,7 +319,7 @@ def test_reanuda_si_claude_completa_antes_de_interrumpirse(deploy, operacion):
         if cmd[2:2 + len(operacion)] == operacion:
             if interrumpido:
                 return 1, "", "la operación ya fue ejecutada"
-            result = run(cmd, env=env)
+            run(cmd, env=env)
             interrumpido = True
             raise RuntimeError("respuesta perdida")
         return run(cmd, env=env)

@@ -16,7 +16,6 @@ import json
 import os
 import re
 import subprocess
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,8 +28,7 @@ from orquesta import manifest as mf
 from orquesta import procs, runner, worktrees
 from orquesta.paths import Paths
 from orquesta.revision import (
-    CONFIDENCE_ESCALATION, JUDGE, JUDGE_CANDIDATES, ORCHESTRATOR, REVIEW_PREFERENCE,
-    elegir_revisor, parsear_veredicto, prompt_review, razones_bloqueo,
+    JUDGE, JUDGE_CANDIDATES, ORCHESTRATOR, elegir_revisor, parsear_veredicto, prompt_review, razones_bloqueo,
 )
 
 USER = "usuario"
@@ -505,7 +503,6 @@ def _history(conv: dict, viewer: str | None = None, anon: bool = False, until_us
         omitted = len(msgs) - len(keep_idx)
         msgs = [m for i, m in enumerate(msgs) if i in keep_idx]
     labels = _labels(conv) if anon else {}
-    names = list(labels)
 
     def who(a: str) -> str:
         if a == USER:

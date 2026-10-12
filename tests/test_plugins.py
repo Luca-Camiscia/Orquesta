@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from helpers import dump_yaml, git, load_yaml
+from helpers import dump_yaml, load_yaml
 from orquesta import plugins
 from orquesta.generate import apply_plan, build_plan
 

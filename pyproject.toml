@@ -28,3 +28,11 @@ packages = ["src/orquesta"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q -p no:cacheprovider"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+# Las fixtures importadas de otro módulo de tests aparecen como redefiniciones en los parámetros.
+"tests/test_caracterizacion_revision.py" = ["F811"]

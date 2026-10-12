@@ -3,12 +3,10 @@ import io
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
 from helpers import git
 from orquesta import chat, cli, manifest, runner
 from orquesta.generate import apply_plan, build_plan
-from orquesta.ui.app import create_app
 
 
 @pytest.fixture

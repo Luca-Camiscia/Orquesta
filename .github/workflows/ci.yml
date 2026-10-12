@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install bubblewrap (OS sandbox used by the runner)
+        run: sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
+      - name: Allow unprivileged user namespaces (Ubuntu 24.04 AppArmor default blocks bwrap)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: uv sync --frozen
+      - name: Lint
+        run: uvx ruff@0.14.0 check src tests
+      - name: Tests
+        run: uv run pytest
