@@ -88,6 +88,8 @@ def _sandbox_prefix(backend: Backend, spec: ModeSpec | None, mode: str | None, c
             prefix += ["--bind", p, p]
     if spec.os_sandbox == "workspace":
         prefix += ["--bind", str(cwd), str(cwd)]
+    elif spec.os_sandbox == "readonly":
+        prefix += ["--ro-bind", str(cwd), str(cwd)]
     return prefix + ["--die-with-parent", "--"], []
 
 
@@ -232,7 +234,8 @@ def tree_state(cwd: Path) -> TreeState | None:
 
     status = git("status", "--porcelain=v1", "-z", "--untracked-files=all")
     entries = frozenset(e.decode(errors="replace") for e in status.split(b"\0") if e)
-    h = hashlib.sha256(status + git("diff", "--no-ext-diff", "--binary"))
+    h = hashlib.sha256(status + git("diff", "--no-ext-diff", "--binary")
+                       + git("diff", "--cached", "--no-ext-diff", "--binary"))
     firmas = []
     for e in sorted(entries):
         try:
@@ -241,8 +244,7 @@ def tree_state(cwd: Path) -> TreeState | None:
             continue
         firma = f"{st.st_size}:{st.st_mtime_ns}"
         firmas.append((e, firma))
-        if e.startswith("?? "):
-            h.update(f"{e}:{firma}".encode())
+        h.update(f"{e}:{firma}".encode())
     return TreeState(entries, h.hexdigest(), tuple(firmas))
 
 
