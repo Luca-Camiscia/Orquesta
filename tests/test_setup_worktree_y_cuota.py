@@ -1,4 +1,4 @@
-"""Tanda 6: setup de worktrees por proyecto y medidor de cuota por ventana de 5 h."""
+"""Setup de worktrees por proyecto y medidor de cuota por ventana de 5 h."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

@@ -162,7 +162,7 @@ def test_se_saca_el_tag_de_mood_del_orquestador(crudo, limpio):
     assert chat.strip_mood_tag(crudo) == limpio
 
 
-# --- tanda UI 1: cancelar, estado, exportar ------------------------------------------------
+# --- UI: cancelar, estado, exportar ------------------------------------------------
 
 def test_procs_cancel_mata_el_grupo_de_procesos():
     import threading
@@ -229,7 +229,7 @@ def test_export_de_conversacion_vieja_sigue_disponible(env, proyecto):
     assert "attachment" in r.headers["content-disposition"]
 
 
-# --- tanda 3: modos de reunión con evidencia -----------------------------------------------
+# --- modos de reunión con evidencia -----------------------------------------------
 
 class FakeJuez(FakeExec):
     def __call__(self, paths, project, participant, prompt):
@@ -498,7 +498,7 @@ def test_la_confianza_del_contrato_queda_en_el_mensaje(store, proyecto):
     assert store.get_conversation(conv["id"])["messages"][-1]["meta"]["contrato"]["confianza"] == 60
 
 
-# --- tanda 4: auto-review, conflictos, tokens, tablero ------------------------------------
+# --- auto-review, conflictos, tokens, tablero ------------------------------------
 
 class FakeReview(FakeExec):
     def __init__(self, veredicto="APROBAR"):
@@ -578,7 +578,7 @@ def test_tokens_de_agy_quedan_en_meta(env, tmp_path):
     assert "usage" in r.meta
 
 
-# --- tanda 5: búsqueda --------------------------------------------------------------------
+# --- búsqueda --------------------------------------------------------------------
 
 def test_busqueda_en_todas_las_conversaciones(store, proyecto):
     pr = store.create_project("P", str(proyecto))

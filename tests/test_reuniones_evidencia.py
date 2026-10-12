@@ -1,4 +1,4 @@
-"""Tanda 7 (papers): anonimato en todas las reuniones, debate adaptativo, review con evidencia
+"""Reglas respaldadas por papers: anonimato en todas las reuniones, debate adaptativo, review con evidencia
 ejecutable y ciega al autor, calibración de confianza, contexto acotado."""
 from __future__ import annotations
 

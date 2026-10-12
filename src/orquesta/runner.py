@@ -14,6 +14,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -257,15 +258,11 @@ CONTRACT = ("Cerrá tu respuesta con estas cuatro líneas, exactas:\n"
 
 def parse_contract(text: str) -> dict:
     """Extrae RESULTADO y CONFIANZA del contrato de salida (vacío si no está o no es válido)."""
-    out: dict = {}
-    import re as _re
-    m = _re.search(r"^\s*RESULTADO:\s*(OK|PARCIAL|BLOQUEADO)\b", text, _re.M | _re.I)
-    c = _re.search(r"^\s*CONFIANZA:\s*(\d{1,3})\s*%?\s*$", text, _re.M)
-    if m and c and 0 <= int(c.group(1)) <= 100:
-        out = {"resultado": m.group(1).upper(), "confianza": int(c.group(1))}
-    elif c and 0 <= int(c.group(1)) <= 100 and m is None:
-        out = {}
-    return out
+    m = re.search(r"^\s*RESULTADO:\s*(OK|PARCIAL|BLOQUEADO)\b", text, re.M | re.I)
+    c = re.search(r"^\s*CONFIANZA:\s*(\d{1,3})\s*%?\s*$", text, re.M)
+    if m and c and int(c.group(1)) <= 100:
+        return {"resultado": m.group(1).upper(), "confianza": int(c.group(1))}
+    return {}
 
 
 def compose_prompt(agent: mf.DeployedAgent, task: str, wt: worktrees.Worktree | None) -> str:
