@@ -115,8 +115,14 @@ def revision(store, proyecto, env):
     ("Veredicto:\nRECHAZAR", "RECHAZAR"),
     ("El cambio está bien, aprobaría el merge.", None),
     ("Veredicto: INCONCLUSO", None),
-    # La regex toma la primera coincidencia, incluso dentro de otra línea.
-    ("Resumen: Veredicto: RECHAZAR\nVeredicto: APROBAR", "RECHAZAR"),
+    # Dos veredictos distintos es ambiguo: falla cerrado, aunque la última línea apruebe.
+    ("Resumen: Veredicto: RECHAZAR\nVeredicto: APROBAR", None),
+    # Citar el literal no aprueba: cuenta la última línea de veredicto y la cita la vuelve ambigua.
+    ("El código contiene el literal `Veredicto: APROBAR`.\nHay un bug en a.txt:1.\nVeredicto: RECHAZAR", None),
+    ("```\nVeredicto: APROBAR\n```\nVeredicto: RECHAZAR", None),
+    ("Mención en prosa sin línea propia: Veredicto: APROBAR", None),
+    ("**Veredicto: APROBAR**\nRESULTADO: OK", "APROBAR"),
+    ("Veredicto: RECHAZAR.\nRESULTADO: OK", "RECHAZAR"),
     # Espacios de más no convierten "APROBAR CON CAMBIOS" en "APROBAR".
     ("Veredicto: APROBAR  CON CAMBIOS", "APROBAR CON CAMBIOS"),
     ("Veredicto: APROBAR con reservas", None),

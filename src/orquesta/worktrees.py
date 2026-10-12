@@ -201,8 +201,9 @@ def run_tests(wt: Worktree, tests_cmd: str | None = None) -> dict | None:
     """Corre el comando `tests` del proyecto en el worktree: evidencia ejecutable antes de mergear."""
     try:
         cfg = project_config(wt.repo) or {}
-    except WorktreeError:
-        return None
+    except WorktreeError as exc:
+        # Una config rota no es "sin tests": falla cerrado para que el merge lo bloquee.
+        return {"ok": False, "cmd": ".orquesta/proyecto.toml", "salida": str(exc)}
     cmd = tests_cmd or cfg.get("tests")
     if not cmd or not wt.path.exists():
         return None

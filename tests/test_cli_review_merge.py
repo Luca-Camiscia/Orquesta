@@ -370,6 +370,19 @@ def test_review_sin_tests_no_inventa_evidencia(env, tarea, revisor, capsys, monk
     assert salida(capsys)["estado"] == "OK"
 
 
+def test_review_con_config_de_tests_rota_falla_cerrado(env, tarea, revisor, capsys, monkeypatch):
+    """Un proyecto.toml inválido no equivale a "sin tests": la review registra tests fallidos y el merge frena."""
+    wt, pid, _ = tarea
+    (wt.repo / ".orquesta" / "proyecto.toml").write_text('[worktree]\ntests = "python -m pytest\n')
+    assert cli.main(["review", wt.branch]) == 0
+    datos = salida(capsys)["datos"]
+    assert datos["tests_ok"] is False and datos["tests_sha"] is not None
+    tty(monkeypatch, wt.branch)
+    assert cli.main(["merge", wt.branch, "--confirm"]) == 3
+    assert "FALLARON" in str(salida(capsys)["errores"])
+    assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha
+
+
 @pytest.mark.parametrize("texto,error", [("sin veredicto", None), ("Veredicto: APROBAR", "falló el backend")])
 def test_review_fallida_invalida_aprobacion_anterior(env, tarea, revisor, monkeypatch, capsys, texto, error):
     wt, pid, _ = tarea

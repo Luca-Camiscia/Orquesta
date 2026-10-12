@@ -54,10 +54,38 @@ def prompt_review(project_name: str, diff: str, evidencia: str,
             f"RECHAZAR`, y después RESULTADO y CONFIANZA.")
 
 
+_VALOR = r"(APROBAR(?:\s+CON\s+CAMBIOS)?|RECHAZAR)"
+_LINEA = re.compile(rf"veredicto:\s*{_VALOR}\.?", re.I)
+_SOLO_VALOR = re.compile(rf"{_VALOR}\.?", re.I)
+# "APROBAR" a secas solo si no sigue "CON ...": "APROBAR con reservas" no habilita el merge.
+_MENCION = re.compile(rf"veredicto:\s*{_VALOR}\b(?!\s+CON\b)", re.I)
+
+
 def parsear_veredicto(texto: str | None) -> str | None:
-    # "APROBAR" a secas solo si no sigue "CON ...": "APROBAR  CON CAMBIOS" o "APROBAR con reservas" no habilitan el merge.
-    m = re.search(r"Veredicto:\s*(APROBAR(?:\s+CON\s+CAMBIOS)?|RECHAZAR)\b(?!\s+CON\b)", texto or "", re.I)
-    return " ".join(m.group(1).upper().split()) if m else None
+    """El veredicto es la última línea `Veredicto: X` fuera de bloques de código. Falla cerrado: si en
+    cualquier parte del texto aparece un veredicto distinto (una cita, un resumen), es ambiguo → None."""
+    def norm(v: str) -> str:
+        return " ".join(v.upper().split())
+
+    lineas, en_codigo = [], False
+    for linea in (texto or "").splitlines():
+        if linea.strip().startswith("```"):
+            en_codigo = not en_codigo
+            continue
+        if not en_codigo:
+            lineas.append(linea.strip().strip("*_`> ").strip())
+    final = None
+    for i, linea in enumerate(lineas):
+        m = _LINEA.fullmatch(linea)
+        if m is None and linea.lower() == "veredicto:":  # el valor en la línea siguiente
+            siguiente = next((x for x in lineas[i + 1:] if x), "")
+            m = _SOLO_VALOR.fullmatch(siguiente)
+        if m is not None:
+            final = norm(m.group(1))
+    if final is None:
+        return None
+    menciones = {norm(v) for v in _MENCION.findall(texto or "")}
+    return final if menciones <= {final} else None
 
 
 def tests_debilitados(diff: str) -> list[str]:
