@@ -110,8 +110,8 @@ subagent calls, which do not):
 | Codex (GPT) | 48 | 42 | 6 | 0 | 206–423 s by agent; 409 s for the write agent |
 | Antigravity (Gemini) | 37 | 23 | 12 | **2** | 230–481 s by agent |
 
-- The runner caught **two real read-only violations**, both from Gemini agents (October 6 and 10),
-  which is why read-only is enforced by an OS sandbox plus a check, and not by a CLI flag.
+- The before/after check flagged **two read-only runs as violations**, both from Gemini agents
+  (October 6 and 10): the run is reported as failed instead of its output being trusted.
 - Gemini timeouts (12 of 37) are the main operational cost. The 540 s cap is deliberate: it is under
   the 10-minute limit of Claude Code's Bash tool, so a stuck backend can never hang the orchestrator.
 - Codex in text mode does not report tokens; Gemini read about 6.2 M tokens across its runs. All of it
