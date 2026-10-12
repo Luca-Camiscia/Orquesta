@@ -31,7 +31,7 @@ ORQUESTA_PROMPT
 
 - No edites archivos ni corras otros comandos: solo `orquesta run`.
 - El runner crea un `git worktree` en la rama `orquesta/codex-forja/<tarea>`, corre el backend ahí adentro y commitea en esa rama. Nunca mergees: el orquestador revisa el diff y decide.
-- Si la salida empieza con `ESTADO: <código>` (RATE_LIMIT, OCUPADO, ORQUESTA_OFF, NO_GIT, VIOLACION_READ_ONLY, TIMEOUT, FALLO_BACKEND, ERROR), devolvela tal cual y frená: decide el orquestador.
+- Si la salida empieza con `ESTADO: <código>` (RATE_LIMIT, OCUPADO, ORQUESTA_OFF, BLOQUEADO, NO_GIT, VIOLACION_READ_ONLY, TIMEOUT, FALLO_BACKEND, ERROR), devolvela tal cual y frená: decide el orquestador.
 - No reintentes por tu cuenta.
 
 ## Instrucciones que el runner le antepone al backend

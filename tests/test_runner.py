@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from helpers import REPO, backends_dict, dump_yaml, git, load_yaml
-from orquesta import migracion, runner
+from orquesta import ledger, migracion, runner, worktrees
 from orquesta.generate import apply_plan, build_plan
 from orquesta.schema import parse_backends
 
@@ -154,6 +154,28 @@ def test_read_only_remonta_el_proyecto_despues_del_tmp_escribible(env):
     assert j > i
 
 
+def test_read_only_desde_subdirectorio_remonta_raiz_git(env, proyecto):
+    cwd = proyecto / "src"
+    cwd.mkdir()
+    cmd = runner.build_command(REAL["agy"], mode="read-only", model=None, cwd=cwd,
+                               prompt="hola", state_dir=env.state_dir, platform="linux")
+    pre = cmd.argv[:cmd.argv.index("--")]
+    i = pre.index(str(proyecto))
+    assert pre[i - 1:i + 2] == ["--ro-bind", str(proyecto), str(proyecto)]
+    assert i > pre.index("/tmp")
+
+
+def test_read_only_worktree_remonta_git_comun(env, proyecto):
+    wt = worktrees.create(env, repo=proyecto, agent="codex-forja", task="fix")
+    cmd = runner.build_command(REAL["agy"], mode="read-only", model=None, cwd=wt.path,
+                               prompt="hola", state_dir=env.state_dir, platform="linux")
+    pre = cmd.argv[:cmd.argv.index("--")]
+    comun = str(proyecto / ".git")
+    i = pre.index(comun)
+    assert pre[i - 1:i + 2] == ["--ro-bind", comun, comun]
+    assert i > pre.index("/tmp")
+
+
 def _bwrap_disponible():
     return shutil.which("bwrap") is not None and subprocess.run(
         ["bwrap", "--ro-bind", "/", "/", "true"], capture_output=True).returncode == 0
@@ -166,6 +188,21 @@ def test_read_only_bwrap_impide_escribir_en_proyecto_bajo_tmp(tmp_path):
         "linux", Path.home())
     archivo = tmp_path / "colado.txt"
     result = subprocess.run(prefix + ["touch", str(archivo)], cwd=tmp_path, capture_output=True)
+    assert not warnings
+    assert result.returncode != 0, result.stderr
+    assert not archivo.exists()
+
+
+@pytest.mark.skipif(not _bwrap_disponible(), reason="bwrap no está o no puede crear namespaces")
+@pytest.mark.parametrize("destino", ["colado.txt", ".git/colado.txt"])
+def test_read_only_bwrap_desde_subdirectorio_impide_escribir_en_raiz(proyecto, destino):
+    cwd = proyecto / "src"
+    cwd.mkdir()
+    prefix, warnings = runner._sandbox_prefix(
+        REAL["agy"], REAL["agy"].modes["read-only"], "read-only", cwd,
+        "linux", Path.home())
+    archivo = proyecto / destino
+    result = subprocess.run(prefix + ["touch", str(archivo)], cwd=cwd, capture_output=True)
     assert not warnings
     assert result.returncode != 0, result.stderr
     assert not archivo.exists()
@@ -191,6 +228,46 @@ def test_fuera_de_linux_no_hay_sandbox_y_avisa(env):
 def test_run_ok_con_codex(env, proyecto):
     deploy(env)
     r = correr(env, "codex-critico", "revisá esto", proyecto)
+    assert (r.status, r.exit_code) == ("OK", 0)
+    assert r.output.startswith("PONG:")
+
+
+@pytest.mark.parametrize("motivo,intentos,progreso", [
+    ("tope", 4, False), ("tope", 6, True), ("cerrada", 1, True),
+])
+@pytest.mark.parametrize("ubicacion", ["raiz", "subdirectorio", "worktree"])
+def test_run_ledger_bloquea_antes_de_ejecutar_backend(
+        env, proyecto, monkeypatch, motivo, intentos, progreso, ubicacion):
+    deploy(env)
+    tarea = "fix_promedio.v2"
+    pid = worktrees.project_id(proyecto)
+    for _ in range(intentos):
+        ledger.anotar(pid, tarea, progreso=progreso, paths=env)
+    if motivo == "cerrada":
+        ledger.cerrar(pid, tarea, motivo="resuelto", paths=env)
+    cwd = proyecto
+    if ubicacion == "subdirectorio":
+        cwd = proyecto / "src"
+        cwd.mkdir()
+    elif ubicacion == "worktree":
+        cwd = worktrees.create(env, repo=proyecto, agent="codex-forja", task=tarea).path
+
+    def backend_prohibido(*args, **kwargs):
+        pytest.fail("se ejecutó el backend con la tarea bloqueada en el ledger")
+
+    monkeypatch.setattr(runner, "_execute", backend_prohibido)
+    r = correr(env, "codex-critico", "hola", cwd, task=tarea)
+    assert (r.status, r.exit_code) == ("BLOQUEADO", 3)
+    assert r.detail == ("tarea cerrada en el ledger" if motivo == "cerrada"
+                        else "tope del ledger alcanzado: escalá al usuario")
+
+
+def test_run_tarea_sin_anotaciones_corre_normal(env, proyecto):
+    deploy(env)
+    pid = worktrees.project_id(proyecto)
+    for _ in range(4):
+        ledger.anotar(pid, "otra", progreso=False, paths=env)
+    r = correr(env, "codex-critico", "hola", proyecto, task="nueva")
     assert (r.status, r.exit_code) == ("OK", 0)
     assert r.output.startswith("PONG:")
 
@@ -390,6 +467,31 @@ def test_read_only_detecta_escrituras(env, proyecto):
     r = correr(env, "codex-critico", "WRITE:colado.txt", proyecto)
     assert (r.status, r.exit_code) == ("VIOLACION_READ_ONLY", 7)
     assert "colado.txt" in r.detail
+
+
+def test_read_only_detecta_commit_con_arbol_limpio(env, proyecto):
+    deploy(env)
+    antes = git(proyecto, "rev-parse", "HEAD")
+    r = correr(env, "codex-critico", "WRITE:README.md COMMIT", proyecto)
+    assert git(proyecto, "status", "--porcelain") == ""
+    assert git(proyecto, "rev-parse", "HEAD") != antes
+    assert (r.status, r.exit_code) == ("VIOLACION_READ_ONLY", 7)
+    assert "cambió HEAD o una rama" in r.detail
+
+
+@pytest.mark.parametrize("cambio", ["rama", "head-simbolico", "detached"])
+def test_tree_state_detecta_refs_sin_cambios_de_archivos(proyecto, cambio):
+    git(proyecto, "branch", "otra")
+    antes = runner.tree_state(proyecto)
+    if cambio == "rama":
+        git(proyecto, "branch", "nueva")
+    elif cambio == "head-simbolico":
+        git(proyecto, "symbolic-ref", "HEAD", "refs/heads/otra")
+    else:
+        git(proyecto, "checkout", "--detach", "-q")
+    despues = runner.tree_state(proyecto)
+    assert antes.entries == despues.entries == frozenset()
+    assert antes.digest != despues.digest
 
 
 @pytest.mark.parametrize("rastreado", [False, True])
