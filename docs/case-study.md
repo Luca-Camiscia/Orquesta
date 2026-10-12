@@ -99,6 +99,25 @@ $ uv run pytest
 1250 passed in 64.57s
 ```
 
+## What the usage log says
+
+Every delegated run is appended to `state/usage.jsonl` (`orquesta usage` aggregates it). Over the first
+week of real use, October 5–12, 2026, **85 runs went through the runner** (plus 26 native Claude
+subagent calls, which do not):
+
+| Backend | Runs | OK | Timeout | Read-only violation | Mean latency |
+|---|---|---|---|---|---|
+| Codex (GPT) | 48 | 42 | 6 | 0 | 206–423 s by agent; 409 s for the write agent |
+| Antigravity (Gemini) | 37 | 23 | 12 | **2** | 230–481 s by agent |
+
+- The runner caught **two real read-only violations**, both from Gemini agents (October 6 and 10),
+  which is why read-only is enforced by an OS sandbox plus a check, and not by a CLI flag.
+- Gemini timeouts (12 of 37) are the main operational cost. The 540 s cap is deliberate: it is under
+  the 10-minute limit of Claude Code's Bash tool, so a stuck backend can never hang the orchestrator.
+- Codex in text mode does not report tokens; Gemini read about 6.2 M tokens across its runs. All of it
+  ran on flat-rate subscriptions, so the cost that matters is quota, which the panel tracks per
+  5-hour window.
+
 ## What this shows
 
 - Guarantees are stated narrowly and backed by tests that exercise the failure, not the happy path.
