@@ -53,9 +53,8 @@ prompt = prompt or ""
 m = re.search(r"SLEEP:(\d+(?:\.\d+)?)", prompt)
 if m:
     time.sleep(float(m.group(1)))
-m = re.search(r"WRITE:(\S+)", prompt)
-if m:
-    with open(os.path.join(cwd, m.group(1)), "w", encoding="utf-8") as fh:
+for destino in re.findall(r"WRITE:(\S+)", prompt):
+    with open(os.path.join(cwd, destino), "w", encoding="utf-8") as fh:
         fh.write("escrito por el backend falso\n")
 m = re.search(r"STAGE:(\S+)", prompt)
 if m:
