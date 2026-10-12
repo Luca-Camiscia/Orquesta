@@ -4,19 +4,28 @@
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Linux](https://img.shields.io/badge/platform-Linux-lightgrey)
 
-**Multi-model orchestration for Claude Code, with the safety rules enforced in code instead of in the prompt.**
+**Coordinates Claude, GPT and Gemini on programming tasks, keeps their changes apart from yours, and
+requires a review by another model plus your approval before anything is merged.**
 
 Claude Code plans the work and delegates it to GPT (through the Codex CLI) and Gemini (through the
 Antigravity CLI, `agy`), using the subscriptions you already pay for: no API keys. A Python runner sits
-between the orchestrator and the other models and enforces what an LLM should not be trusted to
-decide by itself:
+between the orchestrator and the other models and enforces in code, not in the prompt, what an LLM
+should not be trusted to decide by itself:
 
-- a **read-only** agent cannot leave changes behind (OS sandbox plus a before/after check of the git state);
-- a **write** agent only works in its own `git worktree` and branch, never in your checkout;
+- a **read-only** agent cannot leave changes behind (OS sandbox on Linux, plus a before/after check of
+  the git state everywhere);
+- a **write** agent works in its own `git worktree` and branch, with a sandbox that keeps your checkout
+  read-only on Linux;
 - a change is reviewed by **a different model family** than the one that wrote it, with the project
   tests run on the exact commit under review;
 - nothing reaches your branch without a **human typing the branch name at the terminal**, and a diff that
   deletes assertions or skips tests is blocked even if the reviewer approved it.
+
+**In use:** in its first week orquesta delegated 85 runs to GPT and Gemini and flagged two read-only
+violations ([case study](docs/case-study.md)); 33 of the project's ~200 commits were written by GPT agents
+and merged after review by another model family. In a small [evaluation](eval/README.md) with hidden
+tests, a single agent fixed 4 of 6 bugs and the review loop 6 of 6, at about 6x the wall time (pilot,
+one run per condition; the replicated run is in that page).
 
 > UI, CLI messages and agent prompts are in Spanish (the tool is built for daily use in Spanish). The
 > code, this page and the [demo](examples/demo) are readable without it. Versión en español: [README.es.md](README.es.md).
@@ -173,7 +182,7 @@ Every command that the orchestrator consumes answers with a versioned JSON envel
 ## How it was built
 
 I designed orquesta and directed its development with Claude Code, and from early on I used orquesta to
-build itself: 28 of the ~170 commits (prefixed `orquesta(codex-forjador)`, `orquesta(codex-tester)`, …)
+build itself: 33 of the ~200 commits (prefixed `orquesta(codex-forjador)`, `orquesta(codex-tester)`, …)
 were written by delegated GPT agents in their own worktrees and merged after review by another model
 family. The plans with the decisions behind each stage are in [`PLAN.md`](PLAN.md) and
 [`docs/plugin-plan.md`](docs/plugin-plan.md), and every change to the generated plugin is logged in
