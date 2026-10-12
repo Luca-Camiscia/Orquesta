@@ -85,20 +85,21 @@ flowchart LR
 
 | Guarantee | Mechanism | Code | Tests |
 |---|---|---|---|
-| Read-only agents leave no changes | `bwrap` with `/` read-only and the project re-mounted read-only (Gemini); `--sandbox read-only` (Codex); plus a SHA-256 of `git status` + worktree diff + index diff + file signatures before and after every run | [`runner.py`](src/orquesta/runner.py) `_sandbox_prefix`, `tree_state` | `tests/test_runner.py` (includes a real `bwrap` write attempt) |
+| Read-only agents leave no tracked changes | `bwrap` with `/` read-only and the whole repository (including `.git`) re-mounted read-only after the few writable dirs the CLI needs (Gemini); `--sandbox read-only` (Codex); plus a SHA-256 of `git status`, worktree and index diffs, dirty-file signatures, `HEAD` and every ref, before and after each run. Files ignored by git (caches, `.venv`) are out of scope by design | [`runner.py`](src/orquesta/runner.py) `_sandbox_prefix`, `tree_state` | `tests/test_runner.py` (includes a real `bwrap` write attempt) |
 | Write agents are isolated | One `git worktree` per task on `orquesta/<agent>/<task>`; the runner commits there | [`worktrees.py`](src/orquesta/worktrees.py) | `tests/test_runner.py`, `tests/test_chat.py` |
-| No self-review | The reviewer must be read-only and from a different backend family than the author | [`revision.py`](src/orquesta/revision.py) `elegir_revisor`, `validar_revisor` | `tests/test_cli_review_merge.py` |
-| Merge only what was reviewed | Merge requires branch tip == reviewed SHA == tested SHA, clean trees and the base still an ancestor | [`cli.py`](src/orquesta/cli.py) `cmd_merge`, `worktrees.merge_sha` | `tests/test_cli_review_merge.py` |
+| No self-review | The reviewer must be read-only, from a different backend family than the author and installed; the prompt carries no author name or worktree path | [`revision.py`](src/orquesta/revision.py) `elegir_revisor`, `validar_revisor` | `tests/test_cli_review_merge.py` |
+| Merge only what was reviewed | Merge requires branch tip == reviewed SHA == tested SHA, clean trees and the base still an ancestor. If the diff was too long for the review prompt, the reviewer gets the full file list and the merge is blocked until you confirm | [`cli.py`](src/orquesta/cli.py) `cmd_merge`, `worktrees.merge_sha` | `tests/test_cli_review_merge.py` |
 | A human confirms | `--confirm` reads an exact text from `/dev/tty`; without a TTY the CLI returns `NECESITO_CONFIRMACION` (exit 3) and the command to run in a second terminal. No flag or env var skips it | [`confirmar.py`](src/orquesta/confirmar.py) | `tests/test_confirmar.py`, `tests/test_cli_review_merge.py` |
 | Tests cannot be weakened to get green | Diff heuristics: deleted tests or assertions, new `skip`/`xfail`, trivial asserts, pytest config that deselects | [`revision.py`](src/orquesta/revision.py) `tests_debilitados` | `tests/test_caracterizacion_revision.py` |
 | Protected agents and privilege escalation | `generate` diffs against what is *deployed* and refuses read-only → write, new tools or plugins, prompt changes of protected agents without `--confirm` | [`guard.py`](src/orquesta/guard.py) | `tests/test_guard.py` |
-| Delegation loops end | A per-task ledger flags stagnation after 2 rounds without progress and blocks at 4 (or 6 rounds) | [`ledger.py`](src/orquesta/ledger.py) | `tests/test_ledger.py` |
+| Delegation loops end | The orchestrator logs each round in a per-task ledger; after 2 rounds without progress it must re-plan, and at 4 (or 6 rounds) the runner itself refuses new runs of that task (`ESTADO: BLOQUEADO`) | [`ledger.py`](src/orquesta/ledger.py), `runner.run` | `tests/test_ledger.py`, `tests/test_runner.py` |
 
 **Threat model.** The adversary is a model that follows rules but makes mistakes, not a malicious one. A
 model with shell access under your user id can defeat any local control (for example by opening a pty).
 The goal is that a mistake never ends in a silent merge or registry change, and that a deliberate bypass
 leaves a trace in git, the changelog and the deploy manifest. Details in
-[`docs/plugin-plan.md`](docs/plugin-plan.md) (Spanish).
+[`docs/plugin-plan.md`](docs/plugin-plan.md) (Spanish). A worked example of finding and closing holes in
+these guarantees: [`docs/case-study.md`](docs/case-study.md).
 
 **Known gaps.** The OS sandbox exists only on Linux; elsewhere the runner falls back to detection. Native
 Claude subagents do not go through the runner. If a project has no test command configured
@@ -117,6 +118,8 @@ The local panel (`orquesta ui`, bound to 127.0.0.1 with a per-session token, Hos
 Requirements: Linux, Python 3.11+, [uv](https://docs.astral.sh/uv/), git, `bubblewrap`,
 [Claude Code](https://docs.anthropic.com/claude-code), and at least one of the
 [Codex CLI](https://github.com/openai/codex) or the Antigravity CLI (`agy`), logged in with your subscription.
+The bundled registry uses both; with only one installed, reviews fall back to an installed backend of
+another family (Claude counts), and `orquesta doctor` flags a backend CLI that is missing or logged out.
 
 ```bash
 git clone https://github.com/Luca-Camiscia/orquesta ~/orquesta && cd ~/orquesta

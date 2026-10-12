@@ -82,7 +82,22 @@ went one level deeper, which is what an adversarial review is for:
   enforce it: the next delegation would still run;
 - a review over a diff truncated at 20,000 characters still marked the full commit as reviewed.
 
-Each of these became its own brief, fix and regression test (see the git history after `cefb94d`).
+These became two parallel briefs (disjoint files, so two GPT agents could work at once): the runner now
+hashes `HEAD` and every ref and re-mounts the whole repository read-only (including an external `.git`
+for worktrees); it refuses to run a task the ledger marked for escalation; and a review over a truncated
+diff lists every changed file to the reviewer and blocks the merge until a human confirms.
+
+Verifying those merges surfaced one more problem that neither the agents nor the reviewer had reported:
+the new review prompt included the worktree path, `…/codex-forjador--<task>`, which names the author and
+defeats the blind cross-family review. Checking the older CLI path showed it had the same leak since the
+beginning. The fix removes paths from the review prompt, and a test now asserts that neither the author
+name nor the path reaches the reviewer. A last check found that `--task "Fix X"` (branch `fix-x`) slipped
+past the ledger lookup, which compared the raw text; it now matches the slug too.
+
+```text
+$ uv run pytest
+1250 passed in 64.57s
+```
 
 ## What this shows
 
