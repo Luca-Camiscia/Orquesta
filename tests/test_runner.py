@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -130,13 +132,43 @@ def test_agy_con_prompt_largo_lo_pasa_por_archivo(env):
     assert str(cmd.temp_files[0]) in cmd.argv[-1]
 
 
-def test_read_only_de_agy_corre_dentro_de_bwrap_sin_bindear_el_proyecto(env):
+def test_read_only_de_agy_corre_dentro_de_bwrap_con_proyecto_solo_lectura(env):
     cmd = runner.build_command(REAL["agy"], mode="read-only", model=None, cwd=Path("/proyecto"),
                                prompt="hola", state_dir=env.state_dir, platform="linux")
     assert cmd.argv[:5] == ["bwrap", "--ro-bind", "/", "/", "--dev"]
     assert "--die-with-parent" in cmd.argv
     assert cmd.argv[cmd.argv.index("--") + 1] == "agy"
-    assert "/proyecto" not in cmd.argv[:cmd.argv.index("--")]
+    i = cmd.argv.index("/proyecto")
+    assert cmd.argv[i - 1:i + 2] == ["--ro-bind", "/proyecto", "/proyecto"]
+
+
+def test_read_only_remonta_el_proyecto_despues_del_tmp_escribible(env):
+    cwd = Path("/tmp/proyecto")
+    cmd = runner.build_command(REAL["agy"], mode="read-only", model=None, cwd=cwd,
+                               prompt="hola", state_dir=env.state_dir, platform="linux")
+    pre = cmd.argv[:cmd.argv.index("--")]
+    i = pre.index("/tmp")
+    j = pre.index(str(cwd))
+    assert pre[i - 1:i + 2] == ["--bind", "/tmp", "/tmp"]
+    assert pre[j - 1:j + 2] == ["--ro-bind", str(cwd), str(cwd)]
+    assert j > i
+
+
+def _bwrap_disponible():
+    return shutil.which("bwrap") is not None and subprocess.run(
+        ["bwrap", "--ro-bind", "/", "/", "true"], capture_output=True).returncode == 0
+
+
+@pytest.mark.skipif(not _bwrap_disponible(), reason="bwrap no está o no puede crear namespaces")
+def test_read_only_bwrap_impide_escribir_en_proyecto_bajo_tmp(tmp_path):
+    prefix, warnings = runner._sandbox_prefix(
+        REAL["agy"], REAL["agy"].modes["read-only"], "read-only", tmp_path,
+        "linux", Path.home())
+    archivo = tmp_path / "colado.txt"
+    result = subprocess.run(prefix + ["touch", str(archivo)], cwd=tmp_path, capture_output=True)
+    assert not warnings
+    assert result.returncode != 0, result.stderr
+    assert not archivo.exists()
 
 
 def test_write_de_agy_en_bwrap_solo_bindea_el_workspace(env):
@@ -371,6 +403,44 @@ def test_read_only_nombra_el_archivo_ya_modificado_que_cambio(env, proyecto, ras
     r = correr(env, "codex-critico", "WRITE:plan.md", proyecto)
     assert (r.status, r.exit_code) == ("VIOLACION_READ_ONLY", 7)
     assert "plan.md" in r.detail and "ya modificados" not in r.detail
+
+
+def test_read_only_detecta_archivo_staged_que_el_backend_vuelve_a_stagear(env, proyecto):
+    deploy(env)
+    archivo = proyecto / "dato.txt"
+    archivo.write_text("original\n", encoding="utf-8")
+    git(proyecto, "add", "dato.txt")
+    git(proyecto, "commit", "-qm", "dato")
+    archivo.write_text("staged antes de la corrida\n", encoding="utf-8")
+    git(proyecto, "add", "dato.txt")
+    status = git(proyecto, "status", "--porcelain")
+    assert status == "M  dato.txt"
+
+    r = correr(env, "codex-critico", "WRITE:dato.txt STAGE:dato.txt", proyecto)
+
+    assert git(proyecto, "status", "--porcelain") == status
+    assert git(proyecto, "diff", "--binary") == ""
+    assert (r.status, r.exit_code) == ("VIOLACION_READ_ONLY", 7)
+    assert "dato.txt" in r.detail
+
+
+@pytest.mark.parametrize("cambio", ["indice", "firma"])
+def test_tree_state_detecta_cambios_con_status_y_diff_identicos(proyecto, cambio):
+    archivo = proyecto / "README.md"
+    archivo.write_text("antes\n", encoding="utf-8")
+    git(proyecto, "add", "README.md")
+    st = archivo.stat()
+    antes = runner.tree_state(proyecto)
+    if cambio == "indice":
+        archivo.write_text("luego\n", encoding="utf-8")
+        git(proyecto, "add", "README.md")
+        os.utime(archivo, ns=(st.st_atime_ns, st.st_mtime_ns))
+    else:
+        os.utime(archivo, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    despues = runner.tree_state(proyecto)
+    assert antes.entries == despues.entries
+    assert git(proyecto, "diff", "--binary") == ""
+    assert antes.digest != despues.digest
 
 
 def test_write_en_worktree_commitea_en_su_rama_sin_tocar_el_repo(env, proyecto):
