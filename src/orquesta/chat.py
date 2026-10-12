@@ -967,6 +967,8 @@ def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> 
             repo = wt.get("repo") or _repo_of(store.project_of(conv))
             base_sha = wt.get("base_sha") or worktrees._find(store.paths, branch, repo).base_sha
             revisado = worktrees._branch_tip(repo, branch)
+            destino = worktrees._git(repo, "symbolic-ref", "--short", "HEAD")
+            wt["destino_error"] = worktrees.bloqueo_destino(repo, destino, revisado, branch)
             wt["diff"] = worktrees.diff_completo(repo, base_sha, revisado)
         except (worktrees.WorktreeError, OSError):
             wt["diff_error"] = True  # falla cerrada: sin diff no se puede descartar un test debilitado

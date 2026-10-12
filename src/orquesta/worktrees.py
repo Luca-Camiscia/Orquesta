@@ -93,6 +93,17 @@ def _is_merged(repo: Path, branch: str) -> bool:
                           capture_output=True).returncode == 0
 
 
+def bloqueo_destino(repo: Path, destino: str, sha: str, branch: str) -> str | None:
+    """Sin incorporar el destino, el merge combinaría árboles que nadie revisó ni testeó."""
+    proc = subprocess.run(["git", "merge-base", "--is-ancestor", f"refs/heads/{destino}", sha],
+                          cwd=repo, capture_output=True)
+    if proc.returncode != 0:
+        return (f"el destino {destino} avanzó desde la base de {branch}: incorporá el destino en la rama "
+                f"(merge o rebase), corré `orquesta review {branch}` de nuevo, "
+                "o confirmalo explícitamente con --forzar")
+    return None
+
+
 def project_id(repo: Path) -> str:
     digest = hashlib.sha1(str(repo.resolve()).encode()).hexdigest()[:8]
     return f"{slugify(repo.name, 30)}-{digest}"
@@ -320,9 +331,15 @@ def merge(paths: Paths, branch: str, repo: str | Path | None = None, sha: str | 
     wt = _find(paths, branch, repo)
     if sha is not None and _branch_tip(wt.repo, branch) != sha:
         raise WorktreeError(f"la rama {branch} cambió después de revisarla: volvé a revisarla antes de mergear")
+    if sha is not None:
+        destino = _git(wt.repo, "symbolic-ref", "--short", "HEAD")
+        motivo = bloqueo_destino(wt.repo, destino, sha, branch)
+        if motivo:
+            raise WorktreeError(motivo)
     # Por SHA, Git escribiría «Merge commit '<sha>'»: el mensaje conserva el nombre de la rama.
     mensaje = ["-m", f"Merge branch '{branch}'"] if sha is not None else []
-    proc = subprocess.run(["git", "merge", "--no-edit", *mensaje, sha or branch], cwd=wt.repo, capture_output=True,
+    ff = ["--ff-only"] if sha is not None else []
+    proc = subprocess.run(["git", "merge", "--no-edit", *ff, *mensaje, sha or branch], cwd=wt.repo, capture_output=True,
                           text=True)
     if proc.returncode != 0:
         subprocess.run(["git", "merge", "--abort"], cwd=wt.repo, capture_output=True)
@@ -331,8 +348,8 @@ def merge(paths: Paths, branch: str, repo: str | Path | None = None, sha: str | 
 
 
 def merge_sha(paths: Paths, branch: str, sha: str, destino: str,
-              repo: str | Path | None = None) -> dict:
-    """Mergea el tip revisado; la base debe seguir siendo ancestro del destino."""
+              repo: str | Path | None = None, *, force: bool = False) -> dict:
+    """Mergea el tip revisado; sin forzar, debe incorporar la punta actual del destino."""
     wt = _find(paths, branch, repo)
     actual = _git(wt.repo, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     if actual != destino:
@@ -344,8 +361,12 @@ def merge_sha(paths: Paths, branch: str, sha: str, destino: str,
         raise WorktreeError(f"review vieja: corré `orquesta review {branch}`")
     if not _is_merged(wt.repo, wt.base_sha):
         raise WorktreeError("el SHA base ya no es ancestro del destino")
+    if not force:
+        motivo = bloqueo_destino(wt.repo, destino, sha, branch)
+        if motivo:
+            raise WorktreeError(motivo)
     try:
-        _git(wt.repo, "merge", "--no-edit", sha)
+        _git(wt.repo, "merge", "--no-edit", *([] if force else ["--ff-only"]), sha)
     except WorktreeError:
         _git(wt.repo, "merge", "--abort", check=False)
         raise

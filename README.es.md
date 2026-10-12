@@ -118,7 +118,10 @@ Las conversaciones viejas de la UI quedan solo en `conversaciones/` y se pueden 
 - **Escritura solo en worktree.** Cuando un agente write deja cambios, `orquesta review` hace una review
   de **otra familia de modelos**. `orquesta merge` mergea el SHA revisado: exige que la punta de la rama
   sea el SHA revisado y el de los tests, y que el repo esté limpio y en la rama destino. Un commit
-  nuevo invalida review y tests. Si el proyecto no tiene comando de tests (`[worktree] tests = "…"` en
+  nuevo invalida review y tests. Si el destino avanzó desde la base, incorporalo en la rama (merge o
+  rebase) y volvé a correr `orquesta review <rama>`, o confirmá explícitamente con `--forzar`.
+  Sin forzar, la punta actual del destino debe ser ancestro del SHA revisado y testeado.
+  Si el proyecto no tiene comando de tests (`[worktree] tests = "…"` en
   `.orquesta/proyecto.toml`), el merge sigue exigiendo la aprobación de otra familia y tu confirmación,
   pero sin evidencia de tests: configuralo.
 - **Contrato de salida.** Los delegados cierran con `RESULTADO / CONFIANZA / EVIDENCIA / SIGUIENTE
