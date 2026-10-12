@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from helpers import git
+from helpers import dump_yaml, git, load_yaml
 from orquesta import chat, cli, confirmar, revision, tareas, worktrees
 
 
@@ -141,8 +141,45 @@ def test_review_sin_revisor_usa_seleccion_automatica(env, tarea, monkeypatch, ca
     args = cli.build_parser().parse_args(["review", wt.branch])
     assert cli.cmd_review(args, executor=revisar) == 0
     assert salida(capsys)["datos"]["revisor"] == "gemini-bibliotecario"
-    elegir.assert_called_once_with(manifest, wt.agent)
+    elegir.assert_called_once()
+    assert elegir.call_args.args == (manifest, wt.agent)
+    disponible = elegir.call_args.kwargs["disponible"]
+    assert disponible("agy") and disponible("claude")
     assert tareas.obtener(pid, wt.branch, paths=env)["revisor"] == "gemini-bibliotecario"
+
+
+@pytest.mark.parametrize("via", ["cli", "chat"])
+@pytest.mark.parametrize("con_claude", [False, True])
+def test_review_no_elige_backend_sin_binario(env, tarea, monkeypatch, capsys, via, con_claude):
+    wt, _, _ = tarea
+    backends = load_yaml(env.backends)
+    backends["backends"]["agy"]["command"] = ["orquesta-backend-ausente-regresion"]
+    # Claude es nativo: cuenta aunque su comando tampoco esté instalado.
+    backends["backends"]["claude"]["command"] = ["orquesta-claude-ausente-regresion"]
+    dump_yaml(backends, env.backends)
+    agents = {
+        wt.agent: {"backend": "codex", "mode": "write"},
+        "gemini-bibliotecario": {"backend": "agy", "mode": "read-only"},
+    }
+    if con_claude:
+        agents["claude-centinela"] = {"backend": "claude", "mode": "read-only"}
+    monkeypatch.setattr(chat.mf, "load", lambda paths: {"agents": agents})
+    if via == "chat":
+        assert chat._reviewer_for(chat.Store(env), wt.agent) == (
+            "claude-centinela" if con_claude else "orquestador")
+        return
+
+    def revisar(paths, project, agent, prompt):
+        assert con_claude and agent == "claude-centinela"
+        return chat.Reply("Veredicto: APROBAR")
+
+    args = cli.build_parser().parse_args(["review", wt.branch])
+    assert cli.cmd_review(args, executor=revisar) == (0 if con_claude else 1)
+    respuesta = salida(capsys)
+    if con_claude:
+        assert respuesta["datos"]["revisor"] == "claude-centinela"
+    else:
+        assert "no hay un revisor de otra familia disponible" in str(respuesta)
 
 
 def test_merge_sin_confirm_necesita_confirmacion(tarea, capsys):

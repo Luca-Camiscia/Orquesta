@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -26,6 +25,7 @@ from filelock import FileLock
 
 from orquesta import manifest as mf
 from orquesta import procs, runner, worktrees
+from orquesta.config import backend_disponible
 from orquesta.paths import Paths
 from orquesta.revision import (
     JUDGE, JUDGE_CANDIDATES, ORCHESTRATOR, elegir_revisor, parsear_veredicto, prompt_review, razones_bloqueo,
@@ -620,7 +620,7 @@ def _verify_and_review(store: Store, cid: str, project: dict, writer: str, reply
 
 def _reviewer_for(store: Store, writer: str) -> str:
     manifest = mf.load(store.paths) or {}
-    reviewer = elegir_revisor(manifest, writer)
+    reviewer = elegir_revisor(manifest, writer, disponible=lambda b: backend_disponible(store.paths, b))
     return reviewer if reviewer is not None else ORCHESTRATOR
 
 
@@ -630,23 +630,34 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
     (autopreferencia: arXiv 2404.13076). Solo puede RECHAZAR con evidencia concreta (arXiv 2509.01494)."""
     reviewer = _reviewer_for(store, writer)
     wt = _project_wt(store, project, branch)
-    diff = ""
+    completo = ""
+    recortado = None
+    review_project = project
     if wt is not None:
-        diff = subprocess.run(["git", "diff", f"{wt.base_sha}..{branch}"], cwd=wt.repo,
-                              capture_output=True, text=True).stdout[:REVIEW_DIFF_CHARS]
+        sha = worktrees._branch_tip(wt.repo, branch)
+        rango = f"{wt.base_sha}..{sha}"
+        completo = worktrees._git(wt.repo, "diff", rango)
+        if len(completo) > REVIEW_DIFF_CHARS:
+            recortado = worktrees._git(wt.repo, "diff", "--name-only", rango).splitlines()
+        review_project = {**project, "dir": str(wt.path), "directory": str(wt.path)}
+    diff = completo[:REVIEW_DIFF_CHARS]
     if tests is None:
         evidencia = "No hay comando de tests configurado para el proyecto (.orquesta/proyecto.toml)."
     else:
         evidencia = (f"Resultado de los tests del proyecto: {'PASARON' if tests['ok'] else 'FALLARON'} "
                      f"(`{tests['cmd']}`).\n```\n{tests['salida'][-800:]}\n```")
-    prompt = prompt_review(project["name"], project["dir"], diff, evidencia)
-    r = _speak(store, cid, project, reviewer, executor, prompt=prompt, meta={"rol": "review", "branch": branch})
+    prompt = prompt_review(review_project["name"], review_project["dir"], diff, evidencia, recortado=recortado)
+    r = _speak(store, cid, review_project, reviewer, executor,
+               prompt=prompt, meta={"rol": "review", "branch": branch})
     verdict = parsear_veredicto(r.text)
 
     def save(c):
         w = next((x for x in c["worktrees"] if x["branch"] == branch), None)
         if w is not None:
             w["review"] = {"by": reviewer, "veredicto": verdict}
+            if recortado is not None:
+                w["review"].update(recortado=True, diff_chars=len(completo),
+                                   diff_mostrado_chars=len(diff), diff_archivos=recortado)
     store.update(cid, save)
     return verdict
 

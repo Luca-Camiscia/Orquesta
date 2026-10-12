@@ -91,6 +91,56 @@ def test_merge_no_trunca_el_diff(merge_diff, via, capsys):
 
 
 @pytest.mark.parametrize("via", ["cli", "chat"])
+@pytest.mark.parametrize("largo", [False, True])
+def test_review_avisa_recorte_y_merge_exige_forzar(
+        merge_diff, monkeypatch, via, largo, capsys, env):
+    wt, preparar, mergear, store, cid, pid = merge_diff
+    (wt.path / "a_largo.txt").write_text("contenido largo\n" * (2000 if largo else 1))
+    (wt.path / "z-danger.py").write_text("peligro = True\n")
+    sha = preparar(None)
+    completo = git(wt.repo, "diff", f"{wt.base_sha}..{sha}")
+    assert (len(completo) > chat.REVIEW_DIFF_CHARS) == largo
+    monkeypatch.setattr(chat.mf, "load", lambda paths: {"agents": {
+        wt.agent: {"backend": "codex", "mode": "write"},
+        "claude-centinela": {"backend": "claude", "mode": "read-only"},
+    }})
+    vistos = []
+
+    def revisar(paths, project, agent, prompt):
+        vistos.append((project, prompt))
+        return chat.Reply("Veredicto: APROBAR")
+
+    if via == "cli":
+        args = cli.build_parser().parse_args(["review", wt.branch])
+        assert cli.cmd_review(args, executor=revisar) == 0
+        assert json.loads(capsys.readouterr().out)["datos"]["veredicto"] == "APROBAR"
+        registro = tareas.obtener(pid, wt.branch, paths=env)
+        assert registro.get("diff_recortado", False) == largo
+    else:
+        assert chat._auto_review(store, cid, store.project_of(store.get_conversation(cid)),
+                                 wt.agent, wt.branch, revisar) == "APROBAR"
+        review = store.get_conversation(cid)["worktrees"][0]["review"]
+        assert review.get("recortado", False) == largo
+
+    project, prompt = vistos[0]
+    assert project["dir"] == str(wt.path)
+    assert "a_largo.txt" in prompt and "z-danger.py" in prompt
+    assert ("diff está recortado" in prompt) == largo
+    if largo:
+        assert "peligro = True" not in prompt
+        assert "antes de dar un veredicto" in prompt
+        assert str(wt.path) in prompt
+        _bloquea(mergear, via, capsys, "la review vio un diff recortado")
+        assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha
+        assert mergear(via, forzar=True, leer_tty=lambda p: f"forzar {wt.branch}") == (
+            0 if via == "cli" else None)
+    else:
+        assert "peligro = True" in prompt
+        assert mergear(via) == (0 if via == "cli" else None)
+    assert git(wt.repo, "rev-parse", "HEAD") == sha
+
+
+@pytest.mark.parametrize("via", ["cli", "chat"])
 def test_merge_forzado_permite_test_debilitado(merge_diff, via):
     wt, preparar, mergear, _, _, _ = merge_diff
     sha = preparar(b"def test_algo():\n    pass\n")
