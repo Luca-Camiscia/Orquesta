@@ -445,3 +445,13 @@ def test_marketplace_ajeno_frena_con_instrucciones_y_el_rollback_no_lo_borra(dep
     assert json.loads((deploy.plugins_dir / "known_marketplaces.json").read_text()) == ajeno
     assert rollback(deploy, run)[0] == "OK"
     assert json.loads((deploy.plugins_dir / "known_marketplaces.json").read_text()) == ajeno
+
+
+def test_corte_en_instalacion_nueva_sin_deploy_previo(env):
+    """Un clon recién bajado: nada desplegado todavía, ni agentes legacy ni bloque en CLAUDE.md."""
+    run = ClaudeFalso(env)
+    estado, datos = corte(env, run)
+    assert estado == "OK", datos
+    assert migracion.fase(env) == "plugin"
+    assert (env.plugin_dir / ".claude-plugin" / "plugin.json").is_file()
+    assert not env.agents_dir.exists() and not env.claude_md.exists()

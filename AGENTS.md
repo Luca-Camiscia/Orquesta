@@ -36,6 +36,8 @@ uv run orquesta ui --no-browser    # UI en http://127.0.0.1:8787
 | `src/orquesta/usage.py`, `calibration.py` | Uso por ventana de 5 h, uso por agente (`orquesta usage`) y calibración de la confianza declarada |
 | `src/orquesta/ui/app.py`, `ui/index.html` | FastAPI más una UI vanilla JS en un solo archivo, con temas por `data-estilo` y tokens CSS |
 | `docs/` | `headless.md` (invocaciones verificadas), `investigacion.md` (papers), `cli-json.md`, `plugin-brief.md`, `plugin-plan.md` (decisiones y modelo de amenaza del plugin) |
+| `examples/demo/` | Demo offline de punta a punta con backends guionados (la cubre `tests/test_demo.py`) |
+| `.github/workflows/ci.yml` | CI: ruff y la suite en 3.11–3.13 con bwrap real |
 | `plugin/` | Plugin generado por `orquesta generate`, ignorado por git. No lo edites a mano |
 | `state/`, `backups/`, `worktrees/`, `sandbox/`, `conversaciones/` | Estado local, ignorado por git. No lo edites a mano |
 

@@ -1,236 +1,184 @@
 # orquesta
 
-Ecosistema multi-modelo para Claude Code. Claude (Opus) orquesta y delega en GPT, vía Codex CLI, y
-en Gemini, vía Antigravity CLI (`agy`). Usa tus suscripciones y no necesita API keys.
+[![CI](https://github.com/Luca-Camiscia/orquesta/actions/workflows/ci.yml/badge.svg)](https://github.com/Luca-Camiscia/orquesta/actions/workflows/ci.yml)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
+![Linux](https://img.shields.io/badge/platform-Linux-lightgrey)
 
-## Cómo funciona
+**Multi-model orchestration for Claude Code, with the safety rules enforced in code instead of in the prompt.**
 
-orquesta es un **plugin local de Claude Code** (`orquesta@orquesta-local`). El registro se transforma en
-un plugin que Claude Code carga desde `~/orquesta/plugin/orquesta` (carpeta generada e ignorada por git):
+Claude Code plans the work and delegates it to GPT (through the Codex CLI) and Gemini (through the
+Antigravity CLI, `agy`), using the subscriptions you already pay for: no API keys. A Python runner sits
+between the orchestrator and the other models and enforces what an LLM should not be trusted to
+decide by itself:
 
-```
-orquesta.yaml ──generate──▶ ~/orquesta/plugin/orquesta/   agentes, comandos, skill, hooks y contexto
-     │                      ~/orquesta/plugin/.orquesta-manifest.json   (config aplicada: la usa el runner)
-backends.yaml ──────────▶  orquesta run <agente>          (codex/agy con las reglas en código)
-```
+- a **read-only** agent cannot leave changes behind (OS sandbox plus a before/after check of the git state);
+- a **write** agent only works in its own `git worktree` and branch, never in your checkout;
+- a change is reviewed by **a different model family** than the one that wrote it, with the project
+  tests run on the exact commit under review;
+- nothing reaches your branch without a **human typing the branch name at the terminal**, and a diff that
+  deletes assertions or skips tests is blocked even if the reviewer approved it.
 
-- **`orquesta.yaml`** es la fuente de verdad: moods, límites y agentes.
-- **`backends.yaml`** guarda las invocaciones headless verificadas (ver `docs/headless.md`). Es el
-  único lugar con comandos de backend.
-- Los agentes tienen namespace `orquesta:<nombre>` (por ejemplo `orquesta:that-it-guy`).
-- Un hook SessionStart inyecta las reglas del orquestador en cada sesión (con la generación del plugin) y un
-  hook PreToolUse sobre Bash avisa ante comandos de confirmación (ver «Modelo de amenaza»).
-- Los agentes **externos** (codex, agy) son wrappers baratos (haiku) que llaman a `orquesta run`.
-  El runner aplica las reglas en código:
-  - flags según el modo y sandbox de SO (bwrap) para agy;
-  - worktree `orquesta/<agente>/<tarea>` para los agentes write;
-  - `max_parallel`, `.orquesta-off` y timeout;
-  - detección de rate limit y de escrituras en modo read-only.
-- Los agentes **claude** son subagentes nativos (por ejemplo `that-it-guy`, el de mantenimiento).
+> UI, CLI messages and agent prompts are in Spanish (the tool is built for daily use in Spanish). The
+> code, this page and the [demo](examples/demo) are readable without it. Versión en español: [README.es.md](README.es.md).
 
-## Instalación y rollback
+## See it in 60 seconds (offline, no accounts)
 
 ```bash
-uv tool install -e ~/orquesta   # instala el comando `orquesta`
-orquesta migrar estado          # fase actual (legacy o plugin) y qué falta
-orquesta migrar corte --confirm # genera e instala el plugin y retira el deploy viejo
-orquesta migrar rollback --confirm # desinstala el plugin y restaura el deploy viejo desde el backup fijado
+git clone https://github.com/Luca-Camiscia/orquesta && cd orquesta
+uv run python examples/demo/run_demo.py
 ```
 
-`migrar corte` y `migrar rollback` piden confirmación humana por TTY (ver abajo). El corte hace backup,
-genera el plugin, lo instala (`claude plugin marketplace add` + `claude plugin install orquesta@orquesta-local -s user`),
-verifica y recién después retira `~/.claude/agents/orquesta` y el bloque de `~/.claude/CLAUDE.md`. Es
-idempotente: si se corta a medio camino, se vuelve a correr.
+The demo creates a throwaway project with a pricing bug and runs the **real** orquesta code path end to
+end. Only the model CLIs are replaced by a [scripted stand-in](examples/demo/demo_backend.py), so it
+costs nothing and is deterministic. It is also part of the test suite. Abridged output (the CLI answers in Spanish):
 
-Después de cada `orquesta generate`, en la sesión de Claude Code corré `/reload-plugins` (o reiniciá).
-Si el contexto de la sesión es de otra generación, el orquestador pide reiniciar y el doctor avisa
-(`sesiones-desfasadas`).
-
-## Comandos y skills del plugin
-
-| Comando | Qué hace |
-|---|---|
-| `/orquesta:mood` | Cambia el mood de la sesión (solo presentación) |
-| `/orquesta:plan` | Arma o retoma el plan (interrogador y arquitecto), lo escribe en `.orquesta/plan.md` y pide un único OK |
-| `/orquesta:reunion` | Consulta varias perspectivas con `orquesta reunion` en segundo plano |
-| `/orquesta:rrhh` | Remite a la sesión de Recursos Humanos (`orquesta rrhh abrir`, en tu terminal) |
-| `/orquesta:tareas` | Resume el estado de las tareas con `orquesta tareas --json` |
-
-El skill `orquesta-cli` le explica al modelo el contrato JSON de la CLI (`docs/cli-json.md`).
-
-## Confirmaciones humanas (segunda terminal)
-
-El modelo nunca confirma. `merge --confirm|--forzar`, `descartar --confirm`, `generate --confirm <agente>` y
-`migrar corte|rollback --confirm` leen un texto exacto desde `/dev/tty`. El `!` de Claude Code **no tiene
-TTY** (`not a tty`), y el Bash tool tampoco: sin TTY la CLI devuelve `estado: NECESITO_CONFIRMACION`,
-exit code 3 y el comando exacto. Ese comando lo corrés vos en una **segunda terminal**. No hay variable
-de entorno ni flag que saltee el freno.
-
-## Comandos
-
-| Comando | Qué hace |
-|---|---|
-| `orquesta` / `orquesta ui [--port N] [--no-browser]` | Abre el panel local en http://127.0.0.1:8787 |
-| `orquesta generate --dry-run` | Muestra el diff sin escribir |
-| `orquesta generate -m "msg"` | Backup → escribe → tests → CHANGELOG + commit (si algo falla, restaura) |
-| `orquesta generate --confirm <agente>` | Aplica un cambio protegido o una escalada (solo con OK explícito del usuario, en una segunda terminal) |
-| `orquesta doctor [--json]` | Chequeos de salud deterministas |
-| `orquesta run <agente> --cwd DIR [--task SLUG] <<'EOF' … EOF` | Delega en el backend del agente; la salida original queda en `state/salidas/` (ruta y sha256 en `salida completa:`) |
-| `orquesta run <agente> --ping` | Ping mínimo por el backend |
-| `orquesta reunion --modo <modo> --participantes a,b [--aspectos ...] [--cwd DIR] [--titulo T]` | Reunión desde la terminal (pregunta por stdin) |
-| `orquesta tareas [--json \| --linea]` | Tareas abiertas del proyecto actual |
-| `orquesta ledger anotar <tarea> --progreso\|--sin-progreso [--nota T]` | Anota una ronda; avisa estancamiento (2 sin progreso) y bloquea en el tope (4 sin progreso o 6 rondas) |
-| `orquesta ledger ver \| cerrar <tarea> --motivo T` | Estado de las tareas del ledger, o cierre |
-| `orquesta usage [--dias N]` | Uso por agente (llamadas, tokens, latencia, errores) como array JSON |
-| `orquesta review [--repo R] <rama>` | Review de otra familia de una tarea registrada |
-| `orquesta merge [--repo R] [--confirm] [--forzar] <rama>` | Mergea el SHA revisado (con confirmación por TTY) |
-| `orquesta descartar [--repo R] [--confirm] <rama>` | Descarta una tarea |
-| `orquesta rrhh triage\|evaluar\|catalogo\|sugerir\|reclutador\|validar\|memoria\|nota\|abrir` | Recursos Humanos |
-| `orquesta migrar estado\|corte\|rollback` | Transición legacy ↔ plugin |
-| `orquesta hook session-start\|pre-bash` | Hooks del plugin (leen el evento por stdin; no se corren a mano) |
-| `orquesta wt list \| new \| clean <rama> \| prune` | Worktrees de agentes write |
-| `orquesta plugins list` | Plugins instalados, sus skills y MCP, y qué agentes los usan |
-| `orquesta plugins install <owner/repo> <plugin@mkt> --yes` | Instala solo si hay auditoría ok del commit exacto; verifica el SHA |
-| `orquesta plugins uninstall <plugin> --yes` | Desinstala; se niega si algún agente lo usa |
-
-`python generate.py` y `python doctor.py` son atajos equivalentes (con `uv run`).
-
-## Reuniones y review
-
-Las reuniones corren desde la terminal (`orquesta reunion`, o `/orquesta:reunion`) y gastan cuota.
-Las conversaciones viejas de la UI quedan solo en `conversaciones/` y se pueden exportar.
-
-| Modo de reunión | Qué hace |
-|---|---|
-| rondas | Responden en orden y cada uno ve lo anterior |
-| moderada | El orquestador decide a quién preguntar (hasta 4 veces) y cierra con una síntesis |
-| crítica | Ronda a ciegas en paralelo, después crítica de las respuestas de los demás anonimizadas (A, B, C); veredicto del juez |
-| posturas | A favor, en contra y neutral asignadas, réplica y veredicto del juez |
-| seccionado | Cada uno cubre un aspecto y el juez consolida |
-
-- **Escritura solo en worktree.** Cuando un agente write deja cambios, `orquesta review` hace una review
-  de **otra familia de modelos**. `orquesta merge` mergea el SHA revisado: exige que la punta de la rama
-  sea el SHA revisado y el de los tests, y que el repo esté limpio y en la rama destino. Un commit
-  nuevo invalida review y tests.
-- **Contrato de salida.** Los delegados cierran con `RESULTADO / CONFIANZA / EVIDENCIA / SIGUIENTE
-  PASO`.
-
-## Panel web (UI)
-
-`orquesta ui` abre un panel local sin chat: Agentes, Salud, Historial, Plugins y Tareas (solo lectura:
-no mergea ni descarta, eso se hace por la CLI). Aplicar cambios del registro desde la UI sigue pidiendo
-confirmación con token de sesión.
-
-## Status line (opcional)
-
-`orquesta tareas --linea` imprime una línea como `0 tareas abiertas (0 en review, 0 bloqueadas)` para el
-proyecto del directorio actual. No se instala solo: enchufala a mano en `~/.claude/settings.json`:
-
-```json
-{
-  "statusLine": { "type": "command", "command": "orquesta tareas --linea" }
-}
+```text
+── 3. Delegate the fix to a write agent
+   $ orquesta run codex-forjador --cwd …/shop --task fix-discount   → exit 0
+     rama: orquesta/codex-forjador/fix-discount        # its own branch and worktree; main untouched
+── 4. A read-only agent that writes anyway
+   $ orquesta run codex-critico --cwd …/shop   → exit 7
+     ESTADO: VIOLACION_READ_ONLY — el árbol cambió durante una corrida read-only (…): notes.txt
+── 5. Rate limit
+   $ orquesta run codex-critico --cwd …/shop   → exit 75
+     ESTADO: RATE_LIMIT — el backend reportó límite de uso o de cuota
+── 6. Cross-family review                    # author was GPT → reviewer is Gemini
+   $ orquesta review orquesta/codex-forjador/fix-discount   → exit 0
+     { "revisor": "gemini-revisor", "veredicto": "APROBAR", "tests_ok": true, "sha_revisado": "4c4f1cb" }
+── 7. Merge needs a human
+   $ orquesta merge orquesta/codex-forjador/fix-discount   → exit 3
+     { "estado": "NECESITO_CONFIRMACION", "comando": "orquesta merge … --confirm" }
+── 9. An agent that "fixes" tests by deleting an assertion
+   $ orquesta merge orquesta/codex-forjador/make-tests-green --confirm   → exit 3
+     { "estado": "BLOQUEADO", "razones": ["… debilita los tests: tests/test_prices.py: assert eliminado …"] }
 ```
 
-Ese archivo es tuyo: orquesta no lo toca. Claude Code le pasa JSON por stdin al comando; este lo ignora.
+## How it works
 
-## Setup de worktrees por proyecto
-
-Un worktree nuevo no tiene `.venv`, `node_modules` ni `.env`. Si el proyecto tiene
-`.orquesta/proyecto.toml`, el runner lo prepara antes de que trabaje el agente:
-
-```toml
-[worktree]
-copiar = [".env"]                 # archivos sin versionar que se copian del repo original
-setup = "uv sync"                 # corre dentro del worktree; tiene ORQUESTA_PORT único y ORQUESTA_WORKTREE
-archive = "docker compose down"   # opcional: corre antes de borrar el worktree
-timeout_s = 600
+```mermaid
+flowchart LR
+    U([You]) -- "agree on a plan,<br/>one OK" --> O["Claude Code<br/>(orchestrator)"]
+    Y[orquesta.yaml<br/>agents, moods, limits] -- orquesta generate --> P[Claude Code plugin<br/>+ deploy manifest]
+    P -. loaded by .-> O
+    O -- subagent --> R["orquesta run<br/>(Python runner)"]
+    B[backends.yaml<br/>verified CLI invocations] --> R
+    R -- "codex exec (sandbox flag)" --> G[GPT]
+    R -- "agy -p inside bwrap" --> M[Gemini]
+    R --> W[(git worktree<br/>orquesta/agent/task)]
+    O -- orquesta review --> V["reviewer from another family<br/>+ tests on the reviewed SHA"]
+    V --> X{"orquesta merge<br/>human types the branch<br/>name at /dev/tty"}
 ```
 
-Si el setup falla, la corrida termina con `ESTADO: ERROR` y no gasta cuota del backend.
+1. **Registry → plugin.** [`orquesta.yaml`](orquesta.yaml) declares 17 agents (16 enabled) (role, backend, model,
+   read-only/write, isolation, when to route to them). `orquesta generate` validates it with pydantic and
+   renders a local Claude Code plugin: one subagent per agent, slash commands, a skill and hooks. A
+   `SessionStart` hook injects the routing table and orchestration rules into every session.
+2. **Thin wrappers, real runner.** Agents backed by GPT or Gemini are cheap Claude wrappers whose only job
+   is to call `orquesta run <agent>`. The runner builds the command from
+   [`backends.yaml`](backends.yaml) (the only place that knows CLI flags), applies the sandbox, the worktree,
+   timeouts and per-backend concurrency limits, classifies the outcome and saves the full output with its hash.
+3. **Review and merge are CLI commands, not prompts.** `orquesta review` runs the project tests in the
+   worktree and asks a read-only agent of another model family for a verdict. `orquesta merge` only merges
+   the commit that was reviewed *and* tested; any new commit invalidates both.
 
-## Cuota
+## Guarantees and where they live
 
-Cada invocación queda en `state/usage.jsonl`. El doctor (chequeo `cuota`) y la pestaña Salud muestran
-el uso de las últimas 5 horas por backend y un límite estimado a partir de los rate limits que hubo
-antes. Avisan cuando el uso llega al 80% de ese límite.
+| Guarantee | Mechanism | Code | Tests |
+|---|---|---|---|
+| Read-only agents leave no changes | `bwrap` with `/` read-only and the project re-mounted read-only (Gemini); `--sandbox read-only` (Codex); plus a SHA-256 of `git status` + worktree diff + index diff + file signatures before and after every run | [`runner.py`](src/orquesta/runner.py) `_sandbox_prefix`, `tree_state` | `tests/test_runner.py` (includes a real `bwrap` write attempt) |
+| Write agents are isolated | One `git worktree` per task on `orquesta/<agent>/<task>`; the runner commits there | [`worktrees.py`](src/orquesta/worktrees.py) | `tests/test_runner.py`, `tests/test_chat.py` |
+| No self-review | The reviewer must be read-only and from a different backend family than the author | [`revision.py`](src/orquesta/revision.py) `elegir_revisor`, `validar_revisor` | `tests/test_cli_review_merge.py` |
+| Merge only what was reviewed | Merge requires branch tip == reviewed SHA == tested SHA, clean trees and the base still an ancestor | [`cli.py`](src/orquesta/cli.py) `cmd_merge`, `worktrees.merge_sha` | `tests/test_cli_review_merge.py` |
+| A human confirms | `--confirm` reads an exact text from `/dev/tty`; without a TTY the CLI returns `NECESITO_CONFIRMACION` (exit 3) and the command to run in a second terminal. No flag or env var skips it | [`confirmar.py`](src/orquesta/confirmar.py) | `tests/test_confirmar.py`, `tests/test_cli_review_merge.py` |
+| Tests cannot be weakened to get green | Diff heuristics: deleted tests or assertions, new `skip`/`xfail`, trivial asserts, pytest config that deselects | [`revision.py`](src/orquesta/revision.py) `tests_debilitados` | `tests/test_caracterizacion_revision.py` |
+| Protected agents and privilege escalation | `generate` diffs against what is *deployed* and refuses read-only → write, new tools or plugins, prompt changes of protected agents without `--confirm` | [`guard.py`](src/orquesta/guard.py) | `tests/test_guard.py` |
+| Delegation loops end | A per-task ledger flags stagnation after 2 rounds without progress and blocks at 4 (or 6 rounds) | [`ledger.py`](src/orquesta/ledger.py) | `tests/test_ledger.py` |
 
-## Plugins por agente
+**Threat model.** The adversary is a model that follows rules but makes mistakes, not a malicious one. A
+model with shell access under your user id can defeat any local control (for example by opening a pty).
+The goal is that a mistake never ends in a silent merge or registry change, and that a deliberate bypass
+leaves a trace in git, the changelog and the deploy manifest. Details in
+[`docs/plugin-plan.md`](docs/plugin-plan.md) (Spanish).
 
-Cada agente `claude` puede tener `plugins: [id, ...]` en orquesta.yaml. Claude Code instala los plugins
-de forma global, así que lo que se asigna por agente es lo que traen: sus skills (frontmatter `skills`,
-`plugin:skill`) y sus MCP (`mcp__plugin_<plugin>_<servidor>__*` en `tools`). Agregarle un plugin a un
-agente existente es una escalada y requiere `--confirm`. Los wrappers de codex y agy no usan plugins.
+**Known gaps.** The OS sandbox exists only on Linux; elsewhere the runner falls back to detection. Native
+Claude subagents do not go through the runner. If a project has no test command configured
+(`[worktree] tests = "…"` in `.orquesta/proyecto.toml`), merge still requires a cross-family approval and
+your confirmation, but there is no test evidence: configure it.
 
-## Guardrails
+## Screenshots
 
-- Solo escribe en `~/orquesta/plugin/` (generado). `~/.claude` no se toca a mano: el deploy viejo
-  (`~/.claude/agents/orquesta` y el bloque de `~/.claude/CLAUDE.md`) lo retira `orquesta migrar corte`.
-- Los agentes `protected` y las escaladas (read-only → write, tools de escritura, `isolation: none`,
-  `permissionMode` elevado, cambios de prompt, altas y bajas) requieren `--confirm` por TTY. La línea
-  base es lo **desplegado**, así que commitear a mano no saltea el guard.
-- No escribe nada que parezca un secreto o un token.
-- Los moods solo cambian la presentación, nunca la verificación.
-- Un archivo `.orquesta-off` en la raíz de un proyecto desactiva la delegación en ese proyecto.
+The local panel (`orquesta ui`, bound to 127.0.0.1 with a per-session token, Host/Origin checks and a CSP):
 
-## Modelo de amenaza
+![Agents tab](docs/img/ui-agentes.png)
+![Health tab: usage per backend, calibration of declared confidence and doctor checks](docs/img/ui-salud.png)
 
-El adversario es un **modelo que sigue reglas pero se equivoca**, no uno malicioso. Los controles buscan
-que un error no termine en un merge o en un cambio del registro sin que lo veas, y que una evasión
-deliberada deje rastro. Controles en capas:
+## Install
 
-1. **Hook PreToolUse (aviso).** Ante `--confirm`, `--forzar` y patrones de evasión (`python -c …orquesta`,
-   `-m orquesta`, `.venv/bin/orquesta`, `script`, `unbuffer`, `pty`) devuelve `ask`. En sesiones
-   interactivas te pregunta, salvo en auto mode, donde lo resuelve el clasificador sin preguntarte
-   (decisión deliberada); en `claude -p` (delegados headless) `ask` equivale a denegar.
-2. **Freno real por `/dev/tty`.** Las confirmaciones leen un texto exacto (rama, agente o «corte») de la
-   terminal. Sin TTY no hay forma de confirmar: devuelve `NECESITO_CONFIRMACION` (exit 3). Sin variables
-   de entorno que lo saltee.
-3. **Merge por SHA revisado.** Lo que se mergea es el commit que revisó otra familia y sobre el que
-   pasaron los tests; un commit nuevo invalida ambos.
-
-**Qué NO cubre.** Un modelo con Bash bajo el mismo uid puede evadir cualquier control local, por ejemplo
-abriendo un pty para engañar al freno de TTY o editando archivos del repo y del plugin. Ya pasaba antes
-con `generate --confirm`. Eso queda fuera del modelo de amenaza; el rastro queda en git, el CHANGELOG y
-el manifiesto, y el doctor detecta desfasajes entre lo generado y lo instalado. Detalle de la decisión en
-`docs/plugin-plan.md`.
-
-### Sandbox de Bash de Claude Code (opción c): no se usa en v1
-
-El sandbox de Bash de Claude Code no está activado ni configurado en v1 (decisión del 2026-10-05, solo
-documentado). Motivos: (a) el riesgo modelado es el error, y ese lo cubren el hook, el freno de TTY y el
-merge por SHA; (b) habría que configurarlo en `~/.claude/settings.json`, fuera del alcance de orquesta;
-(c) no se evaluó cómo convive con `/dev/tty`, los worktrees y `state/` (hipótesis sin verificar). Queda
-como mejora futura. El sandbox del runner para agy (bwrap) es otra cosa y sigue vigente.
-
-## Estructura
-
-```
-orquesta.yaml  backends.yaml  CHANGELOG.md  PLAN.md  AGENTS.md
-src/orquesta/   registro y generador (schema, config, render, plugin_render, guard, manifest, generate),
-                runner (runner, worktrees, procs), CLI (cli, cli_json, confirmar, hooks), tareas y revisión
-                (tareas, revision), migración (migracion, migracion_cmd), doctor, rrhh, chat, ui/
-tests/          suite de pytest (usa directorios temporales: nunca toca ~/.claude)
-audits/         auditorías de plugins (<repo>@<sha>.md)
-manual/         .md de agentes manual: true
-docs/           headless.md, cli-json.md, plugin-brief.md, plugin-plan.md, investigacion.md
-scripts/        smoke_headless.py
-plugin/         plugin generado (ignorado por git)
-state/ backups/ worktrees/ sandbox/   (ignorados por git)
-```
-
-## Desarrollo
+Requirements: Linux, Python 3.11+, [uv](https://docs.astral.sh/uv/), git, `bubblewrap`,
+[Claude Code](https://docs.anthropic.com/claude-code), and at least one of the
+[Codex CLI](https://github.com/openai/codex) or the Antigravity CLI (`agy`), logged in with your subscription.
 
 ```bash
-uv run pytest                      # suite completa
-PYTHONPATH=$PWD/src uv run pytest  # dentro de un worktree
+git clone https://github.com/Luca-Camiscia/orquesta ~/orquesta && cd ~/orquesta
+uv run pytest                    # ~1,200 tests, about a minute, no network and no model calls
+uv tool install -e .             # puts `orquesta` on your PATH
+orquesta doctor --skip-live      # checks binaries, auth, registry and deploy without spending quota
+orquesta migrar corte --confirm  # installer: generates the plugin and registers it with Claude Code
 ```
 
-## Desinstalar
+`migrar corte` is idempotent and asks you to type a confirmation word at the terminal; `migrar rollback
+--confirm` undoes it. Then open Claude Code in any git project: the orchestrator context is injected on
+session start and the agents appear as `orquesta:<name>`.
 
-```bash
-orquesta migrar rollback --confirm  # desinstala el plugin y el marketplace, y restaura el deploy viejo
-uv tool uninstall orquesta
-claude plugin uninstall codex@openai-codex && claude plugin marketplace remove openai-codex
-rm -r ~/orquesta
+Day to day: edit `orquesta.yaml` (or use the panel), `orquesta generate -m "message"` (backup → write →
+test suite → changelog → commit, restoring on failure), then `/reload-plugins` in Claude Code.
+
+## Main commands
+
+| Command | What it does |
+|---|---|
+| `orquesta run <agent> --cwd DIR [--task SLUG]` | Delegate (prompt on stdin) to the agent's backend with all runner rules |
+| `orquesta review <branch>` | Tests on the branch tip + verdict from another model family |
+| `orquesta merge <branch> --confirm` | Merge the reviewed SHA after a TTY confirmation and the merge guards |
+| `orquesta reunion --modo critica --participantes a,b,c` | Multi-model "meeting": blind first round, anonymized critique, judge |
+| `orquesta doctor` | Deterministic health checks (binaries, auth, versions, deploy drift, quota) |
+| `orquesta usage` / `orquesta ledger` | Per-agent usage and latency; progress ledger per task |
+| `orquesta ui` | Local panel |
+
+Every command that the orchestrator consumes answers with a versioned JSON envelope
+([`docs/cli-json.md`](docs/cli-json.md)). Full reference in [README.es.md](README.es.md#comandos).
+
+## Design notes
+
+- **Backends are data.** CLI invocations were verified by hand and recorded with evidence in
+  [`docs/headless.md`](docs/headless.md). For example, `agy --mode plan` turned out *not* to be read-only,
+  which is why Gemini runs inside `bwrap` instead of trusting a flag.
+- **Literature-informed rules.** Meetings start with an independent blind round and anonymize peers
+  (debate gains come mostly from voting; models conform to peers), reviewers can only reject with a
+  concrete file:line finding, and declared confidence is used as an escalation threshold, never as a
+  vote weight (it is calibrated per backend in the panel). The papers and what was taken from each are in
+  [`docs/investigacion.md`](docs/investigacion.md).
+- **Tests never touch your real config.** Every test runs against temporary directories and a
+  [fake backend](tests/fake_backend.py) process; CI runs the suite on Python 3.11–3.13 with a real `bwrap`.
+
+## How it was built
+
+I designed orquesta and directed its development with Claude Code, and from early on I used orquesta to
+build itself: 28 of the ~170 commits (prefixed `orquesta(codex-forjador)`, `orquesta(codex-tester)`, …)
+were written by delegated GPT agents in their own worktrees and merged after review by another model
+family. The plans with the decisions behind each stage are in [`PLAN.md`](PLAN.md) and
+[`docs/plugin-plan.md`](docs/plugin-plan.md), and every change to the generated plugin is logged in
+[`CHANGELOG.md`](CHANGELOG.md).
+
+## Layout
+
 ```
+orquesta.yaml, backends.yaml   source of truth: agents and verified backend invocations
+src/orquesta/                  schema, generator and plugin renderer, runner, worktrees, review/merge,
+                               confirmation, hooks, doctor, meetings (chat), HR heuristics, usage, UI
+tests/                         pytest suite (temporary dirs, fake backend process)
+examples/demo/                 offline end-to-end demo
+docs/                          backend evidence, JSON contract, plugin design and threat model, research
+```
+
+No license is granted: the code is public to be read and evaluated.
