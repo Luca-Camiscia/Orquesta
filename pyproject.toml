@@ -1,7 +1,14 @@
 [project]
 name = "orquesta"
 version = "0.1.0"
-description = "Registro, generador, runner, doctor y UI local para orquestar Claude Code + Codex + Antigravity"
+description = "Multi-model orchestration for Claude Code: delegate to GPT (Codex CLI) and Gemini (Antigravity CLI) with guardrails enforced in code"
+authors = [{ name = "Luca Camiscia" }]
+keywords = ["llm", "multi-agent", "claude-code", "codex", "gemini", "orchestration", "sandbox"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Software Development",
+]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -14,6 +21,9 @@ dependencies = [
     "pytest>=8",
     "httpx2",
 ]
+
+[project.urls]
+Repository = "https://github.com/Luca-Camiscia/orquesta"
 
 [project.scripts]
 orquesta = "orquesta.cli:main"

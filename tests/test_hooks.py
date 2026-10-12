@@ -56,7 +56,7 @@ def test_stdin_invalido_sale_cero_sin_traceback(env, evento, stdin_text):
     ("orquesta merge x --forzar --confirm", True),
     ("python3 -c 'from orquesta.cli import main; main([\"merge\", \"x\", \"--confirm\"])'", True),
     ("python -c 'from orquesta import confirmar; confirmar.pedir_confirmacion(\"x\", \"y\")'", True),
-    ("/home/luca/orquesta/.venv/bin/orquesta merge x", True),
+    ("/home/user/orquesta/.venv/bin/orquesta merge x", True),
     ("script -qc 'orquesta merge x' /dev/null", True),
     ("bash -c 'orquesta merge x --confirm'", True),
     ('orquesta merge x "--confirm"', True),
@@ -72,7 +72,7 @@ def test_stdin_invalido_sale_cero_sin_traceback(env, evento, stdin_text):
     ("git merge orquesta/codex-forjador/x", False),
     ("orquesta merge x", False),
     ("orquesta tareas --json", False),
-    ("cd /home/luca/orquesta && uv run pytest -q", False),
+    ("cd /home/user/orquesta && uv run pytest -q", False),
     ("uv run python -c \"from orquesta import modelos; print(1)\"", False),
     ("git commit -m 'merge --confirm docs'", False),
 ])

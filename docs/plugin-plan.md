@@ -102,7 +102,7 @@ E4.1. Paralelismo: codex ≤ 2, claude ≤ 3.
   delegados headless nunca pueden correr comandos con `--confirm`. El `permissionDecisionReason` dice que
   la confirmación la corre el usuario en su terminal.
 - `agent_type` llega con prefijo (`orquesta:claude-juez`) y no existe sin `--agent` (E2.4).
-- Con cwd bajo `/home/luca`, Claude carga `~/.claude/CLAUDE.md` como memoria de un directorio ancestro
+- Con cwd bajo `~`, Claude carga `~/.claude/CLAUDE.md` como memoria de un directorio ancestro
   aunque `CLAUDE_CONFIG_DIR` sea otro. El E2E (E5.2) corre con el proyecto de prueba bajo `/tmp`, si no
   ve el bloque global de orquesta duplicado.
 - E2.3: el plugin se escribe en una carpeta temporal y se renombra (no exponer escrituras a medias a

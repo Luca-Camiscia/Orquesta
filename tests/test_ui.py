@@ -481,3 +481,13 @@ process.stdout.write(JSON.stringify(copiados));
         ["orquesta", "review", "orquesta/forja/cambio", "--repo", "/tmp/repo de Luca's $(echo sorpresa)"],
         ["orquesta", "merge", "orquesta/forja/cambio", "--repo", "/tmp/repo de Luca's $(echo sorpresa)", "--confirm"],
     ]
+
+
+@pytest.mark.parametrize("fase", ["legacy", "plugin"])
+def test_la_ui_muestra_donde_quedan_los_agentes_segun_la_fase(client, app_env, fase):
+    migracion.set_fase(app_env, fase)
+    apply_plan(build_plan(app_env), "deploy", run_tests=None)
+    esperado = app_env.plugin_dir / "agents" if fase == "plugin" else app_env.agents_dir
+    assert estado(client)["paths"]["agents_dir"] == app_env.pretty(esperado)
+    detalle = client.get("/api/agents/codex-critico/raw").json()
+    assert detalle["deployed"] == (esperado / "codex-critico.md").read_text(encoding="utf-8")

@@ -69,7 +69,7 @@ Doctor lo marca como warning.
 
 ## Plugin de Claude Code (verificado 2026-10-05)
 
-Spike E2.0/E3.0 de `docs/plugin-plan.md`. Claude Code 2.1.290, `CLAUDE_CONFIG_DIR=/home/luca/orquesta/sandbox/claude-plugin`
+Spike E2.0/E3.0 de `docs/plugin-plan.md`. Claude Code 2.1.290, `CLAUDE_CONFIG_DIR=~/orquesta/sandbox/claude-plugin`
 (config aislada con el login del usuario), plugin de prueba en `sandbox/plugin-spike/` y cwd `sandbox/rrhh-spike/`.
 Siempre `claude -p --model haiku --max-turns <=4 </dev/null`.
 
@@ -92,7 +92,7 @@ No se verificó (requiere TTY interactivo del usuario): el `!` de la sesión int
 
 ### Hallazgos extra
 
-- **Fuga de memoria global en la sandbox.** Con cwd bajo `/home/luca/`, Claude Code carga `/home/luca/.claude/CLAUDE.md` como memoria
+- **Fuga de memoria global en la sandbox.** Con cwd bajo `~/`, Claude Code carga `~/.claude/CLAUDE.md` como memoria
   de proyecto de un directorio ancestor, aunque `CLAUDE_CONFIG_DIR` apunte a otro lado (la respuesta salió con `[mood: ejecutivo]`).
   Con cwd en `/tmp` no pasa. Los E2E aislados deben tenerlo en cuenta: el bloque global de orquesta se ve igual.
 - La config aislada necesita su propio login (`.credentials.json`); `--bare` no lo usa ("Not logged in").

@@ -18,7 +18,7 @@ from ruamel.yaml import YAML
 
 from orquesta import catalog, doctor, editing
 from orquesta import manifest as mf
-from orquesta import chat, modelos, moods, reclutador, rrhh, runner
+from orquesta import chat, migracion, modelos, moods, reclutador, rrhh, runner
 from orquesta import worktrees as worktrees_mod
 from orquesta import plugins as plugins_mod
 from orquesta.config import load_backends, load_registry, read_manual
@@ -58,6 +58,15 @@ def _with_defaults(raw: dict) -> dict:
     out["mode"] = raw.get("mode", "read-only")
     out["tools"] = raw.get("tools") or []
     return out
+
+
+def _agentes_desplegados(paths: Paths) -> Path:
+    """Dónde quedan los .md desplegados: el plugin en fase `plugin`, ~/.claude/agents en `legacy`."""
+    try:
+        en_plugin = migracion.fase(paths) == "plugin"
+    except ValueError:
+        en_plugin = False
+    return paths.plugin_dir / "agents" if en_plugin else paths.agents_dir
 
 
 def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | None = None,
@@ -171,7 +180,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
             "errors": errors,
             "pending": {"changes": len(plan.changes), "summary": plan.summary,
                         "violations": [v.agent for v in plan.violations]},
-            "paths": {"home": paths.pretty(paths.home), "agents_dir": paths.pretty(paths.agents_dir),
+            "paths": {"home": paths.pretty(paths.home), "agents_dir": paths.pretty(_agentes_desplegados(paths)),
                       "claude_md": paths.pretty(paths.claude_md)},
         }
 
@@ -215,7 +224,7 @@ def create_app(paths: Paths | None = None, *, port: int = 8787, token: str | Non
         except Exception:
             pass
         manual = read_manual(paths, name) if raw.get("manual") else None
-        deployed_file = paths.agents_dir / f"{name}.md"
+        deployed_file = _agentes_desplegados(paths) / f"{name}.md"
         deployed = deployed_file.read_text(encoding="utf-8") if deployed_file.exists() else None
         return {"manual": bool(raw.get("manual")), "rendered": rendered, "deployed": deployed,
                 "content": manual if manual is not None else (deployed or rendered)}

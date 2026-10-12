@@ -1,6 +1,6 @@
 # Brief: migrar orquesta a un plugin local de Claude Code (terminal primero)
 
-Brief producido por claude-interrogador tras 2 rondas de preguntas con el usuario (2026-10-05). Repo: /home/luca/orquesta.
+Brief producido por claude-interrogador tras 2 rondas de preguntas con el usuario (2026-10-05). Repo: ~/orquesta.
 
 ## Objetivo
 El usuario abre Claude Code en cualquier proyecto → conversa con la sesión principal (orquestador) para definir metas, mejoras y forma de trabajo → aprueba el plan una vez → el orquestador delega en especialistas, verifica con tests, pide review de otra familia y convoca reuniones cuando hace falta. RR. HH. (armado de equipo, triage) es interno: el orquestador lo consulta en silencio. Aparte, una sesión de Claude Code dedicada a RR. HH., con memoria, donde el usuario conversa sobre agentes nuevos o cambios; solo propone diffs de orquesta.yaml.

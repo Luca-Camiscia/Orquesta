@@ -304,8 +304,10 @@ def conflicts(paths: Paths, branch: str, repo: str | Path | None = None) -> dict
     proc = subprocess.run(["git", "merge-tree", "--write-tree", "HEAD", branch], cwd=wt.repo,
                           capture_output=True, text=True)
     mine = changed_files(wt)
+    # una rama ya mergeada en HEAD no es trabajo pendiente: no cuenta como solapamiento
     overlaps = sorted(o.branch for o in _load(paths)
                       if o.branch != branch and o.repo == wt.repo and o.path.exists()
+                      and not (_branch_tip(o.repo, o.branch) != o.base_sha and _is_merged(o.repo, o.branch))
                       and mine & changed_files(o))
     return {"merge_conflict": proc.returncode == 1, "overlaps": overlaps}
 

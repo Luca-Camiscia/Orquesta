@@ -559,6 +559,18 @@ def test_conflictos_entre_ramas_y_con_main(env, proyecto):
     assert worktrees.conflicts(env, a.branch)["merge_conflict"] is True
 
 
+def test_una_rama_ya_mergeada_no_cuenta_como_solapamiento(env, proyecto):
+    from orquesta import worktrees
+    a = worktrees.create(env, repo=proyecto, agent="codex-forja", task="uno")
+    b = worktrees.create(env, repo=proyecto, agent="codex-forja", task="dos")
+    (a.path / "a.txt").write_text("versión A\n")
+    worktrees.commit_all(a, "A")
+    (b.path / "a.txt").write_text("versión B\n")
+    worktrees.commit_all(b, "B")
+    git(proyecto, "merge", "-q", "--no-edit", a.branch)
+    assert a.branch not in worktrees.conflicts(env, b.branch)["overlaps"]
+
+
 def test_tokens_de_agy_quedan_en_meta(env, tmp_path):
     from orquesta import runner
     apply_plan(build_plan(env), "deploy", run_tests=None)
