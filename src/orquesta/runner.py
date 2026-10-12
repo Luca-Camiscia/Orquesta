@@ -99,7 +99,13 @@ def _sandbox_prefix(backend: Backend, spec: ModeSpec | None, mode: str | None, c
         return [], [f"sin sandbox de SO en {platform}: el modo {mode} no está garantizado, solo se "
                     f"detectan escrituras con git status"]
     prefix = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]
+    if "/tmp" in cfg.writable:
+        # /tmp privado y vacío: el compartido puede tener checkouts de otros proyectos. Va primero para
+        # que los binds que caen bajo /tmp (proyecto, worktree, TMPDIR) se monten encima.
+        prefix += ["--tmpfs", "/tmp"]
     for item in cfg.writable:
+        if item == "/tmp":
+            continue
         p = str(home) + item[1:] if item.startswith("~") else item
         if Path(p).exists():
             prefix += ["--bind", p, p]
@@ -164,7 +170,7 @@ def build_command(backend: Backend, *, mode: str | None, model: str | None, cwd:
         argv += [*backend.prompt.flag, text]
     prefix, warnings = _sandbox_prefix(backend, spec, mode, cwd, platform, home or Path.home(),
                                        original_repo, tmpdir)
-    # TMPDIR privado: los sandboxes de write no dejan escribir el /tmp compartido (ahí puede vivir un checkout)
+    # TMPDIR privado: Codex write corre sin el /tmp compartido y bwrap monta un /tmp vacío
     env = {**os.environ, "TMPDIR": str(tmpdir)} if tmpdir is not None else None
     return Command(prefix + argv, stdin, temp, warnings, env)
 
@@ -486,7 +492,8 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                                 original_repo=wt.repo if wt is not None else None, tmpdir=tmpdir)
             meta["warnings"] = cmd.warnings
             vigilado = wt.repo if wt is not None else work_cwd if entry.mode == "read-only" else None
-            excluir = "refs/heads/orquesta/" if wt is not None else None
+            # Las ramas de tareas las mueven orquesta y las corridas paralelas, no este backend.
+            excluir = "refs/heads/orquesta/"
             before = tree_state(vigilado, excluir_refs=excluir) if vigilado is not None else None
             try:
                 result = _execute(cmd, backend, work_cwd, req.timeout_s or (spec.timeout_s if spec else 540),

@@ -75,7 +75,8 @@ flowchart LR
    `SessionStart` hook injects the routing table and orchestration rules into every session.
 2. **Thin wrappers, real runner.** Agents backed by GPT or Gemini are cheap Claude wrappers whose only job
    is to call `orquesta run <agent>`. The runner builds the command from
-   [`backends.yaml`](backends.yaml) (the only place that knows CLI flags), applies the sandbox, the worktree,
+   [`backends.yaml`](backends.yaml) (the one place with the Codex and Gemini invocations; the exceptions are
+   native `claude -p` calls for meetings and model discovery), applies the sandbox, the worktree,
    timeouts and per-backend concurrency limits, classifies the outcome and saves the full output with its hash.
 3. **Review and merge are CLI commands, not prompts.** `orquesta review` runs the project tests in the
    worktree and asks a read-only agent of another model family for a verdict. `orquesta merge` only merges

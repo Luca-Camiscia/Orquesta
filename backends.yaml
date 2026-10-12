@@ -1,7 +1,8 @@
 # backends.yaml: invocaciones headless verificadas en el paso 1 (2026-10-04). Detalle y evidencia
 # en docs/headless.md.
 #
-# Es la ÚNICA fuente de comandos de backend: el runner (`orquesta run`), doctor y la UI lo leen.
+# Es la fuente de las invocaciones de codex y agy: el runner (`orquesta run`), doctor y la UI lo leen.
+# Excepciones conocidas: `claude -p` en chat.py (reuniones) y `agy models` en modelos.py (descubrimiento).
 # Nada más en orquesta tiene comandos de backend hardcodeados.
 #
 # Armado: command + common_flags + modes.<modo>.flags + model_flag + effort_flag + cwd_flag + prompt
@@ -69,7 +70,7 @@ backends:
     os_sandbox:
       linux:
         tool: bwrap
-        writable: ["~/.gemini", "~/.cache", "/tmp"]
+        writable: ["~/.gemini", "~/.cache", "/tmp"]   # /tmp = tmpfs privado, no el del host
       # windows: sin sandbox de SO disponible → el runner solo detecta (git status antes/después)
     ping:
       prompt: Reply PONG

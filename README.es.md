@@ -17,8 +17,8 @@ backends.yaml ──────────▶  orquesta run <agente>          
 ```
 
 - **`orquesta.yaml`** es la fuente de verdad: moods, límites y agentes.
-- **`backends.yaml`** guarda las invocaciones headless verificadas (ver `docs/headless.md`). Es el
-  único lugar con comandos de backend.
+- **`backends.yaml`** guarda las invocaciones headless verificadas (ver `docs/headless.md`) de codex y
+  agy. Excepciones conocidas: `claude -p` de las reuniones y `agy models` del descubrimiento de modelos.
 - Los agentes tienen namespace `orquesta:<nombre>` (por ejemplo `orquesta:that-it-guy`).
 - Un hook SessionStart inyecta las reglas del orquestador en cada sesión (con la generación del plugin) y un
   hook PreToolUse sobre Bash avisa ante comandos de confirmación (ver «Modelo de amenaza»).

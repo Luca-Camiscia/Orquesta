@@ -19,7 +19,7 @@ uv run orquesta ui --no-browser    # UI en http://127.0.0.1:8787
 | Ruta | Qué es |
 |---|---|
 | `orquesta.yaml` | Registro de agentes, moods y orquestador. Es la fuente de verdad |
-| `backends.yaml` | La ÚNICA fuente de comandos de backend (codex, agy). No hardcodees comandos en otro lado |
+| `backends.yaml` | La fuente de las invocaciones de codex y agy (runner, doctor, UI). Excepciones conocidas: `claude -p` en `chat.py` y `agy models` en `modelos.py`. No agregues otras |
 | `src/orquesta/schema.py` | Modelos pydantic del registro y de backends, más `check_registry` |
 | `src/orquesta/generate.py`, `render.py`, `plugin_render.py` | Generan el plugin en `plugin/orquesta/` (agentes, comandos, skill, hooks, contexto del orquestador) |
 | `src/orquesta/claude_md.py` | Bloque de `~/.claude/CLAUDE.md` del deploy viejo (solo fase `legacy`) |

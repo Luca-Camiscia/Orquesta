@@ -142,14 +142,15 @@ def test_read_only_de_agy_corre_dentro_de_bwrap_con_proyecto_solo_lectura(env):
     assert cmd.argv[i - 1:i + 2] == ["--ro-bind", "/proyecto", "/proyecto"]
 
 
-def test_read_only_remonta_el_proyecto_despues_del_tmp_escribible(env):
+def test_read_only_usa_tmp_privado_y_remonta_el_proyecto_encima(env):
     cwd = Path("/tmp/proyecto")
     cmd = runner.build_command(REAL["agy"], mode="read-only", model=None, cwd=cwd,
                                prompt="hola", state_dir=env.state_dir, platform="linux")
     pre = cmd.argv[:cmd.argv.index("--")]
-    i = pre.index("/tmp")
+    assert ["--bind", "/tmp", "/tmp"] not in [pre[k:k + 3] for k in range(len(pre))]
+    i = pre.index("--tmpfs")
     j = pre.index(str(cwd))
-    assert pre[i - 1:i + 2] == ["--bind", "/tmp", "/tmp"]
+    assert pre[i:i + 2] == ["--tmpfs", "/tmp"]
     assert pre[j - 1:j + 2] == ["--ro-bind", str(cwd), str(cwd)]
     assert j > i
 
@@ -194,6 +195,24 @@ def test_read_only_bwrap_impide_escribir_en_proyecto_bajo_tmp(tmp_path):
 
 
 @pytest.mark.skipif(not _bwrap_disponible(), reason="bwrap no está o no puede crear namespaces")
+@pytest.mark.parametrize("modo", ["read-only", "write"])
+def test_bwrap_no_deja_escribir_en_otro_proyecto_bajo_tmp(env, proyecto, tmp_path, modo):
+    """tmp_path vive bajo /tmp: otro proyecto ahí no tiene que quedar al alcance del backend."""
+    ajeno = tmp_path / "otro-proyecto"
+    ajeno.mkdir()
+    cwd = proyecto
+    if modo == "write":
+        cwd = worktrees.create(env, repo=proyecto, agent="codex-forja", task="fix").path
+    prefix, _ = runner._sandbox_prefix(REAL["agy"], REAL["agy"].modes[modo], modo, cwd, "linux",
+                                       Path.home(), proyecto if modo == "write" else None)
+    r = subprocess.run(prefix + ["touch", str(ajeno / "colado.txt")], capture_output=True)
+    assert r.returncode != 0 and not (ajeno / "colado.txt").exists()
+    r = subprocess.run(prefix + ["touch", "/tmp/propio.txt"], capture_output=True)
+    assert r.returncode == 0, r.stderr  # el /tmp privado sí es escribible
+    assert not Path("/tmp/propio.txt").exists()
+
+
+@pytest.mark.skipif(not _bwrap_disponible(), reason="bwrap no está o no puede crear namespaces")
 @pytest.mark.parametrize("destino", ["colado.txt", ".git/colado.txt"])
 def test_read_only_bwrap_desde_subdirectorio_impide_escribir_en_raiz(proyecto, destino):
     cwd = proyecto / "src"
@@ -230,8 +249,8 @@ def test_write_de_agy_remonta_checkout_antes_del_worktree(env, proyecto, tmp_pat
     pre = cmd.argv[:cmd.argv.index("--")]
     privado = git(wt.path, "rev-parse", "--absolute-git-dir")
     montajes = [pre[i:i + 3] for i, arg in enumerate(pre) if arg in ("--bind", "--ro-bind")]
-    assert montajes.index(["--bind", "/tmp", "/tmp"]) < montajes.index(
-        ["--ro-bind", str(proyecto), str(proyecto)])
+    assert ["--bind", "/tmp", "/tmp"] not in montajes
+    assert pre.index("--tmpfs") < pre.index(str(proyecto))
     i = montajes.index(["--ro-bind", str(proyecto), str(proyecto)])
     resto = ([["--ro-bind", comun, comun]] if gitdir_separado else [])
     assert montajes[i + 1:] == resto + [
@@ -600,6 +619,20 @@ def test_tree_state_detecta_cambios_con_status_y_diff_identicos(proyecto, cambio
     assert antes.entries == despues.entries
     assert git(proyecto, "diff", "--binary") == ""
     assert antes.digest != despues.digest
+
+
+def test_read_only_no_marca_violacion_si_una_tarea_paralela_commitea(env, proyecto, monkeypatch):
+    deploy(env)
+    otra = worktrees.create(env, repo=proyecto, agent="codex-forja", task="paralela")
+    ejecutar = runner._execute
+
+    def con_tarea_paralela(*args, **kwargs):
+        git(otra.path, "commit", "--allow-empty", "-qm", "commit de la otra tarea")
+        return ejecutar(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "_execute", con_tarea_paralela)
+    r = correr(env, "codex-critico", "revisá", proyecto)
+    assert (r.status, r.exit_code) == ("OK", 0), r.detail
 
 
 def test_write_en_worktree_commitea_en_su_rama_sin_tocar_el_repo(env, proyecto):
