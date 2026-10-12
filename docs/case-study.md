@@ -115,6 +115,16 @@ orchestrator committed docs while two agents were running. The merged version ke
 ignores every `orquesta/*` task branch and reports a warning instead of blocking. The sandbox is the
 control; the comparison leaves a trace.
 
+The trace showed up on the very next delegation. While a GPT agent fixed the merge rule in its
+worktree, the orchestrator edited `backends.yaml`, `runner.py` and `docs/README.md` in the checkout.
+The run finished `OK`, committed the agent's work, and carried:
+
+```text
+aviso: el checkout original cambió durante la corrida (¿el agente o vos?): backends.yaml, src/orquesta/runner.py, docs/README.md
+```
+
+The agent's diffstat did not include those files, which settled the question in seconds.
+
 ## What the usage log says
 
 Every delegated run is appended to `state/usage.jsonl` (`orquesta usage` aggregates it). Over the first
