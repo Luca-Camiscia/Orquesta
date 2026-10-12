@@ -99,6 +99,22 @@ $ uv run pytest
 1250 passed in 64.57s
 ```
 
+## The third round: a correct fix with the wrong behavior
+
+The next review moved to write agents: Gemini's sandbox kept the shared `/tmp` writable, so a checkout
+under `/tmp` was reachable from a worktree. A probe showed the same for Codex: `codex exec --sandbox
+workspace-write` could `touch` a file in another directory under `/tmp`, and could not once
+`sandbox_workspace_write.exclude_slash_tmp=true` was set. Tests need a temp dir, so each write run now
+gets a private `TMPDIR` that is created before the run and deleted after it.
+
+The delegated fix also added a second layer: compare the original checkout before and after a write
+run and, if it changed, fail the run and drop the agent's commit. Its tests passed. It was still wrong.
+While an agent works in its worktree, the user keeps working in the checkout (that is the point of
+worktrees), and parallel tasks move their own branches. This very session would have tripped it: the
+orchestrator committed docs while two agents were running. The merged version keeps the comparison,
+ignores every `orquesta/*` task branch and reports a warning instead of blocking. The sandbox is the
+control; the comparison leaves a trace.
+
 ## What the usage log says
 
 Every delegated run is appended to `state/usage.jsonl` (`orquesta usage` aggregates it). Over the first
