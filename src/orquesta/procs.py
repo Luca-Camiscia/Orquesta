@@ -34,8 +34,8 @@ def _kill_group(p: subprocess.Popen, sig: int) -> None:
 
 
 def run(cmd: list[str], cwd=None, input: str | None = None, timeout: float | None = None,
-        key: str | None = None) -> ProcResult:
-    p = subprocess.Popen(cmd, cwd=cwd, text=True, start_new_session=True,
+        key: str | None = None, env: dict | None = None) -> ProcResult:
+    p = subprocess.Popen(cmd, cwd=cwd, text=True, start_new_session=True, env=env,
                          stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if key:

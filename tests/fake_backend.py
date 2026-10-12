@@ -10,6 +10,7 @@ Uso: fake_backend.py <codex|agy> [flags...]. El comportamiento sale del prompt:
   EMPTY             no imprime nada (exit 0)
   STATUSFAIL        (agy) devuelve status != SUCCESS
   MENTION_LIMIT     respuesta exitosa que menciona "usage limit" / "quota reached"
+  ECHOENV:<VAR>     imprime el valor de esa variable de entorno y sale
   ECHOARGS          responde con un JSON de los argumentos, cwd y prompt recibidos
 Si no, responde "PONG: <primera línea del prompt>".
 """
@@ -68,6 +69,10 @@ if "RATELIMIT" in prompt:
 if "EMPTY" in prompt:
     sys.exit(0)
 
+m = re.search(r"ECHOENV:(\w+)", prompt)
+if m:
+    print(os.environ.get(m.group(1), ""))
+    sys.exit(0)
 if "ECHOARGS" in prompt:
     text = json.dumps({"args": args, "cwd": cwd, "prompt": prompt})
 elif "MENTION_LIMIT" in prompt:

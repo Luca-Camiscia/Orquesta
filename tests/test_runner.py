@@ -444,7 +444,7 @@ def test_run_guarda_salida_despues_del_chequeo_read_only(env, proyecto, monkeypa
     deploy(env)
     original = runner.tree_state
 
-    def chequear_arbol(cwd):
+    def chequear_arbol(cwd, **_):
         assert not (env.state_dir / "salidas").exists()
         return original(cwd)
 
@@ -614,19 +614,32 @@ def test_write_en_worktree_commitea_en_su_rama_sin_tocar_el_repo(env, proyecto):
 
 @pytest.mark.parametrize("backend", ["codex", "agy"])
 @pytest.mark.parametrize("sucio", [False, True])
-def test_write_detecta_cambio_en_checkout_sin_commitear_worktree(env, proyecto, backend, sucio):
+def test_write_avisa_si_cambia_el_checkout_original_y_commitea_igual(env, proyecto, backend, sucio):
+    """El sandbox es el freno; la comparación deja rastro sin bloquear (el usuario puede estar trabajando)."""
     deploy(env, lambda d: d["agents"][1].update(backend=backend))
     archivo = proyecto / "README.md"
     if sucio:
         archivo.write_text("cambio previo del usuario\n")
     antes = git(proyecto, "rev-parse", "HEAD")
     r = correr(env, "codex-forja", f"WRITE:arreglo.txt WRITE:{archivo}", proyecto, task="fix")
-    assert (r.status, r.exit_code) == ("VIOLACION_CHECKOUT", 8)
-    assert "el agente write cambió el checkout original fuera de su worktree: README.md" in r.detail
-    assert "commit" not in r.meta
-    assert git(proyecto, "rev-parse", r.meta["branch"]) == antes
-    assert git(proyecto, "rev-parse", "HEAD") == antes
-    assert (Path(r.meta["worktree"]) / "arreglo.txt").exists()
+    assert r.status == "OK", r.detail
+    assert any("el checkout original cambió durante la corrida" in w and "README.md" in w
+               for w in r.meta["warnings"])
+    assert r.meta["commit"] and git(proyecto, "rev-parse", "HEAD") == antes
+
+
+def test_write_sin_cambios_en_el_checkout_no_avisa(env, proyecto):
+    deploy(env)
+    r = correr(env, "codex-forja", "WRITE:arreglo.txt", proyecto, task="fix")
+    assert r.status == "OK", r.detail
+    assert not any("checkout original" in w for w in r.meta["warnings"])
+
+
+def test_write_corre_con_tmpdir_privado_que_se_borra(env, proyecto):
+    deploy(env)
+    r = correr(env, "codex-forja", "ECHOENV:TMPDIR", proyecto, task="fix")
+    tmpdir = Path(r.output.strip().splitlines()[0])
+    assert tmpdir.is_relative_to(env.state_dir / "tmp") and not tmpdir.exists()
 
 
 def test_write_permite_commit_del_backend_en_su_propia_rama(env, proyecto):
@@ -639,14 +652,15 @@ def test_write_permite_commit_del_backend_en_su_propia_rama(env, proyecto):
     assert git(proyecto, "status", "--porcelain") == ""
 
 
-def test_tree_state_excluye_solo_la_ref_de_la_tarea(env, proyecto):
+def test_tree_state_excluye_solo_las_ramas_de_tareas(env, proyecto):
     wt = worktrees.create(env, repo=proyecto, agent="codex-forja", task="fix")
-    ref = f"refs/heads/{wt.branch}"
-    antes = runner.tree_state(proyecto, exclude_ref=ref)
+    otra = worktrees.create(env, repo=proyecto, agent="codex-forja", task="paralela")
+    antes = runner.tree_state(proyecto, excluir_refs="refs/heads/orquesta/")
     git(wt.path, "commit", "--allow-empty", "-qm", "propio")
-    assert runner.tree_state(proyecto, exclude_ref=ref).digest == antes.digest
+    git(otra.path, "commit", "--allow-empty", "-qm", "de otra tarea en paralelo")
+    assert runner.tree_state(proyecto, excluir_refs="refs/heads/orquesta/").digest == antes.digest
     git(proyecto, "branch", "ajena", wt.branch)
-    assert runner.tree_state(proyecto, exclude_ref=ref).digest != antes.digest
+    assert runner.tree_state(proyecto, excluir_refs="refs/heads/orquesta/").digest != antes.digest
 
 
 def test_ocupado_si_no_hay_slots_libres(env, proyecto):

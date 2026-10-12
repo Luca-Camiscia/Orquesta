@@ -26,7 +26,9 @@ backends:
         flags: [--sandbox, read-only]
         timeout_s: 540        # < 10 min: tope del Bash tool de Claude Code
       write:
-        flags: [--sandbox, workspace-write]
+        # Sin /tmp compartido (ahí puede vivir un checkout): el runner le da un TMPDIR privado.
+        # Verificado 2026-10-12 (codex-cli 0.160.0): sin la exclusión, `touch /tmp/<otro>/x` funciona.
+        flags: [--sandbox, workspace-write, -c, sandbox_workspace_write.exclude_slash_tmp=true]
         timeout_s: 540
     ping:
       prompt: Reply PONG

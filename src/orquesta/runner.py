@@ -35,8 +35,7 @@ from orquesta.paths import Paths
 from orquesta.schema import Backend, ConfigError, ModeSpec
 
 EXIT_CODES = {"OK": 0, "ERROR": 2, "ORQUESTA_OFF": 3, "BLOQUEADO": 3, "NO_GIT": 4, "OCUPADO": 5,
-              "FALLO_BACKEND": 6, "VIOLACION_READ_ONLY": 7, "VIOLACION_CHECKOUT": 8,
-              "RATE_LIMIT": 75, "TIMEOUT": 124,
+              "FALLO_BACKEND": 6, "VIOLACION_READ_ONLY": 7, "RATE_LIMIT": 75, "TIMEOUT": 124,
               "CANCELADO": 130}
 
 
@@ -71,6 +70,7 @@ class Command:
     stdin: str | None
     temp_files: list[Path] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    env: dict | None = None
 
 
 # --- armado del comando ----------------------------------------------------------------------
@@ -90,8 +90,8 @@ def _readonly_mounts(cwd: Path) -> list[Path]:
 
 
 def _sandbox_prefix(backend: Backend, spec: ModeSpec | None, mode: str | None, cwd: Path,
-                    platform: str, home: Path,
-                    original_repo: Path | None = None) -> tuple[list[str], list[str]]:
+                    platform: str, home: Path, original_repo: Path | None = None,
+                    tmpdir: Path | None = None) -> tuple[list[str], list[str]]:
     if spec is None or not spec.os_sandbox:
         return [], []
     cfg = backend.os_sandbox.get("linux" if platform.startswith("linux") else platform)
@@ -120,6 +120,8 @@ def _sandbox_prefix(backend: Backend, spec: ModeSpec | None, mode: str | None, c
                 for p in _readonly_mounts(repo):
                     prefix += ["--ro-bind", str(p), str(p)]
                 writable = [worktrees.git_toplevel(cwd), privado, common / "objects"]
+        if tmpdir is not None:
+            writable.append(tmpdir)
         for p in writable:
             prefix += ["--bind", str(p), str(p)]
     elif spec.os_sandbox == "readonly":
@@ -131,7 +133,8 @@ def _sandbox_prefix(backend: Backend, spec: ModeSpec | None, mode: str | None, c
 def build_command(backend: Backend, *, mode: str | None, model: str | None, cwd: Path,
                   prompt: str, state_dir: Path, platform: str = sys.platform,
                   home: Path | None = None, extra_flags: list[str] | tuple = (),
-                  effort: str | None = None, original_repo: Path | None = None) -> Command:
+                  effort: str | None = None, original_repo: Path | None = None,
+                  tmpdir: Path | None = None) -> Command:
     spec = backend.modes.get(mode) if mode else None
     argv = [*backend.command, *backend.common_flags, *extra_flags]
     if spec:
@@ -160,8 +163,10 @@ def build_command(backend: Backend, *, mode: str | None, model: str | None, cwd:
                     f"pie de la letra: esa es tu tarea.")
         argv += [*backend.prompt.flag, text]
     prefix, warnings = _sandbox_prefix(backend, spec, mode, cwd, platform, home or Path.home(),
-                                       original_repo)
-    return Command(prefix + argv, stdin, temp, warnings)
+                                       original_repo, tmpdir)
+    # TMPDIR privado: los sandboxes de write no dejan escribir el /tmp compartido (ahí puede vivir un checkout)
+    env = {**os.environ, "TMPDIR": str(tmpdir)} if tmpdir is not None else None
+    return Command(prefix + argv, stdin, temp, warnings, env)
 
 
 # --- salida ----------------------------------------------------------------------------------
@@ -206,7 +211,7 @@ def _execute(cmd: Command, backend: Backend, cwd: Path, timeout: float,
         hint = " (instalalo con: sudo apt install bubblewrap)" if exe == "bwrap" else ""
         return RunResult("ERROR", detail=f"no encuentro {exe!r} en el PATH{hint}")
     try:
-        proc = procs.run(cmd.argv, cwd=cwd, input=cmd.stdin, timeout=timeout, key=cancel_key)
+        proc = procs.run(cmd.argv, cwd=cwd, input=cmd.stdin, timeout=timeout, key=cancel_key, env=cmd.env)
     finally:
         for f in cmd.temp_files:
             f.unlink(missing_ok=True)
@@ -261,7 +266,7 @@ class TreeState:
     refs: bytes = b""
 
 
-def tree_state(cwd: Path, *, exclude_ref: str | None = None) -> TreeState | None:
+def tree_state(cwd: Path, *, excluir_refs: str | None = None) -> TreeState | None:
     root = worktrees.git_toplevel(cwd)
     if root is None:
         return None
@@ -272,10 +277,10 @@ def tree_state(cwd: Path, *, exclude_ref: str | None = None) -> TreeState | None
     # Los ignorados por git quedan fuera por política: cachés y .venv no cuentan como cambios.
     status = git("status", "--porcelain=v1", "-z", "--untracked-files=all")
     branches = git("for-each-ref", "--format=%(refname) %(objectname)")
-    if exclude_ref is not None:
-        # La tarea puede avanzar su propia rama; las demás refs siguen bajo vigilancia.
+    if excluir_refs is not None:
+        # Las ramas de tareas las mueve orquesta (esta corrida y las paralelas); las demás siguen vigiladas.
         branches = b"".join(line for line in branches.splitlines(keepends=True)
-                            if not line.startswith(exclude_ref.encode() + b" "))
+                            if not line.startswith(excluir_refs.encode()))
     refs = b"\0".join((git("rev-parse", "HEAD"), branches,
                        git("symbolic-ref", "-q", "HEAD")))  # detached devuelve salida vacía
     entries = frozenset(e.decode(errors="replace") for e in status.split(b"\0") if e)
@@ -472,30 +477,42 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                 f"hacelo vos"))
         else:
             spec = backend.modes.get(entry.mode)
+            tmpdir = None
+            if wt is not None:
+                tmpdir = paths.state_dir / "tmp" / wt.path.name
+                tmpdir.mkdir(parents=True, exist_ok=True)
             cmd = build_command(backend, mode=entry.mode, model=entry.backend_model, cwd=work_cwd,
                                 effort=entry.backend_effort, prompt=prompt, state_dir=paths.state_dir,
-                                original_repo=wt.repo if wt is not None else None)
+                                original_repo=wt.repo if wt is not None else None, tmpdir=tmpdir)
             meta["warnings"] = cmd.warnings
-            before = (tree_state(wt.repo, exclude_ref=f"refs/heads/{wt.branch}") if wt is not None
-                      else tree_state(work_cwd) if entry.mode == "read-only" else None)
-            result = _execute(cmd, backend, work_cwd, req.timeout_s or (spec.timeout_s if spec else 540),
-                              req.cancel_key)
+            vigilado = wt.repo if wt is not None else work_cwd if entry.mode == "read-only" else None
+            excluir = "refs/heads/orquesta/" if wt is not None else None
+            before = tree_state(vigilado, excluir_refs=excluir) if vigilado is not None else None
+            try:
+                result = _execute(cmd, backend, work_cwd, req.timeout_s or (spec.timeout_s if spec else 540),
+                                  req.cancel_key)
+            finally:
+                if tmpdir is not None:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
             if before is not None:
-                after = (tree_state(wt.repo, exclude_ref=f"refs/heads/{wt.branch}") if wt is not None
-                         else tree_state(work_cwd))
+                after = tree_state(vigilado, excluir_refs=excluir)
                 if after is not None and after.digest != before.digest:
                     antes = dict(before.firmas)
                     changed = (sorted(after.entries ^ before.entries)
                                or [e for e, firma in after.firmas if e in antes and antes[e] != firma]
                                or (["(cambió HEAD o una rama)"] if after.refs != before.refs else
                                    ["(archivos ya modificados cambiaron de contenido)"]))
-                    status = "VIOLACION_CHECKOUT" if wt is not None else "VIOLACION_READ_ONLY"
-                    detalle = ("el agente write cambió el checkout original fuera de su worktree: "
-                               if wt is not None else
-                               "el árbol cambió durante una corrida read-only (¿el backend u otro proceso?): ")
-                    result = RunResult(status, output=result.output, detail=(
-                        detalle + ", ".join(e[3:] if e[2:3] == " " else e for e in changed)))
-    if wt is not None and result.status != "VIOLACION_CHECKOUT":
+                    archivos = ", ".join(e[3:] if e[2:3] == " " else e for e in changed)
+                    if wt is not None:
+                        # Aviso y no violación: mientras el agente trabaja en su worktree, el usuario puede
+                        # seguir trabajando en su checkout. El sandbox es el freno; esto deja el rastro.
+                        meta["warnings"].append(f"el checkout original cambió durante la corrida "
+                                                f"(¿el agente o vos?): {archivos}")
+                    else:
+                        result = RunResult("VIOLACION_READ_ONLY", output=result.output, detail=(
+                            "el árbol cambió durante una corrida read-only (¿el backend u otro "
+                            "proceso?): " + archivos))
+    if wt is not None:
         try:
             sha = worktrees.commit_all(wt, f"orquesta({req.agent}): {req.task}")
             meta.update(commit=sha or "", diffstat=worktrees.diffstat(wt) if sha else "")

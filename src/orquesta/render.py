@@ -17,8 +17,7 @@ NOTICE = ("<!-- Generado por orquesta: no editar a mano. Fuente: {registry} "
           "(editalo y corré `orquesta generate`). -->")
 DISABLED_LINE = ("Orquestación desactivada: no delegues automáticamente a los agentes de orquesta; "
                  "usalos solo si el usuario lo pide explícitamente.")
-RUNNER_STATES = ("RATE_LIMIT, OCUPADO, ORQUESTA_OFF, BLOQUEADO, NO_GIT, VIOLACION_READ_ONLY, "
-                 "VIOLACION_CHECKOUT, TIMEOUT, "
+RUNNER_STATES = ("RATE_LIMIT, OCUPADO, ORQUESTA_OFF, BLOQUEADO, NO_GIT, VIOLACION_READ_ONLY, TIMEOUT, "
                  "FALLO_BACKEND, ERROR")
 
 

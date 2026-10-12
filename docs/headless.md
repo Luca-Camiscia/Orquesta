@@ -13,6 +13,8 @@ invocaciones finales quedaron en `backends.yaml`.
 | `codex exec --sandbox read-only -` (prompt por stdin) | ✅ stdout = `PONG` | 7.0 s |
 | `codex exec --sandbox workspace-write -C repo -` (crear archivo) | ✅ lo crea | 12.3 s |
 | `codex exec --sandbox read-only -C repo -` (crear archivo) | ✅ no lo crea ("the current directory is read-only") | 18.7 s |
+| `codex exec --sandbox workspace-write -C /tmp/…/cwd -` con `touch /tmp/…/afuera/x` (2026-10-12) | ⚠️ lo crea: `/tmp` es escribible en workspace-write | — |
+| Lo mismo con `-c sandbox_workspace_write.exclude_slash_tmp=true` y `TMPDIR` privado (2026-10-12) | ✅ `touch $TMPDIR/ok` sale 0 y `touch /tmp/…/afuera/x` sale 1 | — |
 | `agy -p "Reply PONG"` | ✅ stdout = `PONG` | 7.3 s |
 | `agy --output-format json -p "Reply PONG"` | ✅ `{"status":"SUCCESS","response":"PONG\n",...}` | 7.9 s |
 | `agy -p -` con el prompt en stdin | ❌ toma `-` como prompt literal | 7.0 s |
