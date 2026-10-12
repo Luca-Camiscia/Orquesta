@@ -262,6 +262,17 @@ def test_run_ledger_bloquea_antes_de_ejecutar_backend(
                         else "tope del ledger alcanzado: escalá al usuario")
 
 
+def test_run_ledger_bloquea_tambien_con_la_tarea_sin_slugificar(env, proyecto, monkeypatch):
+    """`--task "Fix Promedio"` trabaja en la rama fix-promedio: el ledger anotado con ese slug la frena."""
+    deploy(env)
+    pid = worktrees.project_id(proyecto)
+    for _ in range(4):
+        ledger.anotar(pid, "fix-promedio", progreso=False, paths=env)
+    monkeypatch.setattr(runner, "_execute", lambda *a, **k: pytest.fail("se ejecutó el backend"))
+    r = correr(env, "codex-forja", "hola", proyecto, task="Fix Promedio")
+    assert (r.status, r.exit_code) == ("BLOQUEADO", 3)
+
+
 def test_run_tarea_sin_anotaciones_corre_normal(env, proyecto):
     deploy(env)
     pid = worktrees.project_id(proyecto)

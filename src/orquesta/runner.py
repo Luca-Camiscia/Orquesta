@@ -411,7 +411,7 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                 repo = next((w.repo for w in worktrees.list_worktrees(paths)
                              if w.path.resolve() == repo.resolve()), repo)
                 estado = next((e for e in ledger.listar(worktrees.project_id(repo), paths=paths)
-                               if e["tarea"] == req.task), None)
+                               if e["tarea"] in (req.task, worktrees.slugify(req.task))), None)
                 if estado and (estado["cerrada"] or estado["accion"] == "escalar"):
                     detalle = ("tarea cerrada en el ledger" if estado["cerrada"]
                                else "tope del ledger alcanzado: escalá al usuario")
