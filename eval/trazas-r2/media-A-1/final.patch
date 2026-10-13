@@ -1,0 +1,9 @@
+diff --git a/codigo.py b/codigo.py
+index 8598a1c..3c91caf 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,3 @@
+ def moving_average(xs, k):
+     """Promedio móvil de ventana k."""
+-    return [sum(xs[i:i + k]) / k for i in range(len(xs))]
++    return [sum(xs[i:i + k]) / k for i in range(len(xs) - k + 1)]

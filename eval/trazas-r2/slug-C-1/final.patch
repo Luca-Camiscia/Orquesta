@@ -1,0 +1,59 @@
+diff --git a/codigo.py b/codigo.py
+index 14a751e..11f7117 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,9 @@
++import re
++import unicodedata
++
++
+ def slugify(text: str) -> str:
+-    """Convierte un título en un slug para URLs."""
+-    return text.lower().replace(" ", "-")
++    """Convierte un título en un slug ASCII para URLs, sin tildes."""
++    text = unicodedata.normalize("NFKD", text)
++    text = "".join(char for char in text if not unicodedata.combining(char))
++    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+diff --git a/test_slugify.py b/test_slugify.py
+new file mode 100644
+index 0000000..5a016d7
+--- /dev/null
++++ b/test_slugify.py
+@@ -0,0 +1,37 @@
++import pytest
++
++from codigo import slugify
++
++
++@pytest.mark.parametrize(
++    ("titulo", "esperado"),
++    [
++        ("ÁÉÍÓÚ áéíóú Ññ Üü", "aeiou-aeiou-nn-uu"),
++        ("¡Qué año! ¿Cómo estás?", "que-ano-como-estas"),
++        ("Cafe\u0301 y nin\u0303os", "cafe-y-ninos"),
++        ("  Hola\t\nMundo -- 2026_10  ", "hola-mundo-2026-10"),
++        ("España/Argentina: 100%", "espana-argentina-100"),
++        ("España—Argentina", "espana-argentina"),
++        ("España–Argentina", "espana-argentina"),
++        ("Niños💡felices", "ninos-felices"),
++        ("Árbol·niño", "arbol-nino"),
++        ("Dijo “hola”", "dijo-hola"),
++        ("uno—–💡dos", "uno-dos"),
++        ("\u2003Hola\u00a0mundo\u2003", "hola-mundo"),
++        ("«Árbol»", "arbol"),
++        ("hola-mundo-123", "hola-mundo-123"),
++        ("", ""),
++        (" ¡¿?! -- ", ""),
++        ("\t\n  ", ""),
++        ("💡—«»", ""),
++        ("\u0301\u0303", ""),
++    ],
++)
++def test_slugify_titulos_para_urls(titulo, esperado):
++    assert slugify(titulo) == esperado
++
++
++@pytest.mark.parametrize("titulo", [None, 123, 1.5, False, b"Hola", [], {}])
++def test_slugify_rechaza_entradas_que_no_son_texto(titulo):
++    with pytest.raises(TypeError):
++        slugify(titulo)

@@ -1,0 +1,77 @@
+diff --git a/codigo.py b/codigo.py
+index 14a751e..830aa93 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,20 @@
++import re
++import unicodedata
++
++
+ def slugify(text: str) -> str:
+-    """Convierte un título en un slug para URLs."""
+-    return text.lower().replace(" ", "-")
++    """Convierte un título str en un slug ASCII sin acentos para URLs.
++
++    Expande ligaduras y ordinales; los demás símbolos son separadores.
++    """
++    # NFD evita convertir superíndices y fracciones en cifras contiguas.
++    normalized = unicodedata.normalize("NFD", text)
++    text = "".join(char for char in normalized if not unicodedata.combining(char))
++    text = (
++        text.lower()
++        .replace("æ", "ae")
++        .replace("œ", "oe")
++        .replace("º", "o")
++        .replace("ª", "a")
++    )
++    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+diff --git a/test_visible.py b/test_visible.py
+index c367129..ad88594 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,45 @@
++import pytest
++
+ from codigo import slugify
+ 
+ 
+ def test_basico():
+     assert slugify("Hola Mundo") == "hola-mundo"
++
++
++@pytest.mark.parametrize(
++    ("titulo", "esperado"),
++    [
++        ("ÁÉÍÓÚ áéíóú Ññ Üü", "aeiou-aeiou-nn-uu"),
++        ("¡Canción del año!", "cancion-del-ano"),
++        ("Cancio\u0301n del an\u0303o", "cancion-del-ano"),
++        ("  Niño\tpingüino / 2026\n", "nino-pinguino-2026"),
++        ("Guía: café & té? #1", "guia-cafe-te-1"),
++        ("Madrid–Barcelona", "madrid-barcelona"),
++        ("Resumen—2026", "resumen-2026"),
++        ("«Canción del año»", "cancion-del-ano"),
++        ("1.º premio", "1-o-premio"),
++        ("1.ª edición", "1-a-edicion"),
++        ("1º premio", "1o-premio"),
++        ("1ª edición", "1a-edicion"),
++        ("currículum vitæ", "curriculum-vitae"),
++        ("ex æquo", "ex-aequo"),
++        ("Æsir y Œuvre", "aesir-y-oeuvre"),
++        ("Fórmula x²", "formula-x"),
++        ("Piso 2²", "piso-2"),
++        ("Capítulo 1½", "capitulo-1"),
++        ("Parte ½ final", "parte-final"),
++        ("--hola---mundo--", "hola-mundo"),
++        ("", ""),
++        (" \t¡!¿?\n", ""),
++        ("🎉✨", ""),
++    ],
++)
++def test_slug_para_urls(titulo, esperado):
++    assert slugify(titulo) == esperado
++
++
++@pytest.mark.parametrize("valor", [None, 123, b"titulo", ["titulo"]])
++def test_slug_rechaza_entradas_no_str(valor):
++    with pytest.raises(TypeError):
++        slugify(valor)

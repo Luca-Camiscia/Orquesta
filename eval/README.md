@@ -51,7 +51,7 @@ the author's second round fixed both. The other four first-round verdicts were `
 | slug | 3/3 | 3/3 | 3/3 |
 
 All 18 first-round verdicts in B were `APROBAR CON CAMBIOS`, so B always had its second round.
-Contamination audit ([`auditar.py`](auditar.py)): none of the 182 Codex sessions of the evaluation (pilot, full run and D)
+Contamination audit ([`auditar.py`](auditar.py)): none of the 272 Codex sessions of the evaluation (pilot, both full runs and D)
 mentions the hidden tests or the task folder.
 
 ### Control D: the reviewer plus the same checklist (three runs each, 18 runs)
@@ -72,21 +72,40 @@ next to an open question about whether the issue required it, and closed with `A
 author, told to ignore findings that do not apply, implemented it once out of three. With the same
 checklist and no review notes (C), it implemented it every time.
 
+### Replication with traces (A, B and C again, 54 runs)
+
+A second, independent run of A, B and C, this time with traces for every run (`trazas-r2/`,
+`resultados-r2.jsonl`). One A run hit Codex's usage limit; the runner classified it as `RATE_LIMIT`
+and it is excluded.
+
+| Condition | First run | Replication | Both |
+|---|---|---|---|
+| A single agent | 12/18 | 11/17 | **23/35** |
+| B orquesta loop | 15/18 | 18/18 | **33/36** |
+| C self-review + checklist | 18/18 | 18/18 | **36/36** |
+| D orquesta loop + checklist | — | 16/18 (only run) | 16/18 |
+
+Median wall time in the replication: A 85 s, C 232 s, B 427 s.
+
 ### What it says
 
-- **A second, critical pass is what helped.** Everything A missed is in two tasks whose hidden tests
-  check invalid input (`page < 1`, `k <= 0`) that the issue never mentions.
-- **On these tasks the cross-family reviewer did not add to that pass and sometimes diluted it.** Its
-  findings were correct but hedged: a low-severity flag plus "approve with changes" read as permission
-  to skip. That is a finding about the review contract, not about Gemini: the reviewer is asked to
-  reject only with a concrete failing case, so an edge case the issue leaves open becomes a soft note.
-- **The pilot did not replicate.** In the pilot the reviewer rejected exactly the two flawed fixes and B
-  went 6/6; over 36 later reviews it rejected once. One run per condition was not enough to see that.
+- **A second, critical pass is what moves the result.** A single pass missed the same two tasks in both
+  runs (`media`, `paginar`: invalid input the issue never mentions). Every variant with a second round
+  recovered most or all of them.
+- **The cross-family reviewer did not beat self-review.** B was worse than C in the first run and tied
+  in the replication; with C's checklist added (D) it was still below C. Self-review was the cheapest
+  of the second-round variants, at about half of B's time.
+- **When the reviewer did not help, the traces say why.** It flagged the right gap in every `paginar`
+  run of D, but as "defensive validation, severity low/medium" with an open question, and approved with
+  changes; the author implemented it once out of three. That is a finding about the review contract
+  (reject only with a concrete failing case), not about Gemini.
+- **Single runs mislead.** The pilot made the reviewer look decisive (B 6/6 vs A 4/6); the first full run
+  made it look worse than self-review; the replication made them tie. Over the 54 reviews after the pilot it rejected once.
 - **What this does and does not support.** The guarantees (isolation, read-only enforcement, the merge
   gate) are enforced in code regardless of model quality; this evaluation is about output quality. On
-  small, well-scoped fixes it supports a cheap critical second pass by the author over an external
-  review. Two concrete follow-ups: let the reviewer mark edge cases the spec leaves open as questions
-  the author must answer explicitly, and add tasks whose defects are not input validation.
+  small, well-scoped fixes it supports a cheap critical second pass by the author, and does not show
+  that a reviewer of another family adds to it. Follow-ups: let the reviewer turn edge cases the spec
+  leaves open into questions the author must answer, and add tasks whose defects are not input validation.
 
 ## Caveats
 
@@ -105,10 +124,11 @@ checklist and no review notes (C), it implemented it every time.
 uv run python eval/run_eval.py --simulado                 # plumbing only, scripted backends, no quota
 uv run python eval/run_eval.py --repeticiones 3 > out.jsonl   # real models: about 54 runs, uses quota
 uv run python eval/resumir.py out.jsonl                   # tables above
-uv run python eval/reconstruir.py      # re-scores every D trace from its patch: 18/18 match (also a test)
+uv run python eval/reconstruir.py      # re-scores every traced run from its patch: 71/71 match (also a test)
 ```
 
 Raw results: [`piloto.jsonl`](piloto.jsonl), [`resultados.jsonl`](resultados.jsonl) (A, B, C),
+[`resultados-r2.jsonl`](resultados-r2.jsonl) with traces in [`trazas-r2/`](trazas-r2) (replication),
 [`resultados-d.jsonl`](resultados-d.jsonl) (D, with versions and final commit per row) and the D runs'
 final patches and review texts in [`trazas/`](trazas). A first attempt at D was discarded: the Gemini
 session expired mid-run and every review failed (see [`../docs/verification.md`](../docs/verification.md)).

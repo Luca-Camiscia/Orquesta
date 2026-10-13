@@ -1,0 +1,70 @@
+diff --git a/codigo.py b/codigo.py
+index 8598a1c..a93d017 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,10 @@
+ def moving_average(xs, k):
+-    """Promedio móvil de ventana k."""
+-    return [sum(xs[i:i + k]) / k for i in range(len(xs))]
++    """Promedios de ventanas completas; k debe ser un entero positivo, no bool.
++
++    Devuelve [] si no hay ventanas completas.
++    """
++    if isinstance(k, bool) or not isinstance(k, int):
++        raise TypeError("k debe ser un entero")
++    if k <= 0:
++        raise ValueError("k debe ser positivo")
++    return [sum(xs[i:i + k]) / k for i in range(len(xs) - k + 1)]
+diff --git a/test_visible.py b/test_visible.py
+index d290b42..bc40e1f 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,48 @@
++import pytest
++
+ from codigo import moving_average
+ 
+ 
+ def test_basico():
+     assert moving_average([1, 2, 3, 4], 2) == [1.5, 2.5, 3.5]
++
++
++@pytest.mark.parametrize(
++    "xs, k, esperado",
++    [
++        ([], 1, []),
++        ([7], 1, [7.0]),
++        ([1, 2, 3], 1, [1.0, 2.0, 3.0]),
++        ([1, 2, 3], 3, [2.0]),
++        ([1, 2, 3], 4, []),
++        ([-2.5, 0.5, 4.5], 2, [-1.0, 2.5]),
++        ((2, 4, 6), 2, [3.0, 5.0]),
++    ],
++)
++def test_ventanas_completas(xs, k, esperado):
++    assert moving_average(xs, k) == esperado
++
++
++@pytest.mark.parametrize("xs", [[], [1, 2, 3]])
++@pytest.mark.parametrize("k", [0, -1, -3])
++def test_rechaza_ventana_no_positiva(xs, k):
++    with pytest.raises(ValueError):
++        moving_average(xs, k)
++
++
++@pytest.mark.parametrize("k", [1.0, 1.5, "2", None, True, False])
++def test_rechaza_ventana_de_tipo_invalido(k):
++    with pytest.raises(TypeError):
++        moving_average([1, 2, 3], k)
++
++
++@pytest.mark.parametrize("xs", [None, 3, ["a", "b"]])
++def test_rechaza_datos_incompatibles(xs):
++    with pytest.raises(TypeError):
++        moving_average(xs, 1)
++
++
++def test_no_modifica_la_entrada():
++    xs = [1, 2, 3, 4]
++    moving_average(xs, 2)
++    assert xs == [1, 2, 3, 4]

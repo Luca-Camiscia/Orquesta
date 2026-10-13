@@ -1,0 +1,87 @@
+diff --git a/codigo.py b/codigo.py
+index 7398ad6..d74a62c 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,39 @@
+ def parse_csv_line(line: str) -> list[str]:
+-    """Separa una línea CSV en campos."""
+-    return line.split(",")
++    """Parsea un registro CSV (CRLF final opcional); rechaza CSV inválido."""
++    if line.endswith("\r\n"):
++        line = line[:-2]
++
++    fields = []
++    field = []
++    state = "start"
++    for char in line:
++        if state == "quoted":
++            if char == '"':
++                state = "closed"
++            else:
++                field.append(char)
++        elif char == ",":
++            fields.append("".join(field))
++            field = []
++            state = "start"
++        elif char == '"':
++            if state == "start":
++                state = "quoted"
++            elif state == "closed":
++                # Dos comillas dentro del campo representan una comilla literal.
++                field.append('"')
++                state = "quoted"
++            else:
++                raise ValueError("Comilla en un campo sin entrecomillar")
++        elif state == "closed":
++            raise ValueError("Texto después de la comilla de cierre")
++        elif char in "\r\n":
++            raise ValueError("Salto de línea fuera de un campo entrecomillado")
++        else:
++            field.append(char)
++            state = "unquoted"
++
++    if state == "quoted":
++        raise ValueError("Campo entrecomillado sin cierre")
++    fields.append("".join(field))
++    return fields
+diff --git a/test_csv_line.py b/test_csv_line.py
+new file mode 100644
+index 0000000..b5febb5
+--- /dev/null
++++ b/test_csv_line.py
+@@ -0,0 +1,35 @@
++import pytest
++
++from codigo import parse_csv_line
++
++
++@pytest.mark.parametrize(
++    ("line", "expected"),
++    [
++        ('"a,b",c', ["a,b", "c"]),
++        ('a,"b,c",d', ["a", "b,c", "d"]),
++        ('"a","b","c"', ["a", "b", "c"]),
++        ('"a""b,c",d', ['a"b,c', "d"]),
++        ('""""', ['"']),
++        ('"a""",b', ['a"', "b"]),
++        ('', [""]),
++        (',,"",', ["", "", "", ""]),
++        (' a ," b "', [" a ", " b "]),
++        ('"uno\r\ndos",tres', ["uno\r\ndos", "tres"]),
++        ('"uno\ndos\rtres"', ["uno\ndos\rtres"]),
++        ('a,"b,c"\r\n', ["a", "b,c"]),
++        ('a,\r\n', ["a", ""]),
++        ('"ñ,á",β', ["ñ,á", "β"]),
++    ],
++)
++def test_csv_fields(line, expected):
++    assert parse_csv_line(line) == expected
++
++
++@pytest.mark.parametrize(
++    "line",
++    ['"sin cierre', 'a"b,c', '"a"b,c', '"a" ,b', 'a\r\nb,c', 'a\nb', 'a\rb'],
++)
++def test_rejects_malformed_record(line):
++    with pytest.raises(ValueError):
++        parse_csv_line(line)

@@ -1,0 +1,55 @@
+diff --git a/codigo.py b/codigo.py
+index 8598a1c..1b4cda7 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,5 @@
+ def moving_average(xs, k):
+-    """Promedio móvil de ventana k."""
+-    return [sum(xs[i:i + k]) / k for i in range(len(xs))]
++    """Promedio móvil de ventanas completas; k debe ser un entero positivo."""
++    if k <= 0:
++        raise ValueError("k debe ser positivo")
++    return [sum(xs[i:i + k]) / k for i in range(len(xs) - k + 1)]
+diff --git a/test_visible.py b/test_visible.py
+index d290b42..aabe3a4 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,38 @@
++import pytest
++
+ from codigo import moving_average
+ 
+ 
+ def test_basico():
+     assert moving_average([1, 2, 3, 4], 2) == [1.5, 2.5, 3.5]
++
++
++def test_no_agrega_promedios_de_ventanas_incompletas():
++    assert moving_average([2, 4, 6, 8, 10], 3) == [4.0, 6.0, 8.0]
++
++
++@pytest.mark.parametrize(
++    "xs, k, esperado",
++    [
++        ([1, 2, 3], 3, [2.0]),
++        ([1, 2, 3], 1, [1.0, 2.0, 3.0]),
++        ([1, 2, 3], 4, []),
++        ([], 1, []),
++        ([4], 1, [4.0]),
++        ([-1.5, 0.5, 2.5], 2, [-0.5, 1.5]),
++    ],
++)
++def test_casos_borde_validos(xs, k, esperado):
++    assert moving_average(xs, k) == esperado
++
++
++@pytest.mark.parametrize("xs", [[1, 2, 3], []])
++@pytest.mark.parametrize("k", [0, -1])
++def test_rechaza_ventana_no_positiva(xs, k):
++    with pytest.raises(ValueError):
++        moving_average(xs, k)
++
++
++def test_rechaza_ventana_no_entera():
++    with pytest.raises(TypeError):
++        moving_average([1, 2, 3], 2.0)

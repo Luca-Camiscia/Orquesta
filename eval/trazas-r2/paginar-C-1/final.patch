@@ -1,0 +1,73 @@
+diff --git a/codigo.py b/codigo.py
+index 0aab7fb..50b7782 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,4 +1,14 @@
+ def paginate(items, page, per_page):
+-    """Devuelve la página `page` (empezando en 1) de `items`."""
+-    start = page * per_page
++    """Devuelve la página `page` (empezando en 1) de `items`.
++
++    `page` y `per_page` deben ser enteros positivos, sin aceptar booleanos.
++    Lanza TypeError para tipos inválidos y ValueError para valores no positivos.
++    Las páginas fuera de rango devuelven un recorte vacío.
++    """
++    for name, value in (("page", page), ("per_page", per_page)):
++        if not isinstance(value, int) or isinstance(value, bool):
++            raise TypeError(f"{name} debe ser un entero")
++        if value < 1:
++            raise ValueError(f"{name} debe ser mayor que cero")
++    start = (page - 1) * per_page
+     return items[start:start + per_page]
+diff --git a/test_visible.py b/test_visible.py
+index 635458a..8fe11ec 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,47 @@
++import pytest
++
+ from codigo import paginate
+ 
+ 
+ def test_primera_pagina():
+     assert paginate(list(range(10)), 1, 3) == [0, 1, 2]
++
++
++@pytest.mark.parametrize(
++    "items, page, per_page, expected",
++    [
++        (list(range(10)), 2, 3, [3, 4, 5]),
++        (list(range(10)), 3, 3, [6, 7, 8]),
++        (list(range(10)), 4, 3, [9]),
++        (list(range(10)), 5, 3, []),
++        ([0, 1, 2, 3], 2, 2, [2, 3]),
++        ([0, 1, 2, 3], 3, 2, []),
++        ([0, 1], 2, 1, [1]),
++        ([0, 1], 1, 5, [0, 1]),
++        ([], 1, 3, []),
++        ([], 2, 3, []),
++        ((0, 1, 2), 2, 2, (2,)),
++    ],
++)
++def test_paginas_y_limites(items, page, per_page, expected):
++    original = items[:]
++    assert paginate(items, page, per_page) == expected
++    assert items == original
++
++
++@pytest.mark.parametrize("parameter", ["page", "per_page"])
++@pytest.mark.parametrize("value", [0, -1, -3])
++def test_rechaza_valores_no_positivos(parameter, value):
++    arguments = {"page": 1, "per_page": 3}
++    arguments[parameter] = value
++    with pytest.raises(ValueError):
++        paginate(list(range(10)), **arguments)
++
++
++@pytest.mark.parametrize("parameter", ["page", "per_page"])
++@pytest.mark.parametrize("value", [1.5, "2", None, True, False])
++def test_rechaza_parametros_no_enteros(parameter, value):
++    arguments = {"page": 1, "per_page": 3}
++    arguments[parameter] = value
++    with pytest.raises(TypeError):
++        paginate(list(range(10)), **arguments)

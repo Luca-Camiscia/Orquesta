@@ -1,0 +1,71 @@
+diff --git a/codigo.py b/codigo.py
+index 14a751e..3a10805 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,11 @@
++import re
++import unicodedata
++
++
+ def slugify(text: str) -> str:
+-    """Convierte un título en un slug para URLs."""
+-    return text.lower().replace(" ", "-")
++    """Convierte un título en un slug ASCII para URLs, sin tildes ni signos."""
++    text = "".join(
++        char for char in unicodedata.normalize("NFKD", text)
++        if not unicodedata.combining(char)
++    )
++    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+diff --git a/test_visible.py b/test_visible.py
+index c367129..a76d540 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,48 @@
++import pytest
++
+ from codigo import slugify
+ 
+ 
+ def test_basico():
+     assert slugify("Hola Mundo") == "hola-mundo"
++
++
++@pytest.mark.parametrize(
++    ("titulo", "esperado"),
++    [
++        ("ÁÉÍÓÚ áéíóú Ññ Üü", "aeiou-aeiou-nn-uu"),
++        ("¡Canción del año!", "cancion-del-ano"),
++        ("Cafe\u0301 y nin\u0303ez", "cafe-y-ninez"),
++        ("  Árbol\t y\n pingüino  ", "arbol-y-pinguino"),
++        ("¿Qué tal? / Edición_2026 -- versión #2", "que-tal-edicion-2026-version-2"),
++        ("  2026 -- edición 02  ", "2026-edicion-02"),
++        ("", ""),
++        (" \t\n ", ""),
++        (" ¡¿!? --- ", ""),
++        ("🌞🎉", ""),
++    ],
++)
++def test_slug_para_urls_en_espanol(titulo, esperado):
++    assert slugify(titulo) == esperado
++
++
++@pytest.mark.parametrize(
++    ("titulo", "esperado"),
++    [
++        ("España—México", "espana-mexico"),
++        ("niñez–juventud", "ninez-juventud"),
++        ("árbol“azul”", "arbol-azul"),
++        ("niñez\u2028feliz\u2029aquí", "ninez-feliz-aqui"),
++        ("año🌞nuevo", "ano-nuevo"),
++        ("--España—🌞--México--", "espana-mexico"),
++    ],
++)
++def test_separadores_unicode_no_unen_palabras(titulo, esperado):
++    assert slugify(titulo) == esperado
++    assert slugify(esperado) == esperado
++
++
++@pytest.mark.parametrize("titulo", [None, 0, 1.5, True, b"hola", [], {}])
++def test_rechaza_entradas_que_no_son_texto(titulo):
++    with pytest.raises(TypeError):
++        slugify(titulo)

@@ -1,0 +1,64 @@
+diff --git a/codigo.py b/codigo.py
+index 14a751e..ffee35d 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,14 @@
++import re
++import unicodedata
++
++
+ def slugify(text: str) -> str:
+-    """Convierte un título en un slug para URLs."""
+-    return text.lower().replace(" ", "-")
++    """Convierte texto en un slug ASCII; puede devolver una cadena vacía.
++
++    Lanza TypeError si la entrada no es str.
++    """
++    if not isinstance(text, str):
++        raise TypeError("text debe ser str")
++    text = unicodedata.normalize("NFKD", text).lower()
++    text = "".join(char for char in text if not unicodedata.combining(char))
++    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+diff --git a/test_visible.py b/test_visible.py
+index c367129..22013e0 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,38 @@
++import pytest
++
+ from codigo import slugify
+ 
+ 
+ def test_basico():
+     assert slugify("Hola Mundo") == "hola-mundo"
++
++
++@pytest.mark.parametrize(
++    "titulo, esperado",
++    [
++        ("ÁÉÍÓÚ Ñ Ü", "aeiou-n-u"),
++        ("¡Canción del año!", "cancion-del-ano"),
++        ("¿Qué tal? #2026", "que-tal-2026"),
++        ("  Pingüino\t y café\n", "pinguino-y-cafe"),
++        ("Cafe\u0301 y nin\u0303os", "cafe-y-ninos"),
++        ("CAFE\u0301 Y NIN\u0303OS", "cafe-y-ninos"),
++        ("𝐀ño 2026", "ano-2026"),
++        ("ℌOLA, España", "hola-espana"),
++        ("ＣＡＦÉ del AÑO", "cafe-del-ano"),
++        ("--hola___mundo---", "hola-mundo"),
++        ("café/niñez?día=2#100%", "cafe-ninez-dia-2-100"),
++        ("café ☕ con 🍰", "cafe-con"),
++        ("ya-es-un-slug-2026", "ya-es-un-slug-2026"),
++        ("", ""),
++        (" ¡¿?! \t", ""),
++        ("☕🍰", ""),
++    ],
++)
++def test_slug_para_url(titulo, esperado):
++    assert slugify(titulo) == esperado
++
++
++@pytest.mark.parametrize("valor", [None, 123, 1.5, True, b"cafe", [], {}])
++def test_rechaza_entradas_que_no_son_texto(valor):
++    with pytest.raises(TypeError):
++        slugify(valor)

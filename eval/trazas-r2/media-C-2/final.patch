@@ -1,0 +1,70 @@
+diff --git a/codigo.py b/codigo.py
+index 8598a1c..668ebbf 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,10 @@
+ def moving_average(xs, k):
+-    """Promedio móvil de ventana k."""
+-    return [sum(xs[i:i + k]) / k for i in range(len(xs))]
++    """Promedia ventanas completas; k debe ser un entero positivo, no booleano.
++
++    Devuelve [] si no hay una ventana completa.
++    """
++    if isinstance(k, bool) or not isinstance(k, int):
++        raise TypeError("k debe ser un entero positivo")
++    if k <= 0:
++        raise ValueError("k debe ser mayor que cero")
++    return [sum(xs[i:i + k]) / k for i in range(len(xs) - k + 1)]
+diff --git a/test_moving_average.py b/test_moving_average.py
+new file mode 100644
+index 0000000..e58b734
+--- /dev/null
++++ b/test_moving_average.py
+@@ -0,0 +1,47 @@
++import pytest
++
++from codigo import moving_average
++
++
++@pytest.mark.parametrize(
++    "xs, k, expected",
++    [
++        ([1, 2, 3, 4], 3, [2.0, 3.0]),
++        ([1, 2, 3, 4], 4, [2.5]),
++        ([1, 2, 3], 1, [1.0, 2.0, 3.0]),
++        ([7], 1, [7.0]),
++        ([1, 2], 3, []),
++        ([], 1, []),
++        ([], 3, []),
++        ((-3, 0, 6), 2, [-1.5, 3.0]),
++        ([0.1, 0.2, 0.3], 2, [0.15, 0.25]),
++    ],
++)
++def test_only_complete_windows(xs, k, expected):
++    assert moving_average(xs, k) == pytest.approx(expected)
++
++
++@pytest.mark.parametrize("xs", [[], [1, 2, 3]])
++@pytest.mark.parametrize("k", [0, -1, -4])
++def test_rejects_nonpositive_window(xs, k):
++    with pytest.raises(ValueError):
++        moving_average(xs, k)
++
++
++@pytest.mark.parametrize("xs", [[], [1, 2, 3]])
++@pytest.mark.parametrize("k", [True, False, 1.0, 1.5, "2", None])
++def test_rejects_noninteger_window(xs, k):
++    with pytest.raises(TypeError):
++        moving_average(xs, k)
++
++
++@pytest.mark.parametrize("xs", [None, 3, ["a", "b"], [1, None]])
++def test_rejects_invalid_data(xs):
++    with pytest.raises(TypeError):
++        moving_average(xs, 1)
++
++
++def test_does_not_modify_input():
++    xs = [1, 2, 3, 4]
++    moving_average(xs, 2)
++    assert xs == [1, 2, 3, 4]

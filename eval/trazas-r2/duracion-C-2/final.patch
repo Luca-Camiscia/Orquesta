@@ -1,0 +1,99 @@
+diff --git a/codigo.py b/codigo.py
+index 1a32c54..18d0333 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,8 +1,24 @@
++import re
++
++
+ def parse_duration(text: str) -> int:
+-    """Convierte duraciones como "1h30m" o "45s" a segundos."""
++    """Convierte componentes enteros h/m/s en orden; formato inválido: ValueError."""
++    match = (
++        re.fullmatch(r"(?:([0-9]+)h)?(?:([0-9]+)m)?(?:([0-9]+)s)?", text)
++        if isinstance(text, str) else None
++    )
++    if match is None or not text:
++        raise ValueError(
++            "Formato de duración inválido: usá horas, minutos y segundos "
++            "en orden (ej. 1h30m45s)."
++        )
+     total = 0
+-    for unidad, factor in (("h", 3600), ("m", 60), ("s", 1)):
+-        if unidad in text:
+-            numero, text = text.split(unidad)
+-            total += int(numero) * factor
++    for numero, factor in zip(match.groups(), (3600, 60, 1)):
++        valor = 0
++        # Convertir por bloques evita el límite de dígitos de int() en Python.
++        numero = numero or ""
++        for inicio in range(0, len(numero), 9):
++            bloque = numero[inicio:inicio + 9]
++            valor = valor * 10**len(bloque) + int(bloque)
++        total += valor * factor
+     return total
+diff --git a/test_visible.py b/test_visible.py
+index eba4cff..f0ce499 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,60 @@
++import pytest
++
+ from codigo import parse_duration
+ 
+ 
+ def test_basico():
+     assert parse_duration("1h30m") == 5400
++
++
++@pytest.mark.parametrize(
++    ("text", "expected"),
++    [
++        ("2h", 7200),
++        ("30m", 1800),
++        ("45s", 45),
++        ("1h30m", 5400),
++        ("1h45s", 3645),
++        ("2m45s", 165),
++        ("1h2m3s", 3723),
++        ("0s", 0),
++        ("0h0m0s", 0),
++        ("90m", 5400),
++        ("0h", 0),
++        ("0m", 0),
++        ("001h002m003s", 3723),
++        ("1h90m90s", 9090),
++        ("1234567890s", 1234567890),
++        ("12345678901234567890s", 12345678901234567890),
++    ],
++)
++def test_componentes_validos(text, expected):
++    assert parse_duration(text) == expected
++
++
++@pytest.mark.parametrize(
++    "text",
++    [
++        "", "xyz", "1", "h", "1hxyz", "xyz1h", "1h2",
++        "1m2h", "1s2m", "1h2h", "1m2m", "1s2s",
++        "-1h", "+1m", "1.5s", " 1h", "1h ", "1h 2m",
++        "1s\n", "1H", None, 45,
++        "1s2h", "1m2h3s", "1h2s3m", "1h2m3s4s",
++        "1h2m3sxyz", "1h\t2m", "1h\n2m", "1h,2m",
++        "1e3s", "1_000s", "١h", "１s", "1s\x00",
++        b"45s", True, 1.5, [], {},
++    ],
++)
++def test_entradas_invalidas(text):
++    with pytest.raises(ValueError, match="duración"):
++        parse_duration(text)
++
++
++@pytest.mark.parametrize(("unit", "factor"), [("h", 3600), ("m", 60), ("s", 1)])
++def test_componentes_largos(unit, factor):
++    # El formato no limita la cantidad de dígitos; no usar int() en el esperado.
++    assert parse_duration("1" + "0" * 5000 + unit) == 10**5000 * factor
++
++
++def test_ceros_iniciales_largos():
++    assert parse_duration("0" * 5000 + "45s") == 45

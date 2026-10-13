@@ -1,0 +1,10 @@
+diff --git a/codigo.py b/codigo.py
+index 0aab7fb..fefc4f5 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,4 +1,4 @@
+ def paginate(items, page, per_page):
+     """Devuelve la página `page` (empezando en 1) de `items`."""
+-    start = page * per_page
++    start = (page - 1) * per_page
+     return items[start:start + per_page]

@@ -1,0 +1,82 @@
+diff --git a/codigo.py b/codigo.py
+index 1a32c54..8c609aa 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,8 +1,16 @@
++import re
++
++
+ def parse_duration(text: str) -> int:
+-    """Convierte duraciones como "1h30m" o "45s" a segundos."""
+-    total = 0
+-    for unidad, factor in (("h", 3600), ("m", 60), ("s", 1)):
+-        if unidad in text:
+-            numero, text = text.split(unidad)
+-            total += int(numero) * factor
+-    return total
++    """Convierte enteros no negativos con unidades h, m, s en orden a segundos.
++
++    Requiere al menos una unidad y lanza ValueError si el formato es inválido.
++    """
++    match = (
++        re.fullmatch(r"(?:([0-9]+)h)?(?:([0-9]+)m)?(?:([0-9]+)s)?", text)
++        if isinstance(text, str) else None
++    )
++    if match is None or not text:
++        raise ValueError("Duración inválida: usá enteros no negativos con h, m, s en ese orden")
++    horas, minutos, segundos = (int(value or 0) for value in match.groups())
++    return horas * 3600 + minutos * 60 + segundos
+diff --git a/test_visible.py b/test_visible.py
+index eba4cff..4b81c5c 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,49 @@
++import pytest
++
+ from codigo import parse_duration
+ 
+ 
+ def test_basico():
+     assert parse_duration("1h30m") == 5400
++
++
++@pytest.mark.parametrize(
++    ("text", "expected"),
++    [
++        ("2h", 7200),
++        ("30m", 1800),
++        ("45s", 45),
++        ("1h30m", 5400),
++        ("1h45s", 3645),
++        ("2m45s", 165),
++        ("1h2m3s", 3723),
++        ("1h", 3600),
++        ("1m", 60),
++        ("1s", 1),
++        ("0h", 0),
++        ("0m", 0),
++        ("0s", 0),
++        ("0h0m0s", 0),
++        ("1h0m30s", 3630),
++        ("90m", 5400),
++        ("90s", 90),
++        ("01h02m03s", 3723),
++    ],
++)
++def test_combinaciones_validas(text, expected):
++    assert parse_duration(text) == expected
++
++
++@pytest.mark.parametrize(
++    "text",
++    [
++        "", "basura", "123", "h", "1hbasura", "1h30mextra", "1h30",
++        "1m2h", "1s2m", "1s2h", "1h2s3m", "1h2h", "1m2m", "1s2s",
++        "-1h", "+1m", "1.5h", " 1h", "1h ", "1h 2m", "1h\n", "1H",
++        "1M", "1S", "1hm", "1ms", "1,5h",
++        None, 45,
++    ],
++)
++def test_entradas_invalidas(text):
++    with pytest.raises(ValueError, match="Duración inválida"):
++        parse_duration(text)

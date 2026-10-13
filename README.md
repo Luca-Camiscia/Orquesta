@@ -24,9 +24,9 @@ should not be trusted to decide by itself:
 **In use:** in its first week orquesta delegated 85 runs to GPT and Gemini and flagged two read-only
 violations ([case study](docs/case-study.md)); 33 of the project's ~200 commits were written by GPT agents
 and merged after review by another model family. A small [evaluation](eval/README.md) with hidden tests
-(72 real runs) found that a second critical pass is what helps: one agent passed 12/18, the
-cross-family review loop 15/18 (16/18 with a checklist), and the same agent reviewing its own fix with
-that checklist 18/18 in half the time. The traces show the reviewer flagging the right gap too softly.
+(138 real runs, 71 of them re-scorable offline from their traces) found that a second critical pass is
+what helps: a single agent passed 23/35, the cross-family review loop 33/36, and the same agent
+reviewing its own fix with a checklist 36/36 at about half the loop's time.
 
 > UI, CLI messages and agent prompts are in Spanish (the tool is built for daily use in Spanish). The
 > code, this page and the [demo](examples/demo) are readable without it. Versión en español: [README.es.md](README.es.md).

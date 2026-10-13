@@ -1,0 +1,130 @@
+diff --git a/codigo.py b/codigo.py
+index 1a32c54..61c1eda 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,8 +1,20 @@
++import re
++
++
+ def parse_duration(text: str) -> int:
+-    """Convierte duraciones como "1h30m" o "45s" a segundos."""
+-    total = 0
+-    for unidad, factor in (("h", 3600), ("m", 60), ("s", 1)):
+-        if unidad in text:
+-            numero, text = text.split(unidad)
+-            total += int(numero) * factor
+-    return total
++    """Convierte enteros no negativos con unidades h, m, s en ese orden."""
++    match = (
++        re.fullmatch(r"(?:([0-9]+)h)?(?:([0-9]+)m)?(?:([0-9]+)s)?", text)
++        if isinstance(text, str)
++        else None
++    )
++    if match is None or not match.group(0):
++        raise ValueError(
++            "Duración inválida: usá enteros no negativos con unidades h, m, s "
++            "en ese orden, por ejemplo '1h30m45s'."
++        )
++    return sum(
++        int(numero) * factor
++        for numero, factor in zip(match.groups(), (3600, 60, 1))
++        if numero is not None
++    )
+diff --git a/test_duration.py b/test_duration.py
+new file mode 100644
+index 0000000..243d497
+--- /dev/null
++++ b/test_duration.py
+@@ -0,0 +1,92 @@
++import pytest
++
++from codigo import parse_duration
++
++
++@pytest.mark.parametrize(
++    "text, expected",
++    [
++        ("1h", 3600),
++        ("30m", 1800),
++        ("45s", 45),
++        ("1h30m", 5400),
++        ("1h45s", 3645),
++        ("30m45s", 1845),
++        ("1h30m45s", 5445),
++        ("0s", 0),
++        ("0h", 0),
++        ("0m", 0),
++        ("0h0m0s", 0),
++        ("001h02m03s", 3723),
++        ("90m", 5400),
++        ("120s", 120),
++        ("99999999999999999999s", 99999999999999999999),
++    ],
++)
++def test_accepts_ordered_duration_components(text, expected):
++    assert parse_duration(text) == expected
++
++
++@pytest.mark.parametrize(
++    "text",
++    [
++        "",
++        "basura",
++        "123",
++        "h",
++        "1hbasura",
++        "45sx",
++        "1h30",
++        "1m2h",
++        "1s2m",
++        "1s2h",
++        "1h2s3m",
++        "1m2h3s",
++        "1s2h3m",
++        "1h2h",
++        "1m2m",
++        "1s2s",
++        "-1h",
++        "+1m",
++        "1.5s",
++        "1,5s",
++        "١s",
++        "１h",
++        "1H",
++        " 1h",
++        "1h ",
++        "1h 2m",
++        "1h\t2m",
++        "1h\n2m",
++        "45s\n",
++        "45s\x00",
++        None,
++        45,
++        False,
++        b"45s",
++        [],
++        {},
++    ],
++)
++def test_rejects_invalid_durations_with_clear_value_error(text):
++    with pytest.raises(ValueError) as error:
++        parse_duration(text)
++    assert str(error.value)
++
++
++def test_rejects_non_string_without_evaluating_its_truth_value():
++    class InvalidInput:
++        def __bool__(self):
++            raise RuntimeError("No se puede evaluar como booleano")
++
++    with pytest.raises(ValueError) as error:
++        parse_duration(InvalidInput())
++    assert str(error.value)
++
++
++def test_accepts_string_subclass_with_false_truth_value():
++    class DurationText(str):
++        def __bool__(self):
++            return False
++
++    assert parse_duration(DurationText("45s")) == 45

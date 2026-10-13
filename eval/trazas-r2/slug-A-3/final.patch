@@ -1,0 +1,46 @@
+diff --git a/codigo.py b/codigo.py
+index 14a751e..9eafcb2 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,8 @@
++import re
++import unicodedata
++
++
+ def slugify(text: str) -> str:
+-    """Convierte un título en un slug para URLs."""
+-    return text.lower().replace(" ", "-")
++    """Convierte un título en un slug ASCII para URLs, sin tildes."""
++    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
++    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+diff --git a/test_visible.py b/test_visible.py
+index c367129..a8510bc 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,26 @@
++import pytest
++
+ from codigo import slugify
+ 
+ 
+ def test_basico():
+     assert slugify("Hola Mundo") == "hola-mundo"
++
++
++@pytest.mark.parametrize(
++    ("titulo", "esperado"),
++    [
++        ("Canción del año", "cancion-del-ano"),
++        ("ÁÉÍÓÚ Ñ Ü", "aeiou-n-u"),
++        ("Cancio\u0301n del an\u0303o", "cancion-del-ano"),
++        ("  ¡Hola, España!  ", "hola-espana"),
++        ("Pingüino\tazul / 2026", "pinguino-azul-2026"),
++        ("uno\n dos   tres", "uno-dos-tres"),
++        ("---niñez__y--educación---", "ninez-y-educacion"),
++        ("¿Qué? #100% & más", "que-100-mas"),
++        ("", ""),
++        (" ¡¿?! / ", ""),
++    ],
++)
++def test_slug_para_url(titulo, esperado):
++    assert slugify(titulo) == esperado
