@@ -168,6 +168,8 @@ Every command that the orchestrator consumes answers with a versioned JSON envel
 
 ## Design notes
 
+The full rationale is in [`docs/design.md`](docs/design.md); the highlights:
+
 - **Backends are data.** CLI invocations were verified by hand and recorded with evidence in
   [`docs/headless.md`](docs/headless.md). For example, `agy --mode plan` turned out *not* to be read-only,
   which is why Gemini runs inside `bwrap` instead of trusting a flag.

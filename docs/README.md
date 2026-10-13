@@ -5,6 +5,7 @@ each one contains so you can decide what is worth translating.
 
 | Document | Language | What it is |
 |---|---|---|
+| [`design.md`](design.md) | English | Summary of the design decisions and the reason for each: threat model, where rules live, confirmations, review and merge, sandboxing, meetings, accepted limits |
 | [`case-study.md`](case-study.md) | English | A real loop from this project: an independent review finds holes in the sandbox guarantees, agents fix them in worktrees, the orchestrator verifies, plus numbers from the usage log |
 | [`../eval/README.md`](../eval/README.md) | English | Small evaluation: one agent vs. the orquesta loop, scored by hidden tests |
 | [`verification.md`](verification.md) | English | What was checked against the real CLIs, when and with which versions: live `orquesta doctor`, sandbox probes, real end-to-end runs |
