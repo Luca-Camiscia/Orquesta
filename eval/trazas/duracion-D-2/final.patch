@@ -1,0 +1,135 @@
+diff --git a/.orquesta/proyecto.toml b/.orquesta/proyecto.toml
+index f9edb46..02b277a 100644
+--- a/.orquesta/proyecto.toml
++++ b/.orquesta/proyecto.toml
+@@ -1,2 +1,2 @@
+ [worktree]
+-tests = "~/orquesta/.venv/bin/python3 -m pytest -q -p no:cacheprovider test_visible.py"
++tests = "~/orquesta/.venv/bin/python3 -m pytest -q -p no:cacheprovider"
+diff --git a/codigo.py b/codigo.py
+index 1a32c54..b501cf9 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,8 +1,23 @@
++import re
++
++
+ def parse_duration(text: str) -> int:
+-    """Convierte duraciones como "1h30m" o "45s" a segundos."""
+-    total = 0
+-    for unidad, factor in (("h", 3600), ("m", 60), ("s", 1)):
+-        if unidad in text:
+-            numero, text = text.split(unidad)
+-            total += int(numero) * factor
+-    return total
++    """Convierte enteros no negativos con unidades h, m, s en orden a segundos.
++
++    Las unidades se pueden omitir; un formato inválido provoca ValueError.
++    """
++    match = (
++        re.fullmatch(r"(?:([0-9]+)h)?(?:([0-9]+)m)?(?:([0-9]+)s)?", text)
++        if isinstance(text, str) and text
++        else None
++    )
++    if match is None:
++        raise ValueError(
++            'Duración inválida: usá enteros no negativos con h, m, s en orden, '
++            'sin espacios (por ejemplo, "1h30m" o "45s").'
++        )
++    return sum(
++        int(numero) * factor
++        for numero, factor in zip(match.groups(), (3600, 60, 1))
++        if numero is not None
++    )
+diff --git a/test_duration.py b/test_duration.py
+new file mode 100644
+index 0000000..2807aaf
+--- /dev/null
++++ b/test_duration.py
+@@ -0,0 +1,86 @@
++import pytest
++
++from codigo import parse_duration
++
++
++@pytest.mark.parametrize(
++    ("text", "expected"),
++    [
++        ("1h", 3600),
++        ("30m", 1800),
++        ("45s", 45),
++        ("1h30m", 5400),
++        ("1h45s", 3645),
++        ("2m3s", 123),
++        ("1h2m3s", 3723),
++        ("0h", 0),
++        ("0m", 0),
++        ("0s", 0),
++        ("0h0m", 0),
++        ("0h0s", 0),
++        ("0m0s", 0),
++        ("0h0m0s", 0),
++        ("1h0m", 3600),
++        ("1h0s", 3600),
++        ("0m10s", 10),
++        ("0h2m3s", 123),
++        ("1h0m3s", 3603),
++        ("1h2m0s", 3720),
++        ("001h02m03s", 3723),
++        ("90m", 5400),
++        ("120s", 120),
++    ],
++)
++def test_accepts_ordered_duration_components(text, expected):
++    assert parse_duration(text) == expected
++
++
++@pytest.mark.parametrize(
++    "text",
++    [
++        "",
++        "basura",
++        "123",
++        "h",
++        "m",
++        "s",
++        "1hm",
++        "1h2m3s4h",
++        "1hbasura",
++        "1h30mextra",
++        "1h30",
++        "1h2h",
++        "1m2m",
++        "1s2s",
++        "1m2h",
++        "1s2m",
++        "1s2h",
++        "-1h",
++        "+1h",
++        "1.5h",
++        "1,5h",
++        "1e3s",
++        "1h-2m",
++        "1H",
++        " 1h",
++        "1h ",
++        "1h 2m",
++        "1h\t2m",
++        "1h\n2m",
++        "1h\r2m",
++        "1h\x002m",
++        "1h\n",
++        "١h",
++        "４５s",
++        None,
++        45,
++        b"45s",
++        True,
++        [],
++        {},
++    ],
++)
++def test_rejects_invalid_durations_with_clear_error(text):
++    with pytest.raises(ValueError) as error:
++        parse_duration(text)
++    assert "duraci" in str(error.value).lower()

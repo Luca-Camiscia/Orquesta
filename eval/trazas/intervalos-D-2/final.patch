@@ -1,0 +1,71 @@
+diff --git a/codigo.py b/codigo.py
+index 19b1861..0f12b0c 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,8 +1,8 @@
+ def merge_intervals(intervals):
+     """Une intervalos cerrados [a, b] que se solapan."""
+     result = []
+-    for a, b in intervals:
+-        if result and a < result[-1][1]:
++    for a, b in sorted(intervals, key=lambda interval: interval[0]):
++        if result and a <= result[-1][1]:
+             result[-1][1] = max(result[-1][1], b)
+         else:
+             result.append([a, b])
+diff --git a/test_visible.py b/test_visible.py
+index d20886e..fd68018 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,51 @@
++import pytest
++
+ from codigo import merge_intervals
+ 
+ 
+ def test_basico():
+     assert merge_intervals([[1, 3], [2, 6], [8, 10]]) == [[1, 6], [8, 10]]
++
++
++def test_extremos_compartidos():
++    assert merge_intervals([[1, 3], [3, 6], [6, 8]]) == [[1, 8]]
++
++
++def test_intervalos_desordenados():
++    assert merge_intervals([[8, 10], [2, 6], [1, 3]]) == [[1, 6], [8, 10]]
++
++
++def test_intervalos_contenidos_y_puntuales():
++    assert merge_intervals([[1, 10], [2, 3], [10, 10], [10, 12]]) == [[1, 12]]
++
++
++def test_entrada_vacia():
++    assert merge_intervals([]) == []
++
++
++@pytest.mark.parametrize(
++    "intervals, expected",
++    [
++        ([[-5, -2], [-3, 0]], [[-5, 0]]),
++        ([[0.5, 1.5], [1.5, 2.5]], [[0.5, 2.5]]),
++        ([[1, 5]], [[1, 5]]),
++        ([[7, 8], [1, 2], [4, 5]], [[1, 2], [4, 5], [7, 8]]),
++        ([[1, 3], [1, 3]], [[1, 3]]),
++        ([(1, 3), (2, 4)], [[1, 4]]),
++        ([[1, 8], [1, 3], [1, 5]], [[1, 8]]),
++        ([[1, 3], [1, 5], [1, 8]], [[1, 8]]),
++        ([[2, 2]], [[2, 2]]),
++    ],
++)
++def test_casos_borde_validos(intervals, expected):
++    assert merge_intervals(intervals) == expected
++
++
++def test_no_modifica_entrada():
++    intervals = [[8, 10], [1, 3], [2, 6]]
++    result = merge_intervals(intervals)
++    assert result == [[1, 6], [8, 10]]
++    assert intervals == [[8, 10], [1, 3], [2, 6]]
++
++    result[1][1] = 12
++    assert intervals == [[8, 10], [1, 3], [2, 6]]

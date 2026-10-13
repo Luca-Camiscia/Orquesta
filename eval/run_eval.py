@@ -133,9 +133,11 @@ def guardar_traza(trazas: Path | None, fila: dict, worktree: Path, base: str, re
         return
     d = trazas / f"{fila['tarea']}-{fila['condicion']}-{fila['rep']}"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "final.patch").write_text(sh(worktree, "git", "diff", base, "HEAD"), encoding="utf-8")
+    def limpio(texto: str) -> str:  # sin rutas del usuario en lo que se publica
+        return texto.replace(str(Path.home()), "~")
+    (d / "final.patch").write_text(limpio(sh(worktree, "git", "diff", base, "HEAD")), encoding="utf-8")
     if revision:
-        (d / "review.md").write_text(revision, encoding="utf-8")
+        (d / "review.md").write_text(limpio(revision), encoding="utf-8")
 
 
 def trial(tmp: Path, tarea: str, cond: str, rep: int = 1, trazas: Path | None = None) -> dict:

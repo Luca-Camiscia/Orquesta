@@ -1,0 +1,76 @@
+diff --git a/codigo.py b/codigo.py
+index 19b1861..d03f639 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,8 +1,8 @@
+ def merge_intervals(intervals):
+     """Une intervalos cerrados [a, b] que se solapan."""
+     result = []
+-    for a, b in intervals:
+-        if result and a < result[-1][1]:
++    for a, b in sorted(intervals):
++        if result and a <= result[-1][1]:
+             result[-1][1] = max(result[-1][1], b)
+         else:
+             result.append([a, b])
+diff --git a/test_visible.py b/test_visible.py
+index d20886e..3fe1fcc 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -3,3 +3,56 @@ from codigo import merge_intervals
+ 
+ def test_basico():
+     assert merge_intervals([[1, 3], [2, 6], [8, 10]]) == [[1, 6], [8, 10]]
++
++
++def test_extremos_compartidos():
++    assert merge_intervals([[1, 3], [3, 3], [3, 6]]) == [[1, 6]]
++
++
++def test_intervalos_desordenados():
++    assert merge_intervals([[8, 10], [2, 6], [1, 3]]) == [[1, 6], [8, 10]]
++
++
++def test_intervalos_contenidos():
++    assert merge_intervals([[1, 10], [2, 3], [9, 12]]) == [[1, 12]]
++
++
++def test_lista_vacia():
++    assert merge_intervals([]) == []
++
++
++def test_unico_intervalo():
++    assert merge_intervals([[1, 2]]) == [[1, 2]]
++    assert merge_intervals([[3, 3]]) == [[3, 3]]
++
++
++def test_intervalos_disjuntos():
++    assert merge_intervals([[1, 2], [5, 6]]) == [[1, 2], [5, 6]]
++    assert merge_intervals([[1, 2], [3, 4]]) == [[1, 2], [3, 4]]
++
++
++def test_extremos_negativos():
++    assert merge_intervals([[-5, -1], [-2, 3]]) == [[-5, 3]]
++
++
++def test_intervalos_duplicados():
++    assert merge_intervals([[1, 3], [1, 3], [1, 6]]) == [[1, 6]]
++
++
++def test_extremos_fraccionarios():
++    assert merge_intervals([[0.5, 1.5], [1.5, 2.5], [3.0, 3.5]]) == [
++        [0.5, 2.5], [3.0, 3.5]
++    ]
++
++
++def test_entrada_intacta():
++    intervals = [[8, 10], [2, 3], [1, 6]]
++    original = [interval[:] for interval in intervals]
++
++    result = merge_intervals(intervals)
++
++    assert result == [[1, 6], [8, 10]]
++    assert intervals == original
++    result[0][1] = 12
++    result[1][0] = 7
++    assert intervals == original

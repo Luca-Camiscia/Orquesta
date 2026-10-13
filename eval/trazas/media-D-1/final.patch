@@ -1,0 +1,60 @@
+diff --git a/codigo.py b/codigo.py
+index 8598a1c..af6379b 100644
+--- a/codigo.py
++++ b/codigo.py
+@@ -1,3 +1,9 @@
+ def moving_average(xs, k):
+-    """Promedio móvil de ventana k."""
+-    return [sum(xs[i:i + k]) / k for i in range(len(xs))]
++    """Promedia ventanas completas de la secuencia numérica xs.
++
++    k debe ser un entero positivo; si k <= 0, lanza ValueError.
++    Devuelve [] cuando no hay ninguna ventana completa.
++    """
++    if k <= 0:
++        raise ValueError("k debe ser positivo")
++    return [sum(xs[i:i + k]) / k for i in range(len(xs) - k + 1)]
+diff --git a/test_visible.py b/test_visible.py
+index d290b42..b0c0846 100644
+--- a/test_visible.py
++++ b/test_visible.py
+@@ -1,5 +1,39 @@
++import pytest
++
+ from codigo import moving_average
+ 
+ 
+ def test_basico():
+     assert moving_average([1, 2, 3, 4], 2) == [1.5, 2.5, 3.5]
++
++
++@pytest.mark.parametrize(
++    "xs, k, esperado",
++    [
++        ([1, 2, 3], 3, [2.0]),
++        ([1, 2, 3], 4, []),
++        ([], 1, []),
++        ([1, 2, 3], 1, [1.0, 2.0, 3.0]),
++        ([5], 1, [5.0]),
++        ((-3, -1, 1), 2, [-2.0, 0.0]),
++    ],
++)
++def test_ventanas_completas(xs, k, esperado):
++    assert moving_average(xs, k) == esperado
++
++
++def test_flotantes():
++    assert moving_average([0.1, 0.2, 0.3], 2) == pytest.approx([0.15, 0.25])
++
++
++@pytest.mark.parametrize("xs", [[], [1, 2, 3]])
++@pytest.mark.parametrize("k", [0, -1, -3])
++def test_rechaza_ventanas_no_positivas(xs, k):
++    with pytest.raises(ValueError):
++        moving_average(xs, k)
++
++
++@pytest.mark.parametrize("k", [2.0, "2", None])
++def test_rechaza_ventanas_no_enteras(k):
++    with pytest.raises(TypeError):
++        moving_average([1, 2, 3], k)
