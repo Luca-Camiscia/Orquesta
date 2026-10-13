@@ -665,7 +665,10 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
     prompt = prompt_review(review_project["name"], diff, evidencia, recortado=recortado)
     r = _speak(store, cid, review_project, reviewer, executor,
                prompt=prompt, meta={"rol": "review", "branch": branch})
-    verdict = parsear_veredicto(r.text)
+    # Igual que la CLI: una review que falló no aprueba nada, diga lo que diga su texto.
+    verdict = parsear_veredicto(r.text) if not r.error else None
+    if r.error:
+        sha = None
 
     def save(c):
         w = next((x for x in c["worktrees"] if x["branch"] == branch), None)

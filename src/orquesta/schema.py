@@ -227,6 +227,16 @@ class Backend(_Strict):
     rate_limit_patterns: list[str] = Field(default_factory=list)
     auth_patterns: list[str] = Field(default_factory=list)  # sesión vencida: lo resuelve el usuario
 
+    @model_validator(mode="after")
+    def _sandbox_en_todos_los_modos(self):
+        # Si el backend depende del sandbox de SO, un modo sin él correría sin aislamiento: se rechaza.
+        if self.os_sandbox:
+            sin = [m for m, spec in self.modes.items() if spec.os_sandbox is None]
+            if sin:
+                raise ValueError(f"tiene os_sandbox pero los modos {', '.join(sin)} no lo usan: "
+                                 f"correrían sin aislamiento")
+        return self
+
 
 class BackendsConfig(_Strict):
     version: int = 1

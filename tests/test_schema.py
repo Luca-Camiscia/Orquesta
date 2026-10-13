@@ -179,3 +179,11 @@ def test_backends_yaml_real_es_valido():
     assert set(cfg.backends) == {"codex", "agy", "claude"}
     assert cfg.backends["agy"].modes["read-only"].os_sandbox == "readonly"
     assert cfg.backends["claude"].native is True
+
+
+def test_backend_con_sandbox_de_so_lo_exige_en_todos_los_modos():
+    """Borrar os_sandbox de un modo dejaría correr sin aislamiento: backends.yaml se rechaza."""
+    datos = load_yaml(REPO / "backends.yaml")
+    del datos["backends"]["agy"]["modes"]["read-only"]["os_sandbox"]
+    with pytest.raises(ConfigError, match="correrían sin aislamiento"):
+        parse_backends(datos)

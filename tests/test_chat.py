@@ -610,6 +610,22 @@ def test_merge_del_chat_rechaza_commit_entre_tests_y_review(store, proyecto, env
     assert not (proyecto / "entre_medio.txt").exists()
 
 
+def test_review_del_chat_que_falla_no_aprueba_aunque_diga_aprobar(store, proyecto, env):
+    class ReviewFallida(FakeReview):
+        def __call__(self, paths, project, participant, prompt):
+            if participant == "codex-forja":
+                return super().__call__(paths, project, participant, prompt)
+            return chat.Reply("Veredicto: APROBAR", error="ESTADO: FALLO_BACKEND — terminó con código 1")
+
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "w", "individual", ["codex-forja"])
+    chat.run_turn(store, conv["id"], "hacelo", executor=ReviewFallida())
+    wt = store.get_conversation(conv["id"])["worktrees"][0]
+    assert wt["review"]["veredicto"] is None
+    with pytest.raises(chat.NeedsForce):
+        chat.merge_worktree(store, conv["id"], wt["branch"])
+
+
 def test_conflictos_entre_ramas_y_con_main(env, proyecto):
     from orquesta import worktrees
     a = worktrees.create(env, repo=proyecto, agent="codex-forja", task="uno")

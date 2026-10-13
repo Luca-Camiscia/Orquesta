@@ -38,6 +38,9 @@ def test_avoid_when_vacio_no_cambia_el_hash():
     ("RESULTADO: parcial\nCONFIANZA: 40%", ("PARCIAL", 40)),
     ("sin contrato", (None, None)),
     ("CONFIANZA: 300", (None, None)),
+    # un ejemplo citado en un bloque de código no es el cierre: cuenta el último, fuera del bloque
+    ("Formato:\n```\nRESULTADO: OK\nCONFIANZA: 99\n```\nRESULTADO: PARCIAL\nCONFIANZA: 40", ("PARCIAL", 40)),
+    ("RESULTADO: OK\nCONFIANZA: 90\nlo pensé mejor\nRESULTADO: BLOQUEADO\nCONFIANZA: 30", ("BLOQUEADO", 30)),
 ])
 def test_parse_contrato(texto, esperado):
     c = runner.parse_contract(texto)

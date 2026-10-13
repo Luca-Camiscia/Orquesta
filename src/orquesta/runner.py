@@ -321,10 +321,18 @@ CONTRACT = ("Cerrá tu respuesta con estas cuatro líneas, exactas:\n"
 
 def parse_contract(text: str) -> dict:
     """Extrae RESULTADO y CONFIANZA del contrato de salida (vacío si no está o no es válido)."""
-    m = re.search(r"^\s*RESULTADO:\s*(OK|PARCIAL|BLOQUEADO)\b", text, re.M | re.I)
-    c = re.search(r"^\s*CONFIANZA:\s*(\d{1,3})\s*%?\s*$", text, re.M)
-    if m and c and int(c.group(1)) <= 100:
-        return {"resultado": m.group(1).upper(), "confianza": int(c.group(1))}
+    # El cierre real es el último, fuera de bloques de código: un ejemplo citado no cuenta.
+    fuera, en_codigo = [], False
+    for linea in text.splitlines():
+        if linea.strip().startswith("```"):
+            en_codigo = not en_codigo
+        elif not en_codigo:
+            fuera.append(linea)
+    limpio = "\n".join(fuera)
+    m = (re.findall(r"^\s*RESULTADO:\s*(OK|PARCIAL|BLOQUEADO)\b", limpio, re.M | re.I) or [None])[-1]
+    c = (re.findall(r"^\s*CONFIANZA:\s*(\d{1,3})\s*%?\s*$", limpio, re.M) or [None])[-1]
+    if m and c and int(c) <= 100:
+        return {"resultado": m.upper(), "confianza": int(c)}
     return {}
 
 
