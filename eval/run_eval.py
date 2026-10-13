@@ -111,8 +111,37 @@ def revisar(branch: str, proj: Path) -> tuple[dict, str, float]:
     return sobre, (textos[-1] if textos else ""), round(time.monotonic() - t, 1)
 
 
-def trial(tmp: Path, tarea: str, cond: str, rep: int = 1) -> dict:
+def entorno() -> dict:
+    """Versiones y modelo del autor, para poder rastrear de dónde salió cada fila."""
+    def salida(*cmd: str) -> str | None:
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout.strip() or None
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+    import tomllib
+    try:
+        codex = tomllib.loads((Path.home() / ".codex" / "config.toml").read_text())
+    except (OSError, ValueError):
+        codex = {}
+    return {"codex": salida("codex", "--version"), "agy": salida("agy", "--version"),
+            "modelo_autor": codex.get("model"), "esfuerzo_autor": codex.get("model_reasoning_effort"),
+            "orquesta": sh(REPO, "git", "rev-parse", "--short", "HEAD")}
+
+
+def guardar_traza(trazas: Path | None, fila: dict, worktree: Path, base: str, revision: str) -> None:
+    if trazas is None:
+        return
+    d = trazas / f"{fila['tarea']}-{fila['condicion']}-{fila['rep']}"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "final.patch").write_text(sh(worktree, "git", "diff", base, "HEAD"), encoding="utf-8")
+    if revision:
+        (d / "review.md").write_text(revision, encoding="utf-8")
+
+
+def trial(tmp: Path, tarea: str, cond: str, rep: int = 1, trazas: Path | None = None) -> dict:
     proj = preparar_proyecto(tmp, tarea, cond, rep)
+    base = sh(proj, "git", "rev-parse", "HEAD")
+    texto = ""
     issue = (TAREAS / tarea / "issue.md").read_text().strip()
     fila: dict = {"tarea": tarea, "condicion": cond, "rep": rep, "llamadas_autor": 0, "llamadas_revisor": 0,
                   "segundos": 0.0}
@@ -155,12 +184,14 @@ def trial(tmp: Path, tarea: str, cond: str, rep: int = 1) -> dict:
             fila["error_ronda_2"] = f"{r2.status}: {r2.detail}"
     fila.update(ocultos=ocultos(tarea, worktree), ocultos_ok=None)
     fila["ocultos_ok"] = fila["ocultos"]["ok"]
+    fila["sha_final"] = sh(worktree, "git", "rev-parse", "--short", "HEAD")
+    guardar_traza(trazas, fila, worktree, base, texto)
     return fila
 
 
-def _trial(tmp: Path, tc: tuple[str, str, int]) -> dict:
+def _trial(tmp: Path, trazas: Path | None, ent: dict, tc: tuple[str, str, int]) -> dict:
     try:
-        return trial(tmp, *tc)
+        return {**trial(tmp, *tc, trazas=trazas), "entorno": ent}
     except Exception as exc:  # una tarea rota no tira abajo las demás
         return {"tarea": tc[0], "condicion": tc[1], "rep": tc[2], "error": repr(exc), "ocultos_ok": False}
 
@@ -172,6 +203,7 @@ def main() -> int:
     ap.add_argument("--repeticiones", type=int, default=1)
     ap.add_argument("--paralelo", type=int, default=2, help="tareas a la vez (codex max_parallel = 2)")
     ap.add_argument("--simulado", action="store_true", help="backends guionados: sin cuota, solo plomería")
+    ap.add_argument("--trazas", type=Path, help="carpeta donde guardar el parche final y la review de cada corrida")
     args = ap.parse_args()
     tmp = Path(tempfile.mkdtemp(prefix="orquesta-eval-", dir=Path.home() / ".cache"))
     preparar_home(tmp, args.simulado)
@@ -179,7 +211,8 @@ def main() -> int:
                 for t in args.tareas.split(",") for c in args.condiciones.split(",")]
     # Procesos y no hilos: la review captura stdout con redirect_stdout, que es global al proceso.
     with ProcessPoolExecutor(args.paralelo) as pool:
-        for fila in pool.map(partial(_trial, tmp), trabajos):
+        ent = entorno()
+        for fila in pool.map(partial(_trial, tmp, args.trazas, ent), trabajos):
             print(json.dumps(fila, ensure_ascii=False), flush=True)
     print(f"sandbox: {tmp}", file=sys.stderr)
     return 0
