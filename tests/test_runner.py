@@ -357,6 +357,31 @@ def test_run_tarea_sin_anotaciones_corre_normal(env, proyecto):
     assert r.output.startswith("PONG:")
 
 
+@pytest.mark.parametrize("tarea", ["fix_promedio.v2", "Fix Promedio"])
+@pytest.mark.parametrize("ubicacion", ["raiz", "worktree"])
+def test_run_ledger_cuenta_ocho_y_bloquea_novena(env, proyecto, monkeypatch, tarea, ubicacion):
+    deploy(env)
+    cwd = proyecto
+    if ubicacion == "worktree":
+        cwd = worktrees.create(env, repo=proyecto, agent="codex-forja", task=tarea).path
+    for _ in range(8):
+        r = correr(env, "codex-critico", "hola", cwd, task=tarea)
+        assert r.status == "OK" and r.output.startswith("PONG:"), r.detail
+    monkeypatch.setattr(runner, "_execute", lambda *a, **k: pytest.fail("se ejecutó la novena corrida"))
+    r = correr(env, "codex-critico", "hola", cwd, task=tarea)
+    assert (r.status, r.exit_code) == ("BLOQUEADO", 3)
+    estado = ledger.listar(worktrees.project_id(proyecto), paths=env)[0]
+    assert estado["corridas"] == 8 and estado["intentos"] == 0
+    assert estado["tarea"] == ("fix_promedio.v2" if tarea == "fix_promedio.v2" else "fix-promedio")
+
+
+def test_run_sin_task_no_toca_ledger(env, proyecto):
+    deploy(env)
+    for _ in range(9):
+        assert correr(env, "codex-critico", "hola", proyecto).status == "OK"
+    assert not (env.state_dir / worktrees.project_id(proyecto) / "ledger.json").exists()
+
+
 @pytest.mark.parametrize("task", [None, "revision"])
 def test_run_guarda_salida_completa_y_sha256(env, proyecto, task):
     deploy(env)

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from orquesta import cli, worktrees
+from orquesta import cli, ledger, worktrees
 
 
 @pytest.fixture
@@ -46,6 +46,13 @@ def test_tope_seis_incluso_con_progreso(proyecto, capsys):
         respuesta = salida(capsys, "ledger anotar")
     assert respuesta["estado"] == "BLOQUEADO" and respuesta["datos"]["intentos"] == 6
     assert respuesta["datos"]["sin_progreso"] == 0
+
+
+def test_ver_muestra_corridas_del_runner(env, proyecto, capsys):
+    ledger.reservar_corrida(worktrees.project_id(proyecto), "fix", paths=env)
+    assert cli.main(["ledger", "ver"]) == 0
+    estado = salida(capsys, "ledger ver")["datos"]["tareas"][0]
+    assert estado["corridas"] == 1 and estado["intentos"] == 0
 
 
 def test_cerrar_y_validacion(proyecto, capsys):

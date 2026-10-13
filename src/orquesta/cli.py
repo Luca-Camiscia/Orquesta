@@ -417,7 +417,7 @@ def cmd_review(args: argparse.Namespace, *, executor=None) -> int:
             "veredicto": veredicto, "revisor": revisor,
             "diff_recortado": recortado is not None, "diff_chars": len(completo),
             "diff_mostrado_chars": len(diff), "diff_archivos": recortado or [],
-            "confianza_autor": registro.get("confianza_autor"),
+            "confianza_autor": registro.get("confianza_autor") if registro.get("sha_autor") == sha else None,
         }, str(wt.repo), paths=paths)
         if reply.error or veredicto is None:
             return _emit_tarea(args.cmd, cli_json.ERROR, registro,

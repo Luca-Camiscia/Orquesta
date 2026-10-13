@@ -10,7 +10,7 @@ from orquesta.paths import Paths, default_paths
 
 DEFAULTS = {
     "agente": None, "base_sha": None, "destino": None, "sha_revisado": None,
-    "tests_sha": None, "tests_ok": None, "tests_cmd": None, "confianza_autor": None,
+    "tests_sha": None, "tests_ok": None, "tests_cmd": None, "confianza_autor": None, "sha_autor": None,
     "veredicto": None, "revisor": None, "status": "abierto",
 }
 

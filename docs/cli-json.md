@@ -39,7 +39,7 @@ modificar la evidencia previa. Una review válida registra el nombre en `datos.r
 ## `orquesta ledger`
 
 `orquesta ledger anotar TAREA (--progreso | --sin-progreso) [--nota TEXTO] [--repo DIR]`
-registra un intento y devuelve su estado en `datos`: `tarea`, `intentos`,
+registra un intento y devuelve su estado en `datos`: `tarea`, `intentos`, `corridas`,
 `sin_progreso` (racha final), `cerrada` y `accion`. La nota se recorta a 500 caracteres.
 Con 2 intentos consecutivos sin progreso devuelve `OK` (exit 0), acción `replanificar`
 y un aviso para armar un brief nuevo sin historial. Con 4 sin progreso o 6 intentos
@@ -55,10 +55,17 @@ resolviendo los worktrees registrados al repo original. Los comandos usan el sob
 JSON con `comando` igual a `ledger anotar`, `ledger cerrar` o `ledger ver`.
 Un slug inválido, una tarea cerrada al anotar o un ledger corrupto devuelve `ERROR` (exit 1).
 
-`orquesta run AGENTE --task TAREA` consulta el mismo ledger antes de delegar. Si el slug
-está cerrado o su acción es `escalar`, devuelve `ESTADO: BLOQUEADO` (exit 3) sin ejecutar
+`orquesta run AGENTE --task TAREA` reserva y cuenta cada corrida en el mismo ledger,
+bajo lock, antes de delegar. Con 8 corridas la acción pasa a `escalar`: la octava se
+ejecuta y la novena queda bloqueada, aunque el orquestador no haya anotado progreso.
+Ese margen sobre los 6 intentos anotados permite reintentos dentro de una ronda.
+Las entradas viejas sin `corridas` se leen como 0; sin `--task` no se toca el ledger.
+La clave conserva `TAREA` si es un slug válido; de lo contrario se normaliza con `slugify`.
+Si antes de reservar la tarea está cerrada o su acción es `escalar`,
+devuelve `ESTADO: BLOQUEADO` (exit 3) sin ejecutar
 el backend, con el detalle `tarea cerrada en el ledger` o
-`tope del ledger alcanzado: escalá al usuario`. Una tarea sin anotaciones sigue normalmente.
+`tope del ledger alcanzado: escalá al usuario`. Las anotaciones de progreso siguen
+contando por separado en `intentos`; el tope de corridas lo aplica el runner por sí solo.
 
 ## Confirmación humana
 

@@ -1,5 +1,6 @@
 """Ledger determinista: persistencia, estancamiento y cierre de tareas."""
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 import pytest
@@ -17,7 +18,7 @@ def test_conteos_y_progreso_reinicia_la_racha(env, ledger):
         resultado = ledger.anotar("proyecto", "fix", progreso=progreso, paths=env)
         assert resultado["sin_progreso"] == esperado
     assert resultado == {"tarea": "fix", "intentos": 4, "sin_progreso": 1,
-                         "cerrada": False, "accion": "seguir"}
+                         "corridas": 0, "cerrada": False, "accion": "seguir"}
     assert ledger.listar("proyecto", paths=env) == [resultado]
     ledger.anotar("proyecto", "otra", progreso=True, paths=env)
     assert [r["tarea"] for r in ledger.listar("proyecto", paths=env)] == ["fix", "otra"]
@@ -46,7 +47,40 @@ def test_umbrales(env, ledger, progresos, accion, racha):
 
 def test_estado_sin_intentos(ledger):
     assert ledger.estado({"tarea": "fix", "intentos": [], "cerrada": False}) == {
-        "tarea": "fix", "intentos": 0, "sin_progreso": 0, "cerrada": False, "accion": "seguir"}
+        "tarea": "fix", "intentos": 0, "corridas": 0, "sin_progreso": 0, "cerrada": False, "accion": "seguir"}
+
+
+def test_reservas_atomicas_y_tope(env, ledger):
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        resultados = list(pool.map(
+            lambda _: ledger.reservar_corrida("proyecto", "fix", paths=env), range(16)))
+    assert sum(r["reservada"] for r in resultados) == 8
+    assert sorted(r["corridas"] for r in resultados if r["reservada"]) == list(range(1, 9))
+    estado = ledger.listar("proyecto", paths=env)[0]
+    assert estado["corridas"] == 8 and estado["accion"] == "escalar"
+    assert estado["intentos"] == 0
+
+
+@pytest.mark.parametrize("cerrada", [False, True])
+def test_reserva_no_incrementa_tarea_bloqueada(env, ledger, cerrada):
+    for _ in range(1 if cerrada else 6):
+        ledger.anotar("proyecto", "fix", progreso=True, paths=env)
+    if cerrada:
+        ledger.cerrar("proyecto", "fix", motivo="resuelto", paths=env)
+    archivo = env.state_dir / "proyecto" / "ledger.json"
+    anterior = archivo.read_text()
+    resultado = ledger.reservar_corrida("proyecto", "fix", paths=env)
+    assert resultado["reservada"] is False and resultado["corridas"] == 0
+    assert archivo.read_text() == anterior
+
+
+def test_entrada_vieja_sin_corridas(env, ledger):
+    archivo = env.state_dir / "proyecto" / "ledger.json"
+    archivo.parent.mkdir(parents=True)
+    archivo.write_text(json.dumps([{"tarea": "fix", "intentos": [], "cerrada": False}]))
+    assert ledger.listar("proyecto", paths=env)[0]["corridas"] == 0
+    assert ledger.reservar_corrida("proyecto", "fix", paths=env)["corridas"] == 1
+    assert ledger.anotar("proyecto", "fix", progreso=True, paths=env)["corridas"] == 1
 
 
 def test_cerrar_impide_anotar_y_conserva_motivo(env, ledger):
@@ -84,6 +118,9 @@ def test_project_id_invalido(env, ledger, pid):
     "{roto", "{}", "[1]",
     '[{"tarea": "fix", "intentos": {}, "cerrada": false}]',
     '[{"tarea": "fix", "intentos": [], "cerrada": "false"}]',
+    '[{"tarea": "fix", "intentos": [], "cerrada": false, "corridas": -1}]',
+    '[{"tarea": "fix", "intentos": [], "cerrada": false, "corridas": true}]',
+    '[{"tarea": "fix", "intentos": [], "cerrada": false, "corridas": "8"}]',
     '[{"tarea": "../fix", "intentos": [], "cerrada": false}]',
     '[{"tarea": "fix", "intentos": [{}], "cerrada": false}]',
     '[{"tarea": "fix", "intentos": [{"n": 1, "progreso": "false", "nota": "", "ts": "2026-10-09T00:00:00+00:00"}], "cerrada": false}]',
