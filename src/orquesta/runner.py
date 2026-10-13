@@ -549,8 +549,9 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                 "sha_autor": worktrees._git(wt.repo, "rev-parse", result.meta["commit"]),
             }, paths=paths)
         except (worktrees.WorktreeError, OSError, ValueError) as exc:
-            result.status = "ERROR"
-            result.detail = f"no se pudo registrar la tarea: {exc}"
+            # El trabajo ya está commiteado en la rama: sin registro, el merge no ve la confianza, pero la
+            # review la vuelve a pedir; no se descarta la corrida.
+            result.meta.setdefault("warnings", []).append(f"no se pudo registrar la tarea: {exc}")
     if result.output:
         sha = hashlib.sha256(result.output.encode("utf-8")).hexdigest()
         try:
