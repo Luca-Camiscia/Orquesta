@@ -8,6 +8,8 @@ can run, and hidden tests (test_oculto.py) that no agent sees. Two conditions, s
   B  orquesta loop  same first run, then `orquesta review` by another model family (tests on the
                     reviewed SHA + verdict); if the verdict is not APROBAR, one more round for the
                     author with the review findings, from where it left off.
+  D  loop+checklist B, plus the same self-review checklist as C in the author's second round: isolates
+                    what the external reviewer adds beyond the checklist.
   C  self-review    control for B's extra round: same first run, then always one more round where
                     the author is asked to review its own attempt critically. No external reviewer.
 
@@ -120,7 +122,7 @@ def trial(tmp: Path, tarea: str, cond: str, rep: int = 1) -> dict:
     if r.status != "OK" or not r.meta.get("worktree"):
         return {**fila, "error": f"{r.status}: {r.detail}", "ocultos_ok": False}
     worktree, branch = Path(r.meta["worktree"]), r.meta["branch"]
-    if cond == "B":
+    if cond in ("B", "D"):
         sobre, texto, s = revisar(branch, proj)
         fila["llamadas_revisor"] += 1
         fila["segundos"] += s
@@ -130,7 +132,10 @@ def trial(tmp: Path, tarea: str, cond: str, rep: int = 1) -> dict:
             prompt = (f"{issue}\n\nYa hiciste un primer intento (está commiteado en este worktree). Una "
                       f"review independiente de otro modelo dijo:\n\n{texto[-6000:]}\n\nCorregí lo que "
                       f"corresponda; si un hallazgo no aplica, ignoralo.")
-            r2, s = correr_agente(worktree, f"eval-{tarea}-b{rep}r2", prompt)
+            if cond == "D":  # mismo checklist que C: aísla el aporte del revisor externo
+                prompt += ("\n\nAdemás, revisá críticamente tu intento como lo haría un revisor exigente: "
+                           "casos borde, entradas inválidas, tests que faltan.")
+            r2, s = correr_agente(worktree, f"eval-{tarea}-{cond.lower()}{rep}r2", prompt)
             fila["llamadas_autor"] += 1
             fila["segundos"] += s
             if r2.status == "OK" and r2.meta.get("worktree"):
