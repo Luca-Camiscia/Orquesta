@@ -408,6 +408,11 @@ def _resolve(paths: Paths, agent: str) -> tuple[mf.DeployedAgent | None, dict | 
     return entry, manifest, backend, None
 
 
+def _detalle_ledger(estado: dict) -> str:
+    return ("tarea cerrada en el ledger" if estado["cerrada"]
+            else "tope del ledger alcanzado: escalá al usuario")
+
+
 def _guardar_salida(paths: Paths, agent: str, task: str | None, output: str, sha: str) -> tuple[Path, Path]:
     """Guarda la salida cruda del backend (solo para el usuario, 0600) sin seguir enlaces simbólicos.
 
@@ -451,6 +456,7 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
 
     meta: dict = {"agent": req.agent, "backend": entry.backend, "mode": entry.mode,
                   "isolation": entry.isolation}
+    clave_ledger = None  # (proyecto, tarea): la corrida se reserva recién con el slot conseguido
     if req.task:
         try:
             repo = worktrees.git_toplevel(cwd)
@@ -458,11 +464,12 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                 repo = next((w.repo for w in worktrees.list_worktrees(paths)
                              if w.path.resolve() == repo.resolve()), repo)
                 tarea = req.task if ledger._SLUG.fullmatch(req.task) else worktrees.slugify(req.task)
-                estado = ledger.reservar_corrida(worktrees.project_id(repo), tarea, paths=paths)
-                if not estado["reservada"]:
-                    detalle = ("tarea cerrada en el ledger" if estado["cerrada"]
-                               else "tope del ledger alcanzado: escalá al usuario")
-                    return RunResult("BLOQUEADO", meta=meta, detail=detalle)
+                clave_ledger = (worktrees.project_id(repo), tarea)
+                # Chequeo temprano sin consumir: una tarea frenada ni siquiera crea worktree.
+                estado = next((e for e in ledger.listar(clave_ledger[0], paths=paths)
+                               if e["tarea"] == tarea), None)
+                if estado is not None and (estado["cerrada"] or estado["accion"] == "escalar"):
+                    return RunResult("BLOQUEADO", meta=meta, detail=_detalle_ledger(estado))
         except (worktrees.WorktreeError, OSError, ValueError) as exc:
             return RunResult("ERROR", meta=meta, detail=f"no se pudo consultar el ledger: {exc}")
     work_cwd, wt = cwd, None
@@ -493,6 +500,10 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
             result = RunResult("OCUPADO", meta=meta, detail=(
                 f"los {limit} lugares de {entry.backend} están ocupados (max_parallel): esperá o "
                 f"hacelo vos"))
+        elif clave_ledger is not None and not (reserva := ledger.reservar_corrida(
+                *clave_ledger, paths=paths))["reservada"]:
+            # Reserva atómica justo antes de ejecutar: un OCUPADO no consume el presupuesto de la tarea.
+            result = RunResult("BLOQUEADO", meta=meta, detail=_detalle_ledger(reserva))
         else:
             spec = backend.modes.get(entry.mode)
             tmpdir = None

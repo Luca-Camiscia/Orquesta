@@ -617,7 +617,12 @@ def _verify_and_review(store: Store, cid: str, project: dict, writer: str, reply
     branch = reply.meta["branch"]
     confianza = (reply.meta.get("contrato") or runner.parse_contract(reply.text) or {}).get("confianza")
     wt = _project_wt(store, project, branch)
-    tests = worktrees.run_tests(wt) if wt is not None else None
+    tests = None
+    if wt is not None:
+        sha_testeado = worktrees._branch_tip(wt.repo, branch)  # antes de correrlos: es lo que se prueba
+        tests = worktrees.run_tests(wt)
+        if tests is not None:
+            tests = {**tests, "sha": sha_testeado}
     store.update(cid, lambda c: next(x for x in c["worktrees"] if x["branch"] == branch).update(
         confianza_autor=confianza))
     if tests is not None:
@@ -969,9 +974,12 @@ def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> 
             base_sha = wt.get("base_sha") or worktrees._find(store.paths, branch, repo).base_sha
             revisado = worktrees._branch_tip(repo, branch)
             sha_review = (wt.get("review") or {}).get("sha")
-            if sha_review is not None and sha_review != revisado:
-                # Igual que la CLI: un commit posterior a la review la invalida.
-                raise NeedsForce(f"review vieja: {branch} avanzó después de revisarla; volvé a revisarla")
+            sha_tests = (wt.get("tests") or {}).get("sha")
+            # Igual que la CLI: punta == SHA revisado == SHA testeado; un commit en el medio invalida todo.
+            if (sha_review is not None and sha_review != revisado) or (
+                    sha_tests is not None and sha_tests != revisado):
+                raise NeedsForce(f"review vieja: {branch} cambió después de testearla o revisarla; "
+                                 f"volvé a revisarla")
             destino = worktrees._git(repo, "symbolic-ref", "--short", "HEAD")
             wt["destino_error"] = worktrees.bloqueo_destino(repo, destino, revisado, branch)
             wt["diff"] = worktrees.diff_completo(repo, base_sha, revisado)

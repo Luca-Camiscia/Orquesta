@@ -764,6 +764,17 @@ def test_sesion_vencida_se_clasifica_aparte(env, proyecto):
     assert "login lo hace el usuario" in r.detail
 
 
+def test_ocupado_no_consume_corridas_del_ledger(env, proyecto):
+    deploy(env)  # agy: max_parallel 1
+    with runner.hold_slots(env, "agy", 1):
+        for _ in range(10):
+            r = correr(env, "gemini-lector", "hola", proyecto, task="t", wait_s=0.05)
+            assert r.status == "OCUPADO"
+    assert ledger.listar(worktrees.project_id(proyecto), paths=env) == []
+    r = correr(env, "gemini-lector", "hola", proyecto, task="t")
+    assert r.status == "OK", r.detail
+
+
 def test_ocupado_si_no_hay_slots_libres(env, proyecto):
     deploy(env)  # agy: max_parallel 1
     with runner.hold_slots(env, "agy", 1):

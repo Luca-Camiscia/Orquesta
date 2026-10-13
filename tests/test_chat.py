@@ -585,6 +585,31 @@ def test_merge_del_chat_rechaza_commits_posteriores_a_la_review(store, proyecto,
     assert not (proyecto / "sin_revisar.txt").exists()
 
 
+def test_merge_del_chat_rechaza_commit_entre_tests_y_review(store, proyecto, env, monkeypatch):
+    """Los tests corren sobre un commit, alguien agrega otro antes de la review: no hay evidencia de tests."""
+    (proyecto / ".orquesta").mkdir()
+    (proyecto / ".orquesta" / "proyecto.toml").write_text('[worktree]\ntests = "true"\n')
+    git(proyecto, "add", "-A")
+    git(proyecto, "commit", "-qm", "config")
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "w", "individual", ["codex-forja"])
+    from orquesta import worktrees
+    correr_tests = worktrees.run_tests
+
+    def tests_y_despues_un_commit(wt, *a, **k):
+        resultado = correr_tests(wt, *a, **k)
+        (wt.path / "entre_medio.txt").write_text("sin testear\n")
+        worktrees.commit_all(wt, "entre tests y review")
+        return resultado
+
+    monkeypatch.setattr(worktrees, "run_tests", tests_y_despues_un_commit)
+    chat.run_turn(store, conv["id"], "hacelo", executor=FakeReview("APROBAR"))
+    branch = store.get_conversation(conv["id"])["worktrees"][0]["branch"]
+    with pytest.raises(chat.NeedsForce, match="review vieja"):
+        chat.merge_worktree(store, conv["id"], branch)
+    assert not (proyecto / "entre_medio.txt").exists()
+
+
 def test_conflictos_entre_ramas_y_con_main(env, proyecto):
     from orquesta import worktrees
     a = worktrees.create(env, repo=proyecto, agent="codex-forja", task="uno")
