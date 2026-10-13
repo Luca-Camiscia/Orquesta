@@ -28,7 +28,7 @@ from typing import Iterator
 from filelock import FileLock, Timeout
 
 from orquesta import manifest as mf
-from orquesta import ledger, procs
+from orquesta import ledger, procs, tareas
 from orquesta import worktrees
 from orquesta.config import load_backends
 from orquesta.paths import Paths
@@ -448,9 +448,9 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
             if repo is not None:
                 repo = next((w.repo for w in worktrees.list_worktrees(paths)
                              if w.path.resolve() == repo.resolve()), repo)
-                estado = next((e for e in ledger.listar(worktrees.project_id(repo), paths=paths)
-                               if e["tarea"] in (req.task, worktrees.slugify(req.task))), None)
-                if estado and (estado["cerrada"] or estado["accion"] == "escalar"):
+                tarea = req.task if ledger._SLUG.fullmatch(req.task) else worktrees.slugify(req.task)
+                estado = ledger.reservar_corrida(worktrees.project_id(repo), tarea, paths=paths)
+                if not estado["reservada"]:
                     detalle = ("tarea cerrada en el ledger" if estado["cerrada"]
                                else "tope del ledger alcanzado: escalá al usuario")
                     return RunResult("BLOQUEADO", meta=meta, detail=detalle)
@@ -539,6 +539,18 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
         except worktrees.WorktreeError as exc:
             meta.setdefault("warnings", []).append(f"no se pudo commitear en el worktree: {exc}")
     result.meta = {**meta, **result.meta, "contrato": parse_contract(result.output)}
+    if wt is not None and result.status == "OK" and result.meta.get("commit"):
+        try:
+            destino = worktrees._git(wt.repo, "symbolic-ref", "--short", "HEAD")
+            tareas.registrar(worktrees.project_id(wt.repo), {
+                "repo": str(wt.repo), "rama": wt.branch, "agente": wt.agent, "destino": destino,
+                "base_sha": worktrees._git(wt.repo, "merge-base", wt.branch, destino),
+                "confianza_autor": result.meta["contrato"].get("confianza"),
+                "sha_autor": worktrees._git(wt.repo, "rev-parse", result.meta["commit"]),
+            }, paths=paths)
+        except (worktrees.WorktreeError, OSError, ValueError) as exc:
+            result.status = "ERROR"
+            result.detail = f"no se pudo registrar la tarea: {exc}"
     if result.output:
         sha = hashlib.sha256(result.output.encode("utf-8")).hexdigest()
         try:

@@ -6,7 +6,8 @@ from unittest.mock import Mock
 import pytest
 
 from helpers import dump_yaml, git, load_yaml
-from orquesta import chat, cli, confirmar, revision, tareas, worktrees
+from orquesta import chat, cli, confirmar, revision, runner, tareas, worktrees
+from orquesta.generate import apply_plan, build_plan
 
 
 def configurar_tests(repo, cmd):
@@ -36,7 +37,8 @@ def tarea(env, tmp_path, monkeypatch):
     tareas.registrar(pid, {"repo": str(repo), "rama": wt.branch, "agente": wt.agent,
                           "destino": "main", "base_sha": wt.base_sha, "tests_cmd": "true",
                           "sha_revisado": sha, "tests_sha": sha, "tests_ok": True,
-                          "veredicto": "APROBAR", "confianza_autor": 90}, paths=env)
+                          "veredicto": "APROBAR", "confianza_autor": 90,
+                          "sha_autor": sha}, paths=env)
     monkeypatch.setattr(cli, "default_paths", lambda: env)
     monkeypatch.chdir(repo)
     return wt, pid, sha
@@ -51,6 +53,43 @@ def salida(capsys):
 def tty(monkeypatch, texto, original=confirmar.pedir_confirmacion):
     monkeypatch.setattr(confirmar, "pedir_confirmacion", lambda **kw:
                         original(**kw, leer_tty=lambda prompt: texto))
+
+
+@pytest.mark.parametrize("confianza,commit_posterior", [(20, False), (90, False), (None, False), (20, True)])
+def test_run_review_merge_confianza_del_autor(
+        env, monkeypatch, capsys, confianza, commit_posterior):
+    plan = build_plan(env)
+    assert not plan.errors and not plan.violations
+    apply_plan(plan, "deploy", run_tests=None)
+    configurar_tests(env.home, "true")
+    monkeypatch.setattr(cli, "default_paths", lambda: env)
+    contrato = f" CONTRACT:{confianza}" if confianza is not None else ""
+    result = runner.run(runner.RunRequest(
+        agent="codex-forja", cwd=env.home, prompt=f"WRITE:nuevo.txt{contrato}", task="fix"), env)
+    assert result.status == "OK" and result.meta["commit"], result.detail
+    wt = worktrees._find(env, result.meta["branch"], env.home)
+    sha_autor = git(wt.path, "rev-parse", "HEAD")
+    if commit_posterior:
+        git(wt.path, "commit", "--allow-empty", "-qm", "posterior")
+    sha = git(wt.path, "rev-parse", "HEAD")
+    args = cli.build_parser().parse_args([
+        "review", wt.branch, "--repo", str(wt.repo), "--revisor", "gemini-lector"])
+    assert cli.cmd_review(args, executor=lambda *a: chat.Reply("Veredicto: APROBAR")) == 0
+    review = salida(capsys)["datos"]
+    args = cli.build_parser().parse_args(["merge", wt.branch, "--repo", str(wt.repo)])
+    args.confirm = True  # confirmación simulada, solo sobre el repo temporal
+    bloqueada = confianza == 20 and not commit_posterior
+    assert cli.cmd_merge(args, leer_tty=lambda prompt: wt.branch) == (3 if bloqueada else 0)
+    respuesta = salida(capsys)
+    if bloqueada:
+        assert respuesta["estado"] == "BLOQUEADO"
+        assert "confianza" in str(respuesta["datos"]["razones"])
+        assert git(wt.repo, "rev-parse", "HEAD") == wt.base_sha
+    else:
+        assert respuesta["estado"] == "OK"
+        assert git(wt.repo, "rev-parse", "HEAD") == sha
+    assert review["confianza_autor"] == (None if commit_posterior else confianza)
+    assert review["sha_autor"] == sha_autor
 
 
 def test_review_con_veredicto_rechazar(env, tarea, monkeypatch, capsys):

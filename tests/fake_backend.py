@@ -13,6 +13,7 @@ Uso: fake_backend.py <codex|agy> [flags...]. El comportamiento sale del prompt:
   MENTION_LIMIT     respuesta exitosa que menciona "usage limit" / "quota reached"
   ECHOENV:<VAR>     imprime el valor de esa variable de entorno y sale
   ECHOARGS          responde con un JSON de los argumentos, cwd y prompt recibidos
+  CONTRACT:<0-100>  responde con RESULTADO: OK y esa confianza
 Si no, responde "PONG: <primera línea del prompt>".
 """
 import json
@@ -78,6 +79,8 @@ if m:
     sys.exit(0)
 if "ECHOARGS" in prompt:
     text = json.dumps({"args": args, "cwd": cwd, "prompt": prompt})
+elif m := re.search(r"CONTRACT:(\d+)", prompt):
+    text = f"RESULTADO: OK\nCONFIANZA: {m.group(1)}\nEVIDENCIA: backend falso\nSIGUIENTE PASO: nada"
 elif "MENTION_LIMIT" in prompt:
     text = "El código maneja bien el usage limit y el caso quota reached."
 else:

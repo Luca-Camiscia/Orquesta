@@ -11,6 +11,7 @@ from filelock import FileLock
 from orquesta.paths import Paths, default_paths
 
 TOPE_INTENTOS = 6
+TOPE_CORRIDAS = 8
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
@@ -37,6 +38,7 @@ def _entrada_valida(entrada) -> bool:
         and _SLUG.fullmatch(entrada["tarea"]) is not None
         and isinstance(entrada.get("cerrada"), bool)
         and isinstance(entrada.get("intentos"), list)
+        and type(entrada.get("corridas", 0)) is int and entrada.get("corridas", 0) >= 0
         and (not entrada["cerrada"] or isinstance(entrada.get("motivo"), str))
         and all(
             isinstance(i, dict) and type(i.get("n")) is int and i["n"] == n
@@ -73,13 +75,32 @@ def estado(entrada: dict) -> dict:
             break
         sin_progreso += 1
     intentos = len(entrada["intentos"])
+    corridas = entrada.get("corridas", 0)
     accion = "seguir"
-    if intentos >= TOPE_INTENTOS or sin_progreso >= 4:
+    if intentos >= TOPE_INTENTOS or sin_progreso >= 4 or corridas >= TOPE_CORRIDAS:
         accion = "escalar"
     elif sin_progreso >= 2:
         accion = "replanificar"
-    return {"tarea": entrada["tarea"], "intentos": intentos, "sin_progreso": sin_progreso,
+    return {"tarea": entrada["tarea"], "intentos": intentos, "corridas": corridas, "sin_progreso": sin_progreso,
             "cerrada": entrada["cerrada"], "accion": accion}
+
+
+def reservar_corrida(project_id: str, tarea: str, paths: Paths | None = None) -> dict:
+    """Reserva bajo lock; la octava corrida se permite, las siguientes ya no."""
+    _validar_tarea(tarea)
+    archivo = _archivo(project_id, paths)
+    with _lock(archivo):
+        registros = _leer(archivo)
+        entrada = next((r for r in registros if r["tarea"] == tarea), None)
+        if entrada is None:
+            entrada = {"tarea": tarea, "intentos": [], "cerrada": False, "corridas": 0}
+            registros.append(entrada)
+        actual = estado(entrada)
+        if actual["cerrada"] or actual["accion"] == "escalar":
+            return {**actual, "reservada": False}
+        entrada["corridas"] = actual["corridas"] + 1
+        _guardar(archivo, registros)
+        return {**estado(entrada), "reservada": True}
 
 
 def anotar(project_id: str, tarea: str, *, progreso: bool, nota: str = "",
