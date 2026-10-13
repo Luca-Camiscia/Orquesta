@@ -165,7 +165,7 @@ test suite → changelog → commit, restoring on failure), then `/reload-plugin
 | `orquesta ui` | Local panel |
 
 Every command that the orchestrator consumes answers with a versioned JSON envelope
-([`docs/cli-json.md`](docs/cli-json.md)). Full reference in [README.es.md](README.es.md#comandos).
+([`docs/cli-json.en.md`](docs/cli-json.en.md)). Full reference in [README.es.md](README.es.md#comandos).
 
 ## Design notes
 

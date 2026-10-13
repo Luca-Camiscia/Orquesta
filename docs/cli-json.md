@@ -1,5 +1,7 @@
 # Salida JSON de la CLI
 
+> English: [cli-json.en.md](cli-json.en.md).
+
 Los comandos que usan el sobre lo imprimen como JSON en una sola línea, con caracteres Unicode sin escapar.
 Siempre incluye estas claves:
 
@@ -56,7 +58,8 @@ JSON con `comando` igual a `ledger anotar`, `ledger cerrar` o `ledger ver`.
 Un slug inválido, una tarea cerrada al anotar o un ledger corrupto devuelve `ERROR` (exit 1).
 
 `orquesta run AGENTE --task TAREA` reserva y cuenta cada corrida en el mismo ledger,
-bajo lock, antes de delegar. Con 8 corridas la acción pasa a `escalar`: la octava se
+bajo lock, recién cuando consiguió un lugar del backend y justo antes de ejecutarlo: una
+corrida que termina en `OCUPADO` no consume el presupuesto. Con 8 corridas la acción pasa a `escalar`: la octava se
 ejecuta y la novena queda bloqueada, aunque el orquestador no haya anotado progreso.
 Ese margen sobre los 6 intentos anotados permite reintentos dentro de una ronda.
 Las entradas viejas sin `corridas` se leen como 0; sin `--task` no se toca el ledger.
