@@ -39,6 +39,7 @@ actual run. Last update: 2026-10-12.
 | Codex `workspace-write` can reach other projects under `/tmp` | `codex exec --sandbox workspace-write -C /tmp/…/cwd` asked to `touch /tmp/…/outside/x` | it could; with `-c sandbox_workspace_write.exclude_slash_tmp=true` and a private `TMPDIR` it could not, while `$TMPDIR` stayed writable. That flag is now in `backends.yaml` |
 | Gemini read-only works inside the new sandbox (private `/tmp`, repository re-mounted read-only) | `orquesta run gemini-ux-revisor` on a scratch repository | `OK` in 30.9 s, answered `PONG` |
 | `agy --mode plan` is read-only | see [`headless.md`](headless.md) | it is not: it still writes files. That is why Gemini runs inside `bwrap` |
+| What an expired Gemini session looks like | it expired in the middle of an evaluation run | `agy` waits 60 s for an OAuth code and exits 1. The runner reported it as a generic `FALLO_BACKEND`, the review failed closed (no verdict, nothing merged) and 18 evaluation runs had to be discarded. Now `auth_patterns` in `backends.yaml` turn it into `ESTADO: SIN_SESION` (exit 77) with a login hint, and the evaluation drops runs whose review failed |
 | End-to-end with real models | [`eval/`](../eval/README.md): GPT writes the fix in a worktree, Gemini reviews through `orquesta review`, hidden tests score the result | see the results there |
 
 ## Reproduce
