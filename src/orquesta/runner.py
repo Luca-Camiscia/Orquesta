@@ -506,7 +506,15 @@ def run(req: RunRequest, paths: Paths) -> RunResult:
                     shutil.rmtree(tmpdir, ignore_errors=True)
             if before is not None:
                 after = tree_state(vigilado, excluir_refs=excluir)
-                if after is not None and after.digest != before.digest:
+                if after is None and wt is None:
+                    # Falla cerrado: si ya no se puede leer el estado (p. ej. movieron .git), no hay garantía.
+                    result = RunResult("VIOLACION_READ_ONLY", output=result.output, detail=(
+                        "no pude leer el estado de git después de la corrida read-only: ¿movieron o "
+                        "borraron .git?"))
+                elif after is None:
+                    meta["warnings"].append("no pude leer el estado de git del checkout original después "
+                                            "de la corrida")
+                elif after.digest != before.digest:
                     antes = dict(before.firmas)
                     changed = (sorted(after.entries ^ before.entries)
                                or [e for e, firma in after.firmas if e in antes and antes[e] != firma]

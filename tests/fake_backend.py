@@ -4,6 +4,7 @@
 Uso: fake_backend.py <codex|agy> [flags...]. El comportamiento sale del prompt:
   WRITE:<archivo>   crea ese archivo en el directorio de trabajo (-C o cwd)
   STAGE:<archivo>   agrega ese archivo al índice de git después de escribir
+  MOVERGIT          renombra .git del cwd (pierde el estado de git)
   COMMIT           agrega todos los cambios y los commitea en el cwd
   SLEEP:<seg>       duerme antes de responder
   RATELIMIT         sale con 1 y un mensaje de límite de uso
@@ -60,6 +61,8 @@ for destino in re.findall(r"WRITE:(\S+)", prompt):
 m = re.search(r"STAGE:(\S+)", prompt)
 if m:
     subprocess.run(["git", "add", "--", m.group(1)], cwd=cwd, check=True)
+if "MOVERGIT" in prompt:
+    os.rename(os.path.join(cwd, ".git"), os.path.join(cwd, ".git-movido"))
 if re.search(r"\bCOMMIT\b", prompt):
     subprocess.run(["git", "add", "-A"], cwd=cwd, check=True)
     subprocess.run(["git", "commit", "-qm", "x"], cwd=cwd, check=True)

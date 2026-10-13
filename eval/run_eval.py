@@ -44,6 +44,7 @@ def preparar_home(tmp: Path, simulado: bool = False) -> None:
     """ORQUESTA_HOME descartable: clon del repo con el registro desplegado (sin tocar ~/.claude)."""
     home = tmp / "home"
     sh(REPO, "git", "clone", "-q", str(REPO), str(home))
+    shutil.rmtree(home / "eval")  # el home de orquesta no necesita las tareas: los tests ocultos, fuera
     if simulado:  # backends guionados de la demo: prueba la plomería sin gastar cuota
         sys.path.insert(0, str(REPO / "examples" / "demo"))
         from run_demo import backends, dump

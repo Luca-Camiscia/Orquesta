@@ -630,6 +630,20 @@ def test_tree_state_detecta_cambios_con_status_y_diff_identicos(proyecto, cambio
     assert antes.digest != despues.digest
 
 
+def test_read_only_falla_cerrado_si_desaparece_git(env, proyecto):
+    deploy(env)
+    r = correr(env, "codex-critico", "MOVERGIT", proyecto)
+    assert (r.status, r.exit_code) == ("VIOLACION_READ_ONLY", 7)
+    assert ".git" in r.detail
+
+
+def test_bwrap_es_obligatorio_si_la_ci_lo_exige():
+    """En CI (ORQUESTA_EXIGIR_BWRAP=1) los tests reales de sandbox no pueden saltearse en silencio."""
+    if os.environ.get("ORQUESTA_EXIGIR_BWRAP") != "1":
+        pytest.skip("solo en CI")
+    assert _bwrap_disponible(), "bwrap no funciona: los tests de sandbox se saltearían"
+
+
 def test_read_only_no_marca_violacion_si_una_tarea_paralela_commitea(env, proyecto, monkeypatch):
     deploy(env)
     otra = worktrees.create(env, repo=proyecto, agent="codex-forja", task="paralela")

@@ -26,8 +26,8 @@ in a throwaway `ORQUESTA_HOME`. The final commit is scored with the hidden tests
 
 | Condition | Hidden tests passed | Author calls | Reviewer calls | Median wall time |
 |---|---|---|---|---|
-| A single agent | 4/6 | 6 | 0 | 78 s |
-| B orquesta loop | 6/6 | 12 | 6 | 462 s |
+| A single agent | 4/6 | 6 | 0 | 68 s |
+| B orquesta loop | 6/6 | 12 | 6 | 412 s |
 
 The two tasks A missed (`media`, `paginar`) are the two where the Gemini reviewer answered `RECHAZAR`;
 the author's second round fixed both. The other four first-round verdicts were `APROBAR CON CAMBIOS`.

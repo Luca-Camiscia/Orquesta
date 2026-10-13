@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tabla markdown a partir de los .jsonl de run_eval.py: aciertos en tests ocultos, llamadas y tiempo."""
 import json
+import statistics
 import sys
 from collections import defaultdict
 
@@ -15,8 +16,7 @@ def main(path: str) -> None:
     for cond in sorted(por):
         fs = por[cond]
         ok = sum(1 for f in fs if f.get("ocultos_ok"))
-        tiempos = sorted(f.get("segundos", 0) for f in fs)
-        mediana = tiempos[len(tiempos) // 2] if tiempos else 0
+        mediana = statistics.median(f.get("segundos", 0) for f in fs) if fs else 0
         errores = sum(1 for f in fs if "error" in f or "error_ronda_2" in f)
         print(f"| {cond} | {ok}/{len(fs)} | {sum(f.get('llamadas_autor', 0) for f in fs)} | "
               f"{sum(f.get('llamadas_revisor', 0) for f in fs)} | {mediana:.0f} s | {errores} |")

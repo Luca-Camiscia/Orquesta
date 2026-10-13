@@ -23,5 +23,7 @@ jobs:
       - run: uv sync --frozen
       - name: Lint
         run: uvx ruff@0.14.0 check src tests
-      - name: Tests
-        run: uv run pytest
+      - name: Tests (the real bwrap sandbox tests must run, not be skipped)
+        env:
+          ORQUESTA_EXIGIR_BWRAP: "1"
+        run: uv run pytest -rs
