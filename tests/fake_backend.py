@@ -7,6 +7,7 @@ Uso: fake_backend.py <codex|agy> [flags...]. El comportamiento sale del prompt:
   MOVERGIT          renombra .git del cwd (pierde el estado de git)
   COMMIT           agrega todos los cambios y los commitea en el cwd
   SLEEP:<seg>       duerme antes de responder
+  AUTHFAIL          sale con 1 pidiendo iniciar sesión (como agy con la sesión vencida)
   RATELIMIT         sale con 1 y un mensaje de límite de uso
   EMPTY             no imprime nada (exit 0)
   STATUSFAIL        (agy) devuelve status != SUCCESS
@@ -67,6 +68,9 @@ if "MOVERGIT" in prompt:
 if re.search(r"\bCOMMIT\b", prompt):
     subprocess.run(["git", "add", "-A"], cwd=cwd, check=True)
     subprocess.run(["git", "commit", "-qm", "x"], cwd=cwd, check=True)
+if "AUTHFAIL" in prompt:
+    print("Authentication required. Please visit the URL to log in:", file=sys.stderr)
+    sys.exit(1)
 if "RATELIMIT" in prompt:
     print("ERROR: You've hit your usage limit / quota reached. Try again later.", file=sys.stderr)
     sys.exit(1)

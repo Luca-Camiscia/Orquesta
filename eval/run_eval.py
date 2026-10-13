@@ -157,6 +157,9 @@ def trial(tmp: Path, tarea: str, cond: str, rep: int = 1, trazas: Path | None = 
         fila["segundos"] += s
         datos = sobre.get("datos") or {}
         fila["veredicto_1"] = datos.get("veredicto")
+        if sobre.get("estado") != "OK":
+            # Una review que falló (sesión vencida, timeout) no es una condición B: la fila no cuenta.
+            return {**fila, "error": f"review {sobre.get('estado')}: {texto[:300]}", "ocultos_ok": None}
         if datos.get("veredicto") != "APROBAR" and texto:
             prompt = (f"{issue}\n\nYa hiciste un primer intento (está commiteado en este worktree). Una "
                       f"review independiente de otro modelo dijo:\n\n{texto[-6000:]}\n\nCorregí lo que "

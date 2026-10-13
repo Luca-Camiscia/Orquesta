@@ -44,6 +44,7 @@ def backends_dict(fake: Path = FAKE_BACKEND) -> dict:
                     "write": {"flags": ["--mode", "accept-edits"], "timeout_s": 30},
                 },
                 "rate_limit_patterns": ["quota reached"],
+                "auth_patterns": ["Authentication required"],
             },
             "claude": {
                 "label": "Claude (subagente nativo)",

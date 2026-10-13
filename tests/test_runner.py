@@ -744,6 +744,13 @@ def test_tree_state_excluye_solo_las_ramas_de_tareas(env, proyecto):
     assert runner.tree_state(proyecto, excluir_refs="refs/heads/orquesta/").digest != antes.digest
 
 
+def test_sesion_vencida_se_clasifica_aparte(env, proyecto):
+    deploy(env)
+    r = correr(env, "gemini-lector", "AUTHFAIL", proyecto)
+    assert (r.status, r.exit_code) == ("SIN_SESION", 77)
+    assert "login lo hace el usuario" in r.detail
+
+
 def test_ocupado_si_no_hay_slots_libres(env, proyecto):
     deploy(env)  # agy: max_parallel 1
     with runner.hold_slots(env, "agy", 1):

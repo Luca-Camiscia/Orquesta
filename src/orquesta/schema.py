@@ -225,6 +225,7 @@ class Backend(_Strict):
     version_cmd: list[str] = Field(default_factory=list)
     latest_version: LatestVersion | None = None
     rate_limit_patterns: list[str] = Field(default_factory=list)
+    auth_patterns: list[str] = Field(default_factory=list)  # sesión vencida: lo resuelve el usuario
 
 
 class BackendsConfig(_Strict):

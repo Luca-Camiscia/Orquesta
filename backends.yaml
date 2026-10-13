@@ -85,6 +85,8 @@ backends:
       cmd: [agy, changelog]   # la primera entrada del changelog es la última versión publicada
       pattern: '^(\d+\.\d+\.\d+):'
     rate_limit_patterns: ["quota reached", "Individual quota", "RESOURCE_EXHAUSTED", "rate limit", " 429"]
+    # Visto el 2026-10-12 con la sesión vencida: espera 60 s un código de OAuth y sale con 1.
+    auth_patterns: ["Authentication required", "Please sign in", "authentication failed"]
 
   claude:
     label: Claude (subagente nativo)

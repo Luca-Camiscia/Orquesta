@@ -7,7 +7,10 @@ from collections import defaultdict
 
 
 def main(path: str) -> None:
-    filas = [json.loads(ln) for ln in open(path, encoding="utf-8") if ln.strip()]
+    todas = [json.loads(ln) for ln in open(path, encoding="utf-8") if ln.strip()]
+    filas = [f for f in todas if "error" not in f]  # una corrida que no se completó no puntúa
+    if len(filas) < len(todas):
+        print(f"(se excluyen {len(todas) - len(filas)} corridas con error)\n")
     por = defaultdict(list)
     for f in filas:
         por[f["condicion"]].append(f)
@@ -17,7 +20,7 @@ def main(path: str) -> None:
         fs = por[cond]
         ok = sum(1 for f in fs if f.get("ocultos_ok"))
         mediana = statistics.median(f.get("segundos", 0) for f in fs) if fs else 0
-        errores = sum(1 for f in fs if "error" in f or "error_ronda_2" in f)
+        errores = sum(1 for f in fs if "error_ronda_2" in f)
         print(f"| {cond} | {ok}/{len(fs)} | {sum(f.get('llamadas_autor', 0) for f in fs)} | "
               f"{sum(f.get('llamadas_revisor', 0) for f in fs)} | {mediana:.0f} s | {errores} |")
     print()

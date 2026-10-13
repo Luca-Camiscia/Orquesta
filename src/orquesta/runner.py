@@ -35,7 +35,8 @@ from orquesta.paths import Paths
 from orquesta.schema import Backend, ConfigError, ModeSpec
 
 EXIT_CODES = {"OK": 0, "ERROR": 2, "ORQUESTA_OFF": 3, "BLOQUEADO": 3, "NO_GIT": 4, "OCUPADO": 5,
-              "FALLO_BACKEND": 6, "VIOLACION_READ_ONLY": 7, "RATE_LIMIT": 75, "TIMEOUT": 124,
+              "FALLO_BACKEND": 6, "VIOLACION_READ_ONLY": 7, "RATE_LIMIT": 75, "SIN_SESION": 77,
+              "TIMEOUT": 124,
               "CANCELADO": 130}
 
 
@@ -232,6 +233,10 @@ def _execute(cmd: Command, backend: Backend, cwd: Path, timeout: float,
     stdout, stderr = proc.stdout or "", proc.stderr or ""
     text, parse_err = parse_output(backend, stdout)
     failed = proc.returncode != 0 or parse_err is not None or not text
+    if failed and any(p.lower() in f"{stdout}\n{stderr}".lower() for p in backend.auth_patterns):
+        return RunResult("SIN_SESION", output=text, stderr_tail=_tail(stderr),
+                         detail="el backend pide iniciar sesión: el login lo hace el usuario en su terminal "
+                                "(ver `orquesta doctor`)")
     if failed and _rate_limited(backend, f"{stdout}\n{stderr}"):
         return RunResult("RATE_LIMIT", output=text, stderr_tail=_tail(stderr),
                          detail="el backend reportó límite de uso o de cuota")

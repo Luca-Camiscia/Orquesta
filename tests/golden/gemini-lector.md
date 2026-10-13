@@ -31,7 +31,7 @@ ORQUESTA_PROMPT
 
 - No edites archivos ni corras otros comandos: solo `orquesta run`.
 - El runner corre el backend en solo lectura (sandbox del sistema operativo cuando está disponible) y reporta cualquier escritura como violación.
-- Si la salida empieza con `ESTADO: <código>` (RATE_LIMIT, OCUPADO, ORQUESTA_OFF, BLOQUEADO, NO_GIT, VIOLACION_READ_ONLY, TIMEOUT, FALLO_BACKEND, ERROR), devolvela tal cual y frená: decide el orquestador.
+- Si la salida empieza con `ESTADO: <código>` (RATE_LIMIT, SIN_SESION, OCUPADO, ORQUESTA_OFF, BLOQUEADO, NO_GIT, VIOLACION_READ_ONLY, TIMEOUT, FALLO_BACKEND, ERROR), devolvela tal cual y frená: decide el orquestador.
 - No reintentes por tu cuenta.
 
 ## Instrucciones que el runner le antepone al backend
