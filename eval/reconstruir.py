@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Reproduce the published results from the traces, without calling any model.
 
-For every eval/trazas/<task>-<condition>-<rep>/final.patch: rebuild the initial project exactly as
+For every eval/trazas*/<task>-<condition>-<rep>/final.patch: rebuild the initial project exactly as
 run_eval.py did, apply the agent's final patch, run the hidden tests and compare with the row in
-resultados-d.jsonl. Exit code 1 if any result differs.
+its results file (see CORRIDAS). Exit code 1 if any result differs.
 
     uv run python eval/reconstruir.py
 """
@@ -42,17 +42,28 @@ def reconstruir(traza: Path) -> bool:
         return r.returncode == 0
 
 
+# Cada carpeta de trazas con el archivo de resultados que la acompaña.
+CORRIDAS = {"trazas": "resultados-d.jsonl", "trazas-r2": "resultados-r2.jsonl"}
+
+
 def main() -> int:
-    publicados = {f"{f['tarea']}-{f['condicion']}-{f['rep']}": f["ocultos_ok"]
-                  for f in map(json.loads, (HERE / "resultados-d.jsonl").read_text().splitlines())}
-    distintos = []
-    for traza in sorted(p for p in (HERE / "trazas").iterdir() if (p / "final.patch").is_file()):
-        ok = reconstruir(traza)
-        if ok != publicados.get(traza.name):
-            distintos.append(traza.name)
-        print(f"{traza.name:16} hidden tests {'pass' if ok else 'FAIL'}  published {publicados.get(traza.name)}")
-    print(f"\n{len(publicados) - len(distintos)}/{len(publicados)} match the published results")
-    return 1 if distintos else 0
+    total, distintos = 0, []
+    for carpeta, archivo in CORRIDAS.items():
+        if not (HERE / carpeta).is_dir() or not (HERE / archivo).is_file():
+            continue
+        publicados = {f"{f['tarea']}-{f['condicion']}-{f['rep']}": f["ocultos_ok"]
+                      for f in map(json.loads, (HERE / archivo).read_text().splitlines()) if "error" not in f}
+        for traza in sorted(p for p in (HERE / carpeta).iterdir() if (p / "final.patch").is_file()):
+            if traza.name not in publicados:
+                continue
+            total += 1
+            ok = reconstruir(traza)
+            if ok != publicados[traza.name]:
+                distintos.append(f"{carpeta}/{traza.name}")
+            print(f"{carpeta}/{traza.name:16} hidden tests {'pass' if ok else 'FAIL'}  "
+                  f"published {publicados[traza.name]}")
+    print(f"\n{total - len(distintos)}/{total} match the published results")
+    return 1 if distintos or not total else 0
 
 
 if __name__ == "__main__":
