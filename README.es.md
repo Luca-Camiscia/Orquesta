@@ -207,6 +207,21 @@ con `generate --confirm`. Eso queda fuera del modelo de amenaza; el rastro queda
 el manifiesto, y el doctor detecta desfasajes entre lo generado y lo instalado. Detalle de la decisión en
 `docs/plugin-plan.md`.
 
+**Tampoco cubre contenido no confiable.** El modelo supone que confiás en los repos y archivos que le pasás
+a orquesta. En particular:
+- Los comandos `setup` y `tests` de `.orquesta/proyecto.toml` corren con `bash -c` como tu usuario, fuera
+  de todo sandbox. Tratá ese archivo como un Makefile: leelo antes de usar orquesta en un repo ajeno.
+- Los tests corren sobre el código que escribió un agente, también fuera del sandbox (un `conftest.py`
+  que haya agregado el agente se ejecuta con tus permisos en `orquesta review`). Leé el diff antes de
+  revisar código de una corrida en la que no confiás.
+- El `bwrap` de Gemini limita escrituras, no lecturas ni red: puede leer el resto de tu home (incluidos
+  archivos de credenciales) y salir a internet, y `~/.cache` y `~/.gemini` quedan escribibles. Una
+  inyección de prompt en lo que lee podría sacar datos. No le pases documentos no confiables en una
+  máquina con secretos que te importen.
+- La UI local acepta las mismas confirmaciones que `--confirm` desde el navegador, autenticadas con un
+  token embebido en la página que sirve en `127.0.0.1`. Otro proceso con tu usuario puede leer esa página,
+  así que el freno de TTY no protege contra procesos locales mientras `orquesta ui` está corriendo.
+
 ### Sandbox de Bash de Claude Code (opción c): no se usa en v1
 
 El sandbox de Bash de Claude Code no está activado ni configurado en v1 (decisión del 2026-10-05, solo

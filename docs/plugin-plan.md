@@ -121,7 +121,7 @@ lo que pida; generate no atómico frente a `/reload-plugins`.
 ## Progreso
 
 - Hecho (2026-10-06): E0, E1, E2.0-E2.5, E3.0, E3.1, E4.1, E5.1. E5.2 en sandbox: generate → corte → sesión real con el plugin instalado (15 agentes, 5 comandos, contexto con la generación correcta) → rollback idéntico, doctor sin fallas.
-- Pendientes del usuario resueltos el 2026-10-06: rama e2-6-e3-2 aplicada (`generate --confirm`, commit 2604aa3), corte real hecho y rama abandonada `e5-1-migrar` borrada. Hook pre-bash: cubierto por tests y por el spike; falta la prueba manual en una sesión interactiva.
+- Pendientes del usuario resueltos el 2026-10-06: rama e2-6-e3-2 aplicada (`generate --confirm`, commit 7d8315e), corte real hecho y rama abandonada `e5-1-migrar` borrada. Hook pre-bash: cubierto por tests y por el spike; falta la prueba manual en una sesión interactiva.
 - E5.3 (corte real) hecho por el usuario el 2026-10-06: `orquesta migrar corte`, plugin `orquesta@orquesta-local` instalado, deploy viejo y bloque de CLAUDE.md retirados.
 - Fixes post-corte: el subcomando `orquesta rrhh` no se prefija con el namespace del plugin; el doctor no pide auditoría del plugin propio.
 - E5.4 (docs): README, PLAN, AGENTS, modelo de amenaza, sandbox (c) y snippet de statusLine.

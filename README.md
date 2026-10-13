@@ -117,6 +117,22 @@ Claude subagents do not go through the runner. If a project has no test command 
 (`[worktree] tests = "…"` in `.orquesta/proyecto.toml`), merge still requires a cross-family approval and
 your confirmation, but there is no test evidence: configure it.
 
+**Not covered: untrusted content.** The threat model above assumes you trust the repositories and files
+you point orquesta at. In particular:
+- The `setup` and `tests` commands in `.orquesta/proyecto.toml` run with `bash -c` as your user, outside
+  any sandbox. Treat that file like a Makefile: read it before running orquesta on a repository you did
+  not write.
+- Tests run on the code a write agent produced, also outside the sandbox (a `conftest.py` the agent added
+  runs with your permissions during `orquesta review`). Read the diff before reviewing code from a run you
+  do not trust.
+- Gemini's `bwrap` sandbox limits writes, not reads or network: it can read the rest of your home
+  directory (including credential files) and reach the internet, and `~/.cache` and `~/.gemini` stay
+  writable. A prompt injection in the content it reads could exfiltrate data. Do not hand it untrusted
+  documents on a machine with secrets you care about.
+- The local UI accepts the same confirmations as `--confirm` from the browser, authenticated by a token
+  embedded in the page it serves on `127.0.0.1`. Another process running as your user can fetch that
+  page, so the TTY check does not protect against local processes while `orquesta ui` is running.
+
 ## Screenshots
 
 The local panel (`orquesta ui`, bound to 127.0.0.1 with a per-session token, Host/Origin checks and a CSP):

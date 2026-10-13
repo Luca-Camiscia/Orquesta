@@ -51,7 +51,7 @@ quoting the original request and stating the acceptance criteria:
 +        h.update(f"{e}:{firma}".encode())
 ```
 
-Plus 6 tests (commit `cefb94d`): the staged-then-restaged scenario end to end through the runner, two
+Plus 6 tests (commit `3a5c29a`): the staged-then-restaged scenario end to end through the runner, two
 `tree_state` cases where status and diff are byte-identical but the content or the index changed, the
 mount order with a project under `/tmp`, and the real `bwrap` attempt.
 
