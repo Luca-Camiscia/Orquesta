@@ -643,6 +643,7 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
     completo = ""
     recortado = None
     review_project = project
+    sha = None
     if wt is not None:
         sha = worktrees._branch_tip(wt.repo, branch)
         rango = f"{wt.base_sha}..{sha}"
@@ -664,7 +665,7 @@ def _auto_review(store: Store, cid: str, project: dict, writer: str, branch: str
     def save(c):
         w = next((x for x in c["worktrees"] if x["branch"] == branch), None)
         if w is not None:
-            w["review"] = {"by": reviewer, "veredicto": verdict}
+            w["review"] = {"by": reviewer, "veredicto": verdict, "sha": sha}
             if recortado is not None:
                 w["review"].update(recortado=True, diff_chars=len(completo),
                                    diff_mostrado_chars=len(diff), diff_archivos=recortado)
@@ -967,6 +968,10 @@ def merge_worktree(store: Store, cid: str, branch: str, force: bool = False) -> 
             repo = wt.get("repo") or _repo_of(store.project_of(conv))
             base_sha = wt.get("base_sha") or worktrees._find(store.paths, branch, repo).base_sha
             revisado = worktrees._branch_tip(repo, branch)
+            sha_review = (wt.get("review") or {}).get("sha")
+            if sha_review is not None and sha_review != revisado:
+                # Igual que la CLI: un commit posterior a la review la invalida.
+                raise NeedsForce(f"review vieja: {branch} avanzó después de revisarla; volvé a revisarla")
             destino = worktrees._git(repo, "symbolic-ref", "--short", "HEAD")
             wt["destino_error"] = worktrees.bloqueo_destino(repo, destino, revisado, branch)
             wt["diff"] = worktrees.diff_completo(repo, base_sha, revisado)

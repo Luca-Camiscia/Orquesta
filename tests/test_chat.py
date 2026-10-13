@@ -571,6 +571,20 @@ def test_auto_review_aprobado_permite_mergear(store, proyecto, env):
     assert (proyecto / "revisado.txt").exists()
 
 
+def test_merge_del_chat_rechaza_commits_posteriores_a_la_review(store, proyecto, env):
+    pr = store.create_project("P", str(proyecto))
+    conv = store.create_conversation(pr["id"], "w", "individual", ["codex-forja"])
+    chat.run_turn(store, conv["id"], "hacelo", executor=FakeReview("APROBAR"))
+    wt = store.get_conversation(conv["id"])["worktrees"][0]
+    from orquesta import worktrees
+    w = worktrees._find(env, wt["branch"], proyecto)
+    (w.path / "sin_revisar.txt").write_text("commit posterior\n")
+    worktrees.commit_all(w, "sin revisar")
+    with pytest.raises(chat.NeedsForce, match="review vieja"):
+        chat.merge_worktree(store, conv["id"], wt["branch"])
+    assert not (proyecto / "sin_revisar.txt").exists()
+
+
 def test_conflictos_entre_ramas_y_con_main(env, proyecto):
     from orquesta import worktrees
     a = worktrees.create(env, repo=proyecto, agent="codex-forja", task="uno")

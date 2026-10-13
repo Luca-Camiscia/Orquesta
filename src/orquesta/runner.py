@@ -401,6 +401,10 @@ def _resolve(paths: Paths, agent: str) -> tuple[mf.DeployedAgent | None, dict | 
     backend = backends.backends.get(entry.backend)
     if backend is None:
         return None, None, None, RunResult("ERROR", detail=f"backends.yaml no define {entry.backend!r}")
+    if not backend.native and entry.mode not in backend.modes:
+        # Sin el modo no hay flags ni sandbox: correr igual sería ejecutar sin las garantías del modo.
+        return None, None, None, RunResult("ERROR", detail=(
+            f"backends.yaml no define el modo {entry.mode!r} para {entry.backend!r}: no corro sin su sandbox"))
     return entry, manifest, backend, None
 
 

@@ -518,3 +518,12 @@ def test_plugin_instalado_verifica_read_from_no_install_path(denv, read_from, st
         entry["readFromFolder"] = str(denv.plugin_dir)
     c = check(correr(denv, FakeEnv(plugin={"plugins": [entry]}), only="plugin-instalado"), "plugin-instalado")
     assert c.status == status and "Read from" in c.message
+
+
+def test_clon_sin_instalar_avisa_como_instalar_y_no_falla(env):
+    """Un clon recién bajado (nada desplegado) no es una falla: el doctor indica el paso de instalación."""
+    shutil.copy(REPO / "backends.yaml", env.backends)
+    r = correr(env, live=False)
+    agentes, bloque = check(r, "agentes"), check(r, "claude-md")
+    assert agentes.status == "warn" and "migrar corte" in agentes.suggestion
+    assert bloque.status == "ok"

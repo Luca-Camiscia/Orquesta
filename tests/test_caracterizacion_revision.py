@@ -130,7 +130,8 @@ def revision(store, proyecto, env):
 ])
 def test_auto_review_parsea_y_persiste_el_veredicto_actual(revision, store, proyecto, texto, esperado):
     cid, wt = revision(texto=texto)
-    assert wt["review"] == {"by": "gemini-lector", "veredicto": esperado}
+    assert {k: wt["review"][k] for k in ("by", "veredicto")} == {"by": "gemini-lector", "veredicto": esperado}
+    assert wt["review"]["sha"]  # la review guarda el commit que revisó
     mensaje = store.get_conversation(cid)["messages"][-1]
     assert mensaje["author"] == "gemini-lector"
     assert mensaje["text"] == texto

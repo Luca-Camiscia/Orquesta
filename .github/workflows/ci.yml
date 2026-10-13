@@ -27,3 +27,23 @@ jobs:
         env:
           ORQUESTA_EXIGIR_BWRAP: "1"
         run: uv run pytest -rs
+
+  install:
+    # Instalación limpia como la del README: venv nuevo, editable, sin nada del entorno de tests.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Fresh editable install
+        run: uv venv /tmp/venv && uv pip install --python /tmp/venv/bin/python -e .
+      - name: CLI answers and the generator validates the bundled registry
+        env:
+          CLAUDE_CONFIG_DIR: /tmp/claude
+        run: |
+          mkdir -p /tmp/claude
+          /tmp/venv/bin/orquesta --help
+          /tmp/venv/bin/orquesta generate --dry-run
+      - name: Offline demo with the installed package
+        run: /tmp/venv/bin/python examples/demo/run_demo.py

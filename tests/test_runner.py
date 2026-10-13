@@ -744,6 +744,19 @@ def test_tree_state_excluye_solo_las_ramas_de_tareas(env, proyecto):
     assert runner.tree_state(proyecto, excluir_refs="refs/heads/orquesta/").digest != antes.digest
 
 
+@pytest.mark.parametrize("modo", ["read-only", "write"])
+def test_sin_el_modo_en_backends_no_ejecuta(env, proyecto, monkeypatch, modo):
+    deploy(env)
+    datos = backends_dict()
+    del datos["backends"]["codex"]["modes"][modo]
+    dump_yaml(datos, env.backends)
+    monkeypatch.setattr(runner, "_execute", lambda *a, **k: pytest.fail("se ejecutó sin el modo"))
+    agente = "codex-critico" if modo == "read-only" else "codex-forja"
+    r = correr(env, agente, "WRITE:colado.txt", proyecto, task="fix" if modo == "write" else None)
+    assert r.status == "ERROR" and "no corro sin su sandbox" in r.detail
+    assert not (proyecto / "colado.txt").exists()
+
+
 def test_sesion_vencida_se_clasifica_aparte(env, proyecto):
     deploy(env)
     r = correr(env, "gemini-lector", "AUTHFAIL", proyecto)

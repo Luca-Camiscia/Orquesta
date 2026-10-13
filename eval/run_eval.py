@@ -135,7 +135,10 @@ def guardar_traza(trazas: Path | None, fila: dict, worktree: Path, base: str, re
     d.mkdir(parents=True, exist_ok=True)
     def limpio(texto: str) -> str:  # sin rutas del usuario en lo que se publica
         return texto.replace(str(Path.home()), "~")
-    (d / "final.patch").write_text(limpio(sh(worktree, "git", "diff", base, "HEAD")), encoding="utf-8")
+    # Salida literal de git diff (sh() recorta el último salto de línea y el parche quedaría corrupto)
+    parche = subprocess.run(["git", "diff", base, "HEAD"], cwd=worktree, check=True, capture_output=True,
+                            text=True).stdout
+    (d / "final.patch").write_text(limpio(parche), encoding="utf-8")
     if revision:
         (d / "review.md").write_text(limpio(revision), encoding="utf-8")
 

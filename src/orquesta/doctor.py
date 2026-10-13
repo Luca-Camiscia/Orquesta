@@ -241,6 +241,12 @@ def _sync(ctx: _Ctx) -> list[Check]:
                 for cid, name in (("agentes", "Agentes desplegados"),
                                   ("claude-md", "Bloque de CLAUDE.md"))]
     plan = ctx.plan = build_plan(paths)
+    if manifest is None and not paths.agents_dir.exists():
+        # Clon recién bajado: nada desplegado todavía. No es una falla, es el paso de instalación.
+        msg = "orquesta todavía no está instalado en Claude Code"
+        hint = "Corré `orquesta migrar corte --confirm` en tu terminal: genera e instala el plugin."
+        return [Check("agentes", "Agentes desplegados", "warn", msg, hint),
+                Check("claude-md", "Bloque de CLAUDE.md", "ok", "nada que sincronizar antes de instalar")]
     registry_text = paths.registry.read_text(encoding="utf-8")
     unapplied = manifest is None or manifest.get("registry_sha256") != mf.sha256(registry_text)
 
