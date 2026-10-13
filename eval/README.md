@@ -32,18 +32,54 @@ in a throwaway `ORQUESTA_HOME`. The final commit is scored with the hidden tests
 The two tasks A missed (`media`, `paginar`) are the two where the Gemini reviewer answered `RECHAZAR`;
 the author's second round fixed both. The other four first-round verdicts were `APROBAR CON CAMBIOS`.
 
-### Full run (A, B and C, three runs each)
+### Full run (A, B and C, three runs each, 54 runs)
 
-In progress.
+| Condition | Hidden tests passed | Author calls | Reviewer calls | Median wall time | Total wall time |
+|---|---|---|---|---|---|
+| A single agent | 12/18 | 18 | 0 | 66 s | 20 min |
+| B orquesta loop | 15/18 | 36 | 18 | 351 s | 106 min |
+| C self-review | **18/18** | 36 | 0 | 170 s | 50 min |
+
+| Task | A | B | C |
+|---|---|---|---|
+| csvlinea | 3/3 | 3/3 | 3/3 |
+| duracion | 3/3 | 3/3 | 3/3 |
+| intervalos | 3/3 | 3/3 | 3/3 |
+| media | 0/3 | 2/3 | 3/3 |
+| paginar | 0/3 | 1/3 | 3/3 |
+| slug | 3/3 | 3/3 | 3/3 |
+
+All 18 first-round verdicts in B were `APROBAR CON CAMBIOS`, so B always had its second round.
+Contamination audit ([`auditar.py`](auditar.py)): none of the 108 Codex sessions of the evaluation
+mentions the hidden tests or the task folder.
+
+### What it says
+
+- **A second round matters; the external reviewer, as implemented, did not add to it.** Everything
+  A missed is in two tasks whose hidden tests check invalid input (`page < 1`, `k <= 0`) that the issue
+  never mentions. B recovered 3 of those 6, C all 6, at about half of B's time.
+- **The pilot did not replicate.** In the pilot the reviewer rejected exactly the two flawed fixes and B
+  went 6/6. In the full run it never rejected, and its "approve with changes" notes did not always point
+  at the missing validation. One run per condition was not enough to see that.
+- **C had an advantage I introduced.** Its self-review prompt asks for "edge cases, invalid input,
+  missing tests", which names what the hidden tests of `media` and `paginar` check. B's author only gets
+  whatever the reviewer happened to write. A fairer next run gives B's author the same checklist, or
+  gives the reviewer one, and adds tasks where the defect is not input validation.
+- **What this does and does not support.** The guarantees (isolation, read-only enforcement, the merge
+  gate) are enforced in code regardless of model quality; this evaluation is about output quality, and on
+  small, well-scoped fixes it supports "ask the author for a critical second pass" more than "add a
+  reviewer of another family".
 
 ## Caveats
 
-- Six small tasks; a pilot of one run per condition is anecdote, not evidence. The full run adds
-  repetitions and the self-review control so the effect of the *external* reviewer can be separated
-  from the effect of simply giving the author a second round.
-- The tasks are small functions with hidden edge cases. The result says nothing about large changes,
-  ambiguous requirements or architectural work.
-- Cost is real: B spends about 3x the calls and 6x the wall time of A in the pilot.
+- Six small functions with hidden edge cases, three runs per condition: enough to see the pilot was
+  noise, not enough for fine-grained claims. Nothing here speaks to large changes, ambiguous
+  requirements or architectural work.
+- The hidden tests are readable on disk by any process: the agents never had them in their project and
+  the audit found no access in the Codex logs, but the Gemini CLI's logs are binary and were not
+  audited. The reviewer is read-only and can only pass text to the author, which the Codex logs cover.
+- Same author model (Codex, as configured in `orquesta.yaml`) in every condition; the reviewer in B is
+  the Gemini agent `orquesta review` picks by default.
 
 ## Reproduce
 
@@ -53,4 +89,4 @@ uv run python eval/run_eval.py --repeticiones 3 > out.jsonl   # real models: abo
 uv run python eval/resumir.py out.jsonl                   # tables above
 ```
 
-Raw results: [`piloto.jsonl`](piloto.jsonl).
+Raw results: [`piloto.jsonl`](piloto.jsonl), [`resultados.jsonl`](resultados.jsonl).

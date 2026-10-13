@@ -23,9 +23,9 @@ should not be trusted to decide by itself:
 
 **In use:** in its first week orquesta delegated 85 runs to GPT and Gemini and flagged two read-only
 violations ([case study](docs/case-study.md)); 33 of the project's ~200 commits were written by GPT agents
-and merged after review by another model family. In a small [evaluation](eval/README.md) with hidden
-tests, a single agent fixed 4 of 6 bugs and the review loop 6 of 6, at about 6x the wall time (pilot,
-one run per condition; the replicated run is in that page).
+and merged after review by another model family. A small [evaluation](eval/README.md) with hidden tests
+(54 real runs) found that a second round is what helps: one agent passed 12/18, the cross-family review
+loop 15/18, and the same agent asked to critically review its own fix 18/18 at half the loop's time.
 
 > UI, CLI messages and agent prompts are in Spanish (the tool is built for daily use in Spanish). The
 > code, this page and the [demo](examples/demo) are readable without it. Versión en español: [README.es.md](README.es.md).
