@@ -105,6 +105,7 @@ checklist and no review notes (C), it implemented it every time.
 uv run python eval/run_eval.py --simulado                 # plumbing only, scripted backends, no quota
 uv run python eval/run_eval.py --repeticiones 3 > out.jsonl   # real models: about 54 runs, uses quota
 uv run python eval/resumir.py out.jsonl                   # tables above
+uv run python eval/reconstruir.py      # re-scores every D trace from its patch: 18/18 match (also a test)
 ```
 
 Raw results: [`piloto.jsonl`](piloto.jsonl), [`resultados.jsonl`](resultados.jsonl) (A, B, C),
